@@ -42,7 +42,7 @@ class MemoryForgetter:
     def format_task_trajectory(agent_steps: list[AgentMessage]) -> str:
         task_trajectory: str = '\n>'
         for agent_step in agent_steps:
-            task_trajectory += f' {agent_step.message}\n{agent_step.get_extra_field('observation')}\n>'
+            task_trajectory += f" {agent_step.message}\n{agent_step.get_extra_field('observation')}\n>"
         
         return task_trajectory
 

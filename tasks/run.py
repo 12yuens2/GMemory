@@ -146,7 +146,7 @@ if __name__ == '__main__':
     # if os.path.exists(WORKING_DIR):
     #     shutil.rmtree(WORKING_DIR)
     os.makedirs(WORKING_DIR, exist_ok=True)
-    
+
     # run tasks
     task_configs: TaskManager = build_task(task, mas_type, mas_memory_type, max_trials)
     task_configs.mas_config['successful_topk'] = args.successful_topk
