@@ -2,5 +2,12 @@
 # MACOS
 .DS_Store
 
-#
+# cache
 __pycache__
+.db
+._data
+
+# environments
+conda-env
+env
+
