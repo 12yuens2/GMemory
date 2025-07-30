@@ -440,12 +440,9 @@ class TaskLayer:
             if embedding is not None:
                 embeddings.append(embedding)
                 valid_nodes.append(node)
-
-        X = np.vstack(embeddings)
-        fin = FINCH(metric='cosine')
-
         try: 
-            labels = fin.fit_predict(X)
+            X = np.vstack(embeddings)
+            _,_,labels = FINCH(X,distance='cosine')
         except Exception as e:   
             print(f"FINCH clustering failed: {e}")
             labels = np.zeros(len(valid_nodes), dtype=int)

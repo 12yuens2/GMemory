@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import Union, Any
 import alfworld
-import alfworld.agents.environment
 import re
 
+from alfworld.agents.environment import get_environment
 from .base_env import BaseEnv, BaseRecorder
 
 prefixes = {  # tasks: task_type
@@ -30,7 +30,7 @@ class AlfworldEnv(BaseEnv):
         max_trials: int = 50
     ): 
         self.env_config = env_config
-        self.main_env = getattr(alfworld.agents.environment, self.env_config['env']['type'])(self.env_config, train_eval=self.env_config['split'])
+        self.main_env = get_environment(self.env_config['env']['type'])(self.env_config, train_eval=self.env_config['split'])
         
         self.max_trials: int = max_trials
         self.reset()
