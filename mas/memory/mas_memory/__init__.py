@@ -5,6 +5,7 @@ from .metagpt import MetaGPTMASMemory
 from .voyager import VoyagerMASMemory
 from .memorybank import MemoryBankMASMemory
 from .GMemory import GMemory
+from .intrinsicmemory import IntrinsicMASMemory
 
 __all__ = [
     'MASMemoryBase', 
@@ -13,5 +14,6 @@ __all__ = [
     'MetaGPTMASMemory',
     'VoyagerMASMemory',
     'MemoryBankMASMemory',
-    'GMemory'
+    'GMemory',
+    'IntrinsicMASMemory'
 ]

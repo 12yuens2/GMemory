@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage
@@ -123,7 +124,7 @@ class AutoGen(MetaMAS):
             few_shots=few_shots, 
             memory_few_shots=successful_shots,
             insights=raw_rules,
-            task_description=self.meta_memory.summarize()
+            task_description=self.meta_memory.summarize(solver_message=solver.total_system_instruction)
         )
         self.notify_observers(user_prompt)
 
@@ -136,7 +137,7 @@ class AutoGen(MetaMAS):
                 few_shots=few_shots, 
                 memory_few_shots=successful_shots,
                 insights=roles_rules.get(solver.profile, raw_rules),
-                task_description=self.meta_memory.summarize()
+                task_description=self.meta_memory.summarize(solver_message=solver.total_system_instruction)
             )
             tries = 0
             
@@ -159,7 +160,7 @@ class AutoGen(MetaMAS):
                     few_shots=few_shots, 
                     memory_few_shots=successful_shots,
                     insights=roles_rules.get(ground_truth.profile, raw_rules),
-                    task_description=self.meta_memory.summarize()
+                    task_description=self.meta_memory.summarize(solver_message=solver.total_system_instruction)
                 )
                 tries = 0
                 while tries < 3:
@@ -200,7 +201,7 @@ class AutoGen(MetaMAS):
         self.meta_memory.save_task_context(label=final_done, feedback=final_feedback)  
         self.meta_memory.backward(final_done)    
 
-        return final_reward, final_done   
+        return final_reward, final_done
     
     def _solver_stuck(self, current_action: str, action_history: list[str]) -> bool:
         """
@@ -216,8 +217,20 @@ class AutoGen(MetaMAS):
         Returns:
             bool: True if the last two actions are the same as the current action; False otherwise.
         """
-        return len(action_history) >= 2 and current_action == action_history[-1] and current_action == action_history[-2]
+        identical = len(action_history) >= 2 and current_action == action_history[-1] and current_action == action_history[-2]
 
+        double_think = len(action_history) >= 3 and "think" in current_action and "think" in action_history[-1] and "think" in action_history[-2]
+
+        similar = False
+        if len(action_history) >= 3:
+            similarity_12 = SequenceMatcher(None, current_action, action_history[-1]).ratio()
+            similarity_13 = SequenceMatcher(None, current_action, action_history[-2]).ratio()
+            similarity_23 = SequenceMatcher(None, action_history[-1], action_history[-2]).ratio()
+
+            threshold = 0.8
+            similar =  all(similarity > threshold for similarity in [similarity_12, similarity_13, similarity_23])
+
+        return identical or double_think or similar
     def _project_insights(self, insights: list[str]) -> dict[str, list[str]]:
         """
         Process insights to generate a dictionary matching roles to insights, based on whether a projector is used.

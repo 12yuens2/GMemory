@@ -17,7 +17,8 @@ def module_map(
         'chatdev': ChatDevMASMemory,
         'generative': GenerativeMASMemory,
         'metagpt': MetaGPTMASMemory,
-        'g-memory': GMemory
+        'g-memory': GMemory,
+        'intrinsicmemory': IntrinsicMASMemory
     }
 
     if reasoning not in reasoning_map:
@@ -30,5 +31,3 @@ def module_map(
         reasoning_map[reasoning],
         mas_memory_map.get(mas_memory, None)
     )
-    
-    

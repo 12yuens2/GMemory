@@ -122,11 +122,9 @@ class AlfworldRecorder(BaseRecorder):
                 self.results[i] += done
                 self.counts[i] += 1
                 break
-        
+
         message = f'done: {done}, ave done: {sum(self.results) / sum(self.counts)}'
         self.log(message)
         self.log("rs: " + str(self.results))
         self.log("cnts: " + str(self.counts))
-    
-    
 

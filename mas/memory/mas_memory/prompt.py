@@ -1,4 +1,112 @@
 from dataclasses import dataclass
+#----------------------------------------------intrinsicmemory memory----------------------------------------------
+DEFAULT_MEMORY_UPDATE_PROMPT = """
+Use the entire history of the current task trajectory to populate and update the current memory with factual information to solve the task based on the task descrpition.
+
+The task trajectory shows the full history of previous actions, each action is followed by the environment observation in sequence:
+[action]
+[observation]
+[action]
+[observation]
+...
+
+## Task Description
+{task}
+
+## Current Task Trajectory
+{task_trajectory}
+
+{current_memory}
+
+## Instructions
+Update the current memory by summarising the current task trajectory. Output only the memory format as shown below and nothing else:
+
+## Current Memory
+Previous Actions:
+Current Status/Environment:
+Next steps:
+"""
+
+DEFAULT_MEMORY_UPDATE_PROMPT="""
+You will receive a task description and a sequence of action-observation pairs representing a task trajectory. Your job is to summarize what has actually happened based solely on this data, avoiding assumptions.
+
+Each pair is in the format:
+
+action  
+[environment response]
+
+The actions are attempts by the agent. The observations are what the environment reports in response.
+
+## Rules:
+- Carefully read both the action **and** the corresponding environment response.
+- Do not assume an action succeeded unless the observation confirms it. For example:
+    - If the response is vague, says nothing occurred, indicates an error, or provides no change in the environment (e.g. "Nothing happens", "No result", "Invalid action", "That doesn't work", etc.), then the action **did not succeed**.
+    - If nothing occurred, do not assume any facts from the failed action
+- Track failed attempts — they may be useful later to avoid redundancy (e.g., repeated failure may mean a missing precondition).
+- If an interaction repeatedly fails (e.g. taking an item, search with no results), **do not recommend retrying** unless there's a logical reason it might now succeed 
+- Base your summary only on actual evidence. Do not invent or infer missing steps.
+- Always reflect the current state both the task description and what has (and hasn’t) worked so far.
+- Follow the exact output format below. Use no more than 10 lines/sentences.
+
+---
+
+## Task Description
+{solver_system_message}
+{task_description}
+
+## Task Trajectory  
+{task_trajectory}
+
+---
+
+## Output Format
+
+## Current Memory  
+Previous Actions:  
+[Summarised list of previous actions and whether they succeeded or failed. Include what was attempted and the environment response.]
+
+Current Status/Environment:  
+[Summarize what is currently known, based only on environment responses — location, visible objects, any relevant state.]
+
+---
+
+Now, summarize the current memory based on the task trajectory and description.
+"""
+
+#keeping the most relevant information for the current task to inform me what's been done and what to do next.
+#- If the "Current Task Trajectory" is empty that means nothing has happened yet. There have been no previous actions. Just return the current memory format empty.
+#- The "Current Task Trajectory" contains the absolute truth of the entire history of what has happened, if the current memory is incorrect compared to the current task trajectory, update and correct it. For example if the current memory contains previous actions but the current task trajectory contradicts those actions.
+#- DO NOT hallucinate previous actions if they have not happened according to the current task trajectory
+#- If current memory exists, it may have already summarised earlier parts of the task trajectory, so focus on updating the memory with the newest actions and observations.
+#- 'think' or 'thought' actions do not count as actions that have been done yet, the response from the environment determines what's been done, but you can summarize what's been thought about.
+#- Keep the summary concise in no more than 5 sentences.
+
+
+
+DEFAULT_MEMORY_SYSTEM_PROMPT = """
+You are an intelligent summarization agent. Your job is to summarize a set of task trajectories in which I have performed a sequence of actions, and the environment has provided corresponding observations. You must convert this information into a memory that is useful for efficient task completion.
+
+- Use only the information explicitly present in the provided task trajectory. Do not invent or infer any actions, events, or observations that are not stated.
+- If no actions or observations have occurred yet, state this clearly.
+- Never invent or assume outcomes. Stick only to observed events and logical inferences grounded in the sequence.
+- Maintain contextual consistency so that I can continue working on the task without confusion.
+- Ensure the summarized memory makes clear what has already been completed, what the environment currently contains (based only on observation)
+- Use clear and precise language. Avoid unnecessary details or storytelling.
+- Output memory in this format only:
+
+## Current Memory
+Previous Actions: [Bullet or numbered list of grounded actions. If none, write: “None.”]
+Current Status/Environment: [Based only on last observed environment. If no observations, use the task description.]
+""" 
+
+
+@dataclass
+class IntrinsicMemory:
+    memory_update_prompt: str = DEFAULT_MEMORY_UPDATE_PROMPT
+    memory_system_prompt: str = DEFAULT_MEMORY_SYSTEM_PROMPT
+
+INTRINSICMEMORY: IntrinsicMemory = IntrinsicMemory()
+
 
 # ---------------------------------------------- ChatDev memory ----------------------------------------------
 summary_system_prompt: str = """

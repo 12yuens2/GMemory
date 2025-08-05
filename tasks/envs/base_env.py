@@ -56,13 +56,17 @@ class BaseRecorder:
         self.current_task_id: int = None
         self.current_task_config: dict = field(default_factory=dict)
 
+        # record total returns and rewards
+        self.total_rewards = []
+        self.total_dones = []
+
     def task_begin(self, task_id: int, task_config: dict) -> None:
         
         self.current_task_id = task_id
         self.current_task_config = task_config
 
     def task_end(self, reward: float, done: bool) -> None:
-        
+
         if self.current_task_id is None or self.current_task_config is None:
             raise RuntimeError('The task id or the task config should not be None.')
         

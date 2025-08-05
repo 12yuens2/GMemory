@@ -142,7 +142,7 @@ if __name__ == '__main__':
     reasoning_type: str = args.reasoning
     
     # dir
-    WORKING_DIR = os.path.join('./.db', get_model_type(model_type), task, mas_type, f'{mas_memory_type}')
+    WORKING_DIR = os.path.join('./.db3', get_model_type(model_type), task, mas_type, f'{mas_memory_type}')
     # if os.path.exists(WORKING_DIR):
     #     shutil.rmtree(WORKING_DIR)
     os.makedirs(WORKING_DIR, exist_ok=True)
