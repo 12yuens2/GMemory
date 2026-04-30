@@ -1,24 +1,19 @@
 # G-Memory: Tracing Hierarchical Memory for Multi-Agent Systems
 
 ## AZURE Usage
+Put secrets into `template/parameters.json`
+- imagePassword can be found in the Azure Portal > Container registry > intrinsic > Settings > Access Keys
+- environmentVariable5 is the Foundry API Key
+
+Check it works
 
 ```bash
-az container create \
-  --resource-group <my-rg> \
-  --name <my-job-1> \
-  --image myregistry.azurecr.io/myjob:latest \
-  --registry-login-server myregistry.azurecr.io \
-  --registry-username <username> \
-  --registry-password <password> \
-  --restart-policy Never \
-  --environment-variables \
-      TASK=pddl \
-      MEMORY=voyager \
-      MODEL_NAME=bar \
-      SEED=42 \
-      AZURE_API_ENDPOINT="https://your-api-endpoint" \
-  --secure-environment-variables \
-      AZURE_API_KEY="<your-secret-key>"
+az deployment group validate --resource-group intrinsic-memory --template-file template/template.json --parameters template/parameters.json
+```
+
+Deploy the container
+```bash
+az deployment group create --resource-group intrinsic-memory --template-file template/template.json --parameters template/parameters.json
 
 ```
 

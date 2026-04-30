@@ -1,5 +1,11 @@
 #!/bin/bash
-set -e
+
+echo "ENTRYPOINT STARTED"
+echo "Current dir:"
+pwd
+
+echo "Files:"
+ls -la
 
 echo "Starting job..."
 
