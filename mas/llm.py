@@ -1,4 +1,5 @@
 import os
+import sys
 
 from typing import (
     Protocol, 
@@ -6,11 +7,12 @@ from typing import (
     Optional, 
     List,
 )
-from openai import AzureOpenAI
+from openai import OpenAI
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
 from .utils import load_config
+from datetime import datetime
 
 
 # model configs
@@ -22,12 +24,14 @@ NUM_COMPS = LLM_CONFIG.get("num_comps", 1)
 
 URL = os.environ["OPENAI_API_BASE"]
 KEY = os.environ["OPENAI_API_KEY"]
-API_VERSION = os.environ["OPENAI_API_VERSION"]
-print('# api url: ', URL)
-print('# api key: ', KEY)
+
+#print('# api url: ', URL)
+#print('# api key: ', KEY)
 
 
 completion_tokens, prompt_tokens = 0, 0
+intrinsic_completion_tokens, intrinsic_prompt_tokens = 0, 0
+
 
 @dataclass(frozen=True)
 class Message:
@@ -42,7 +46,8 @@ class LLMCallable(Protocol):
         temperature: float = TEMPERATURE,
         max_tokens: int = MAX_TOKEN,
         stop_strs: Optional[List[str]] = None,
-        num_comps: int = NUM_COMPS
+        num_comps: int = NUM_COMPS,
+        intrinsic: bool = False # pass intrinsic flag to count tokens used by intrinsic memory
     ) -> str:
         pass
 
@@ -58,7 +63,8 @@ class LLM(ABC):
         temperature: float = TEMPERATURE,
         max_tokens: int = MAX_TOKEN,
         stop_strs: Optional[List[str]] = None,
-        num_comps: int = NUM_COMPS
+        num_comps: int = NUM_COMPS,
+        intrinsic: bool = False
     ) -> str:
         pass
 
@@ -66,10 +72,9 @@ class GPTChat(LLM):
 
     def __init__(self, model_name: str):
         super().__init__(model_name=model_name)
-        self.client = AzureOpenAI(
+        self.client = OpenAI(
             azure_endpoint=URL,
             api_key=KEY,
-            api_version=API_VERSION,
         )
 
     def __call__(
@@ -78,7 +83,8 @@ class GPTChat(LLM):
         temperature: float = TEMPERATURE,
         max_tokens: int = MAX_TOKEN,
         stop_strs: Optional[List[str]] = None,
-        num_comps: int = NUM_COMPS
+        num_comps: int = NUM_COMPS,
+        intrinsic: bool = False,
     ) -> str:
         import time
         global prompt_tokens, completion_tokens
@@ -93,8 +99,8 @@ class GPTChat(LLM):
                 response = self.client.chat.completions.create(
                     model=self.model_name,  
                     messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
+                    max_completion_tokens=max_tokens,
+                    #temperature=temperature,
                     n=num_comps,
                     stop=stop_strs
                 )
@@ -102,10 +108,16 @@ class GPTChat(LLM):
                 answer = response.choices[0].message.content
                 prompt_tokens += response.usage.prompt_tokens
                 completion_tokens += response.usage.completion_tokens
+
+                if intrinsic:
+                    intrinsic_prompt_tokens += response.usage.prompt_tokens
+                    intrinsic_completion_tokens += response.usage.completion_tokens
                 
                 if answer is None:
                     print("Error: LLM returned None")
                     continue
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                print(f"==== LLM RESPONSE ====\nTIME: {current_time}\n{answer}\n==== END LLM RESPONSE ====\n", file=sys.stderr)
                 return answer  
 
             except Exception as e:
@@ -122,3 +134,8 @@ class GPTChat(LLM):
 def get_price():
     global completion_tokens, prompt_tokens
     return completion_tokens, prompt_tokens, completion_tokens*60/1000000+prompt_tokens*30/1000000
+
+def get_intrinsic_price():
+    global intrinsic_completion_tokens, intrinsic_prompt_tokens
+    return intrinsic_completion_tokens, intrinsic_prompt_tokens
+

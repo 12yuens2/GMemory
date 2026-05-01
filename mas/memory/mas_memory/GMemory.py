@@ -1,6 +1,6 @@
 from dataclasses import dataclass, replace
 from langchain_chroma import Chroma
-from langchain.docstore.document import Document
+from langchain_core.documents import Document
 import os
 import copy
 import re
@@ -9,7 +9,7 @@ import random
 from collections import defaultdict
 import networkx as nx
 import numpy as np
-from finch import FINCH
+from finch import Finch
 import pickle
 import networkx as nx
 import logging
@@ -252,7 +252,7 @@ class GMemory(MASMemoryBase):
         
         trajectory = ''
         for state in state_chain:
-            trajectory += f'> {state.graph["action"]}\n{state.graph["observation"]}\n'
+            trajectory += f"> {state.graph['action']}\n{state.graph['observation']}\n"
         
         if mas_message_copy.label == True:
             mas_message_copy.task_trajectory = trajectory

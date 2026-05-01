@@ -60,7 +60,7 @@ with open(TASKS_PATH['fever'], 'r') as f:
             'env_name': 'fever',
         }
         for row in (json.loads(line) for line in f) 
-    ][:100]
+    ]
 
 
 TASK_NAMES = ["barman", "blockworld", "gripper", "tyreworld"]
@@ -82,6 +82,7 @@ lcb_testpred_tasks: list[dict] = _load_json(TASKS_PATH['lcb_testpred'])
 
 TASK_DATA = {
     'alfworld': alfworld_tasks,
+    'fever': fever_tasks[:200],
     'sciworld': sciworld_tasks,
     'fever': fever_tasks,
     'pddl': pddl_tasks,

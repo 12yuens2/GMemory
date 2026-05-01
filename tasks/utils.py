@@ -7,7 +7,11 @@ def get_model_type(model_name: str) -> str:
         'qwen2.5-32b', 
         'qwen2.5-72b',
         'intern', 
-        'deepseek-v3'
+        'deepseek-v3',
+        'llama3.2:1b',
+        'mistral:7b',
+        'llama3.2:3b',
+        'qwen3:14b',
     ]
 
     for model_type in valid_model_types:

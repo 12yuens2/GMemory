@@ -197,7 +197,8 @@ class SciworldRecorder(BaseRecorder):
         message: str = f'---------- Task: {task_id} ----------'
         self.log(message)
     
-    def task_end(self, reward: float, done: bool):
+    def task_end(self, reward: float, done: bool, trials):
+        super().task_end(reward, done, trials)
         
         self.rewards += reward
         self.dones += done

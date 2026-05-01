@@ -17,7 +17,12 @@ def module_map(
         'chatdev': ChatDevMASMemory,
         'generative': GenerativeMASMemory,
         'metagpt': MetaGPTMASMemory,
-        'g-memory': GMemory
+        'g-memory': GMemory,
+        'intrinsicmemory-pddl': IntrinsicMASMemoryPDDL,
+        'intrinsicmemory-fever': IntrinsicMASMemoryFEVER,
+        'intrinsicmemory-alfworld': IntrinsicMASMemoryALFWORLD,
+        'intrinsicmemory-llm-structured-template': IntrinsicMASMemoryLLMTemplate,
+        'intrinsicmemory-notemplate': IntrinsicMASMemoryNoTemplate
     }
 
     if reasoning not in reasoning_map:

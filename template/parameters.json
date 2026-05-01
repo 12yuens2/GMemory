@@ -1,0 +1,89 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "availabilityZones": {
+            "value": []
+        },
+        "containerName": {
+            "value": "g-memory-console"
+        },
+        "location": {
+            "value": "westeurope"
+        },
+        "imageType": {
+            "value": "Private"
+        },
+        "imageName": {
+            "value": "intrinsic.azurecr.io/g-memory:latest"
+        },
+        "osType": {
+            "value": "Linux"
+        },
+        "numberCpuCores": {
+            "value": "1"
+        },
+        "memory": {
+            "value": "1.5"
+        },
+        "restartPolicy": {
+            "value": "Never"
+        },
+        "sku": {
+            "value": "Standard"
+        },
+        "imageRegistryLoginServer": {
+            "value": "intrinsic.azurecr.io"
+        },
+        "imageUsername": {
+            "value": "intrinsic"
+        },
+        "imagePassword": {
+            "value": null
+        },
+        "environmentVariable0": {
+            "value": "fever"
+        },
+        "environmentVariable1": {
+            "value": "g-memory"
+        },
+        "environmentVariable2": {
+            "value": "42"
+        },
+        "environmentVariable3": {
+            "value": "o3-mini"
+        },
+        "environmentVariable4": {
+            "value": "https://agent-scaling-us-east-resource.cognitiveservices.azure.com/openai/v1/"
+        },
+        "environmentVariable5": {
+            "value": null
+        },
+        "environmentVariable6": {
+            "value": "autogen_mas"
+        },
+        "ipAddressType": {
+            "value": "Public"
+        },
+        "ports": {
+            "value": [
+                {
+                    "port": "80",
+                    "protocol": "TCP"
+                }
+            ]
+        },
+        "workspaceRegion": {
+            "value": "westeurope"
+        },
+        "workspaceSubId": {
+            "value": "437ce2b6-c1d8-4df6-b067-fc9209c568e9"
+        },
+        "workspaceResourceGroupName": {
+            "value": "Multi-policy"
+        },
+        "workspaceName": {
+            "value": "multipolicytra8454645234"
+        }
+    }
+}

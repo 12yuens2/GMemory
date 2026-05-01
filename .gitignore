@@ -1,0 +1,18 @@
+
+# MACOS
+.DS_Store
+
+# cache
+__pycache__
+.db*
+._data
+.swp
+
+# environments
+conda-env
+env
+
+#data
+data
+slurm
+tasks/tests/logs

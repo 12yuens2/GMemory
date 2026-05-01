@@ -56,15 +56,39 @@ class BaseRecorder:
         self.current_task_id: int = None
         self.current_task_config: dict = field(default_factory=dict)
 
+        # record total returns and rewards, and number of steps taken (trials)
+        self.total_rewards = []
+        self.total_dones = []
+        self.total_trials = []
+
     def task_begin(self, task_id: int, task_config: dict) -> None:
         
         self.current_task_id = task_id
         self.current_task_config = task_config
 
-    def task_end(self, reward: float, done: bool) -> None:
-        
+    def task_end(self, reward: float, done: bool, trials: int) -> None:
+
         if self.current_task_id is None or self.current_task_config is None:
             raise RuntimeError('The task id or the task config should not be None.')
+
+        self.total_rewards.append(reward)
+        self.total_dones.append(done)
+        self.total_trials.append(trials)
+
+    def average_results(self):
+        """ Returns a tuple (average rewards, average dones) """
+        rewards = 0
+        dones = 0
+        trials = 0
+
+        if self.total_rewards:
+            rewards = sum(self.total_rewards) / len(self.total_rewards)
+        if self.total_dones:
+            dones = sum(self.total_dones) / len(self.total_dones)
+        if self.total_trials:
+            trials = sum(self.total_trials) / len(self.total_trials)
+
+        return rewards, dones, trials
         
     def dataset_begin(self) -> None:
         

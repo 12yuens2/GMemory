@@ -1,5 +1,22 @@
 # G-Memory: Tracing Hierarchical Memory for Multi-Agent Systems
 
+## AZURE Usage
+Put secrets into `template/parameters.json`
+- imagePassword can be found in the Azure Portal > Container registry > intrinsic > Settings > Access Keys
+- environmentVariable5 is the Foundry API Key
+
+Check it works
+
+```bash
+az deployment group validate --resource-group intrinsic-memory --template-file template/template.json --parameters template/parameters.json
+```
+
+Deploy the container
+```bash
+az deployment group create --resource-group intrinsic-memory --template-file template/template.json --parameters template/parameters.json
+
+```
+
 
 ## 👋 Introduction
 This repo is the official implementation of [***G-Memory: Tracing Hierarchical Memory for Multi-Agent Systems***](https://arxiv.org/abs/2506.07398).
