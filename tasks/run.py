@@ -107,8 +107,8 @@ def run_task(task_manager: TaskManager, seed: int) -> None:
             task_manager.recorder.log(f'------------ MAS Agent: {agent.name} ------------')
             task_manager.recorder.log(agent.add_task_instruction(task_instruction))
 
-        reward, done = task_manager.mas.schedule(task_config) 
-        task_manager.recorder.task_end(reward, done)             
+        reward, done, trials = task_manager.mas.schedule(task_config)
+        task_manager.recorder.task_end(reward, done, trials)
 
         completion_tokens, prompt_tokens, _ = get_price()
         intrinsic_completion_tokens, intrinsic_prompt_tokens = get_intrinsic_price()
@@ -117,9 +117,9 @@ def run_task(task_manager: TaskManager, seed: int) -> None:
         task_manager.recorder.log(f'seed: {seed}\n')
 
         # output results as each task completes
-        results, dones = task_manager.recorder.average_results()
+        results, dones, trials = task_manager.recorder.average_results()
         with open(os.path.join(DB_DIR, "running-summary.csv"), "a") as results_file:
-            results_file.write(f"{model_type},{task},{mas_memory_type},{seed},{results},{dones},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens}\n")
+            results_file.write(f"{model_type},{task},{mas_memory_type},{seed},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens}\n")
 
     task_manager.recorder.dataset_end()
 

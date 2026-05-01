@@ -317,6 +317,7 @@ class PDDLRecorder(BaseRecorder):
             "gripper": 0, 
             "tyreworld": 0
         }
+        self.trials = []
     
     def task_begin(self, task_id, task_config):
         super().task_begin(task_id, task_config)
@@ -328,7 +329,7 @@ class PDDLRecorder(BaseRecorder):
         message: str = f'---------- Task: {task_id} ----------'
         self.log(message)
     
-    def task_end(self, reward: float, done: bool):
+    def task_end(self, reward: float, done: bool, trials):
         game_name: str = self.current_task_config.get('game_name') 
         if game_name is None:
             raise ValueError('The task should have an attribute: `game`.')
@@ -336,6 +337,7 @@ class PDDLRecorder(BaseRecorder):
         self.cnts[game_name] += 1
         self.rewards[game_name] += reward
         self.dones[game_name] += done
+        self.trials.append(trials)
 
         message = f'reward: {reward}, done: {done}.\nave reward: {self._get_average_reward()}, ave done: {self._get_average_done()}'
         self.log(message)
@@ -347,8 +349,11 @@ class PDDLRecorder(BaseRecorder):
     def _get_average_done(self) -> float:
         return sum(self.dones.values()) / sum(self.cnts.values())
 
+    def _get_average_trials(self):
+        return sum(self.trials) / len(self.trials)
+
     def average_results(self):
-        return self._get_average_reward(), self._get_average_done()
+        return self._get_average_reward(), self._get_average_done(), self._get_average_trials()
     
         
 # Define the mapping of predicate names to their natural language formats  

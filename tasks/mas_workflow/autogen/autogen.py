@@ -132,6 +132,7 @@ class AutoGen(MetaMAS):
 
         # Main loop for task execution
         action_history: list = [] 
+        trials = 0
         
         for i in range(env.max_trials):    
             
@@ -198,7 +199,7 @@ class AutoGen(MetaMAS):
             self.notify_observers(step_message)
 
             self.meta_memory.move_memory_state(action, observation, reward=reward)   
-
+            trials = i
             if done:  
                 break
 
@@ -208,7 +209,7 @@ class AutoGen(MetaMAS):
         self.meta_memory.save_task_context(label=final_done, feedback=final_feedback)  
         self.meta_memory.backward(final_done)    
 
-        return final_reward, final_done
+        return final_reward, final_done, trials
     
     def _solver_stuck(self, current_action: str, action_history: list[str]) -> bool:
         """
