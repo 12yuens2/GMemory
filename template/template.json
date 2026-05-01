@@ -77,6 +77,9 @@
         "environmentVariable5": {
             "type": "secureString"
         },
+         "environmentVariable6": {
+            "type": "string"
+        },
         "ipAddressType": {
             "type": "string"
         },
@@ -170,6 +173,9 @@
                     },
                     "environmentVariable5": {
                         "value": "[parameters('environmentVariable5')]"
+                    },
+                    "environmentVariable6": {
+                        "value": "[parameters('environmentVariable6')]"
                     },
                     "ipAddressType": {
                         "value": "[parameters('ipAddressType')]"

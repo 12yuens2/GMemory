@@ -59,6 +59,9 @@
         "environmentVariable5": {
             "value": null
         },
+        "environmentVariable6": {
+            "value": "autogen_mas"
+        },
         "ipAddressType": {
             "value": "Public"
         },
