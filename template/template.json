@@ -259,6 +259,9 @@
                         "environmentVariable5": {
                             "type": "secureString"
                         },
+                        "environmentVariable6": {
+                            "type": "string"
+                        },
                         "ipAddressType": {
                             "type": "string"
                         },

@@ -3,7 +3,7 @@ import os
 
 from typing import Any, Dict
 
-def generate_parameters(task, memory, seed, model_name, api_key, 
+def generate_parameters(task, memory, seed, model_name, api_key, imagePassword, base_url,
                         container_name: str = "g-memory-console",
                         image_name: str = "intrinsic.azurecr.io/g-memory:latest"):
     
@@ -23,12 +23,12 @@ def generate_parameters(task, memory, seed, model_name, api_key,
             "sku": {"value": "Standard"},
             "imageRegistryLoginServer": {"value": "intrinsic.azurecr.io"},
             "imageUsername": {"value": "intrinsic"},
-            "imagePassword": {"value": None},
+            "imagePassword": {"value": imagePassword},
             "environmentVariable0": {"value": task},
             "environmentVariable1": {"value": memory},
             "environmentVariable2": {"value": seed},
             "environmentVariable3": {"value": model_name},
-            "environmentVariable4": {"value": "https://agent-scaling-us-east-resource.cognitiveservices.azure.com/openai/v1/"},
+            "environmentVariable4": {"value": base_url},
             "environmentVariable5": {"value": api_key},
             "environmentVariable6": {"value": "autogen_mas"},
 	    "ipAddressType": {"value": "Public"},
@@ -51,13 +51,15 @@ if __name__ == "__main__":
     tasks = ["fever", "pddl", "alfworld", "sciworld"]
     memories = ["voyager", "g-memory","intrinsicmemory-notemplate"]
     seeds = ["42"]
-    model_names = ["o3-mini"]
+    model_names = ["o3-mini", "Llama-4-Maverick-17B-128E-Instruct-FP8"]
 
     api_key = os.environ["OPENAI_API_KEY"]
+    base_url = os.environ["OPENAI_BASE_URL"]
+    imagePassword = os.environ["IMAGE_PASSWORD"]
 
     for task in tasks:
         for memory in memories:
             for seed in seeds:
                 for model_name in model_names:
-                    generate_parameters(task, memory, seed, model_name, api_key)
+                    generate_parameters(task, memory, seed, model_name, api_key, imagePassword, base_url)
 
