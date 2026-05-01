@@ -16,3 +16,6 @@ env
 data
 slurm
 tasks/tests/logs
+
+#docker templates
+template/
