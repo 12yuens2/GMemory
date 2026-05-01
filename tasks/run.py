@@ -107,7 +107,7 @@ def run_task(task_manager: TaskManager, seed: int) -> None:
             task_manager.recorder.log(f'------------ MAS Agent: {agent.name} ------------')
             task_manager.recorder.log(agent.add_task_instruction(task_instruction))
 
-        reward, done = task_manager.mas.schedule(task_config) 
+        reward, done = task_manager.mas.schedule(task_config) # Schedule method from the mas_workflow (e.g. autogen)
         task_manager.recorder.task_end(reward, done)             
 
         completion_tokens, prompt_tokens, _ = get_price()
@@ -128,7 +128,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Run tasks with specified modules.')
     parser.add_argument('--task', type=str, choices=['alfworld', 'fever', 'pddl', 'sciworld'])
-    parser.add_argument('--mas_type', type=str, choices=['autogen', 'macnet', 'dylan'])
+    parser.add_argument('--mas_type', type=str, choices=['autogen','autogen_mas', 'macnet', 'dylan'])
     parser.add_argument('--mas_memory', type=str, default='none', help='Specify mas memory module')
     parser.add_argument('--reasoning', type=str, default='io', help='Specify reasoning module')
     parser.add_argument('--model', type=str, default='gpt-3.5-turbo-0125', help='Specify the LLM model type')
