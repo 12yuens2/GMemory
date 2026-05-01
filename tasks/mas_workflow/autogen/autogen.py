@@ -21,7 +21,7 @@ class AutoGen(MetaMAS):
 
         self.solver_name: str = 'solver'
         self.ground_truth_name: str = 'ground_truth'
-        self.observers = []   
+        self.observers = []
 
         self.reasoning_config = ReasoningConfig(temperature=0, stop_strs=['\n'])
 
@@ -39,6 +39,11 @@ class AutoGen(MetaMAS):
         self.notify_observers(f"Insights Topk     : {self._insights_topk}")
         self.notify_observers(f"Retrieve Threshold: {self._threshold}")
         self.notify_observers(f"Use Role Projector: {self._use_projector}")
+
+        if 'stop_strs' in config:
+            self.reasoning_config = ReasoningConfig(
+                temperature=0, stop_strs=config['stop_strs']
+            )
 
         if not isinstance(reasoning, ReasoningBase):
             raise TypeError("reasoning module must be an instance of ReasoningBase")

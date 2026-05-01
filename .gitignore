@@ -3,7 +3,7 @@
 .DS_Store
 
 # cache
-__pycache__
+__pycache__/
 .db*
 ._data
 .swp
@@ -16,3 +16,6 @@ env
 data
 slurm
 tasks/tests/logs
+
+#docker templates
+template/
