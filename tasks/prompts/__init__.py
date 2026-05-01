@@ -2,23 +2,37 @@ from .alfworld_prompt import alfworld_solver_system_prompt, alfworld_few_shots
 from .sciworld_prompt import sciworld_solver_system_prompt, sciworld_few_shots
 from .fever_prompt import fever_solver_system_prompt, fever_few_shots
 from .pddl_prompt import pddl_prompts
+from .livecode_prompt import (
+    LCB_CODEGEN_SYSTEM_PROMPT,
+    LCB_CODEEXEC_SYSTEM_PROMPT,
+    LCB_TESTPRED_SYSTEM_PROMPT,
+    LCB_SELFREPAIR_SYSTEM_PROMPT,
+    LCB_CODEGEN_FEW_SHOTS,
+    LCB_CODEEXEC_FEW_SHOTS,
+    LCB_TESTPRED_FEW_SHOTS,
+    LCB_SELFREPAIR_FEW_SHOTS,
+)
 
 def get_dataset_system_prompt(task: str, task_config: dict) -> str:
     prompt_map: dict = {
         'alfworld': alfworld_solver_system_prompt,
         'sciworld': sciworld_solver_system_prompt,
         'fever': fever_solver_system_prompt,
-        'pddl': pddl_prompts
+        'pddl': pddl_prompts,
+        'lcb_codegen': LCB_CODEGEN_SYSTEM_PROMPT,
+        'lcb_codeexec': LCB_CODEEXEC_SYSTEM_PROMPT,
+        'lcb_testpred': LCB_TESTPRED_SYSTEM_PROMPT,
+        'lcb_selfrepair': LCB_SELFREPAIR_SYSTEM_PROMPT,
     }
 
     if prompt_map.get(task) is None:
         raise ValueError(f'Unsupported task type: {task}')
-    
-    if task != 'pddl':
-        return prompt_map.get(task)
-    else:
+
+    if task == 'pddl':
         task_type: str = task_config.get('game_name')
         return pddl_prompts[task_type]['instruction']
+
+    return prompt_map.get(task)
         
 
 
@@ -35,13 +49,25 @@ def get_task_few_shots(dataset: str, task_config: dict, few_shots_num: int) -> l
     
     elif dataset == 'fever':
         return fever_few_shots[:few_shots_num]
-    
+
     elif dataset == 'pddl':
         task_type = task_config.get('game_name')
         if task_type is None:
             raise ValueError('The task config must have the `game_name` attribute.')
         return pddl_prompts[task_type]['examples'][:few_shots_num]
-    
+
+    elif dataset == 'lcb_codegen':
+        return LCB_CODEGEN_FEW_SHOTS[:few_shots_num]
+
+    elif dataset == 'lcb_codeexec':
+        return LCB_CODEEXEC_FEW_SHOTS[:few_shots_num]
+
+    elif dataset == 'lcb_testpred':
+        return LCB_TESTPRED_FEW_SHOTS[:few_shots_num]
+
+    elif dataset == 'lcb_selfrepair':
+        return LCB_SELFREPAIR_FEW_SHOTS[:few_shots_num]
+
     else:
         raise ValueError(f'Unsupported dataset type: {dataset}')
 

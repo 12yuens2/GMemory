@@ -252,7 +252,7 @@ class GMemory(MASMemoryBase):
         
         trajectory = ''
         for state in state_chain:
-            trajectory += f'> {state.graph['action']}\n{state.graph['observation']}\n'
+            trajectory += f'> {state.graph["action"]}\n{state.graph["observation"]}\n'
         
         if mas_message_copy.label == True:
             mas_message_copy.task_trajectory = trajectory
@@ -441,11 +441,13 @@ class TaskLayer:
                 valid_nodes.append(node)
 
         X = np.vstack(embeddings)
-        fin = FINCH(metric='cosine')
 
-        try: 
-            labels = fin.fit_predict(X)
-        except Exception as e:   
+        try:
+            if len(valid_nodes) < 2:
+                raise ValueError("Need at least 2 samples to cluster")
+            c, _, _ = FINCH(X, distance='cosine', verbose=False)
+            labels = c[:, 0]
+        except Exception as e:
             print(f"FINCH clustering failed: {e}")
             labels = np.zeros(len(valid_nodes), dtype=int)
 
@@ -527,8 +529,10 @@ class InsightsManager:
 
             self.logger.info('------- Merge Insights -------')
             self.logger.info(f'Task type: {task_type}')
-            self.logger.info(f"Origin rules: \n{'\n'.join(related_rules)}")
-            self.logger.info(f"Merged rules: \n{'\n'.join(merged_rules)}")
+            related_rules_str = '\n'.join(related_rules)
+            merged_rules_str = '\n'.join(merged_rules)
+            self.logger.info(f"Origin rules: \n{related_rules_str}")
+            self.logger.info(f"Merged rules: \n{merged_rules_str}")
             
         self.insights_memory.clear()
 

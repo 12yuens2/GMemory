@@ -23,6 +23,26 @@ pddl:
   max_steps: 30
   few_shots_num: 1
 
+lcb_codegen:
+  env_config_path: tasks/env_configs/livecode_config.yaml
+  max_steps: 1
+  few_shots_num: 1
+
+lcb_codeexec:
+  env_config_path: tasks/env_configs/livecode_config.yaml
+  max_steps: 1
+  few_shots_num: 1
+
+lcb_testpred:
+  env_config_path: tasks/env_configs/livecode_config.yaml
+  max_steps: 1
+  few_shots_num: 1
+
+lcb_selfrepair:
+  env_config_path: tasks/env_configs/livecode_config.yaml
+  max_steps: 1
+  few_shots_num: 1
+
 # MAS configs
 autogen:
   autogen:  True

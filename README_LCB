@@ -1,0 +1,5 @@
+NOTES FOR RUNNING LIVECODEBENCH: 
+    - When running codegen or selfrepair, use MAS coder_reviewer 
+    - When running codeexec or taskpred, use MAS single_agent 
+    - selfrepair requires codegen to have already been run, after which it will use the failed tasks 
+    - limit flag can be used for testing by limiting number of tasks 

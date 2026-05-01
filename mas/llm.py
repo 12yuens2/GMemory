@@ -6,7 +6,7 @@ from typing import (
     Optional, 
     List,
 )
-from openai import OpenAI
+from openai import AzureOpenAI
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
@@ -22,6 +22,7 @@ NUM_COMPS = LLM_CONFIG.get("num_comps", 1)
 
 URL = os.environ["OPENAI_API_BASE"]
 KEY = os.environ["OPENAI_API_KEY"]
+API_VERSION = os.environ["OPENAI_API_VERSION"]
 print('# api url: ', URL)
 print('# api key: ', KEY)
 
@@ -65,9 +66,10 @@ class GPTChat(LLM):
 
     def __init__(self, model_name: str):
         super().__init__(model_name=model_name)
-        self.client = OpenAI(
-            base_url=URL,
-            api_key=KEY
+        self.client = AzureOpenAI(
+            azure_endpoint=URL,
+            api_key=KEY,
+            api_version=API_VERSION,
         )
 
     def __call__(

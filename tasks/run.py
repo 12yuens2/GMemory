@@ -42,16 +42,23 @@ class TaskManager:
     mem_config: dict = field(default_factory=dict)   # memory configs
 
 
-def build_task(task: str, mas_type: str, memory_type: str, max_steps: int) -> TaskManager:
+def build_task(task: str, mas_type: str, memory_type: str, max_steps: int,
+               codegen_results: str = None, limit: int = None) -> TaskManager:
 
     with open(CONFIG.get(task).get('env_config_path')) as reader:
-        config = yaml.safe_load(reader)
+        config = yaml.safe_load(reader) or {}
 
     env: BaseEnv = get_env(task, config, max_steps)
     recorder: BaseRecorder = get_recorder(task, working_dir=WORKING_DIR, namespace='total_task')
-    tasks: list[dict] = get_task(task)
+    tasks: list[dict] = get_task(task, codegen_results_path=codegen_results)
+    if limit is not None:
+        tasks = tasks[:limit]
     mas_workflow: MetaMAS = get_mas(mas_type)
     mas_config: dict = CONFIG.get(mas_type, {})
+
+    # Connect env to recorder for tasks that write a results.json
+    if hasattr(recorder, 'env'):
+        recorder.env = env
 
     return TaskManager(
         task_name=task,
@@ -99,7 +106,7 @@ def run_task(task_manager: TaskManager) -> None:
             task_config=task_config,
             few_shots_num=CONFIG.get(task_manager.task_name).get('few_shots_num', 0)
         )
-        task_config.update(task_main=task_main, task_description=task_description, few_shots=few_shots)
+        task_config.update(task_main=task_main, task_description=task_description, few_shots=few_shots) 
            
         task_instruction: str = get_dataset_system_prompt(task_manager.task_name, task_config=task_config)
         for agent in task_manager.mas.agents_team.values():    
@@ -119,8 +126,11 @@ if __name__ == '__main__':
     random.seed(42)
 
     parser = argparse.ArgumentParser(description='Run tasks with specified modules.')
-    parser.add_argument('--task', type=str, choices=['alfworld', 'fever', 'pddl', 'sciworld'])
-    parser.add_argument('--mas_type', type=str, choices=['autogen', 'macnet', 'dylan'])
+    parser.add_argument('--task', type=str, choices=[
+        'alfworld', 'fever', 'pddl', 'sciworld',
+        'lcb_codegen', 'lcb_codeexec', 'lcb_testpred', 'lcb_selfrepair',
+    ])
+    parser.add_argument('--mas_type', type=str, choices=['autogen', 'macnet', 'dylan', 'coder_reviewer', 'single_agent'])
     parser.add_argument('--mas_memory', type=str, default='none', help='Specify mas memory module')
     parser.add_argument('--reasoning', type=str, default='io', help='Specify reasoning module')
     parser.add_argument('--model', type=str, default='gpt-3.5-turbo-0125', help='Specify the LLM model type')
@@ -131,6 +141,10 @@ if __name__ == '__main__':
     parser.add_argument('--threshold', type=float, default=0.0, help='threshold for traj similarity.')
     parser.add_argument('--use_projector', action='store_true', help='whether to use role projector.')
     parser.add_argument('--hop', type=int, default=1, help='hop for traj similarity.')
+    parser.add_argument('--codegen_results', type=str, default=None,
+                        help='Path to codegen results.json (required for lcb_selfrepair).')
+    parser.add_argument('--limit', type=int, default=None,
+                        help='Run only the first N tasks (for validation/debugging).')
 
     args = parser.parse_args()
 
@@ -148,7 +162,9 @@ if __name__ == '__main__':
     os.makedirs(WORKING_DIR, exist_ok=True)
     
     # run tasks
-    task_configs: TaskManager = build_task(task, mas_type, mas_memory_type, max_trials)
+    task_configs: TaskManager = build_task(task, mas_type, mas_memory_type, max_trials,
+                                           codegen_results=args.codegen_results,
+                                           limit=args.limit)
     task_configs.mas_config['successful_topk'] = args.successful_topk
     task_configs.mas_config['failed_topk'] = args.failed_topk
     task_configs.mas_config['insights_topk'] = args.insights_topk
@@ -158,6 +174,10 @@ if __name__ == '__main__':
         working_dir=WORKING_DIR,
         hop=args.hop
     )
+
+    # LCB tasks require multi-line output — disable the newline stop string
+    if task.startswith('lcb_'):
+        task_configs.mas_config['stop_strs'] = []
 
     build_mas(task_configs, reasoning_type, mas_memory_type, model_type)
     run_task(task_configs)
