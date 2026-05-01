@@ -30,7 +30,8 @@ def generate_parameters(task, memory, seed, model_name, api_key,
             "environmentVariable3": {"value": model_name},
             "environmentVariable4": {"value": "https://agent-scaling-us-east-resource.cognitiveservices.azure.com/openai/v1/"},
             "environmentVariable5": {"value": api_key},
-            "ipAddressType": {"value": "Public"},
+            "environmentVariable6": {"value": "autogen_mas"},
+	    "ipAddressType": {"value": "Public"},
             "ports": {"value": [{"port": "80", "protocol": "TCP"}]},
             "workspaceRegion": {"value": "westeurope"},
             "workspaceSubId": {"value": "437ce2b6-c1d8-4df6-b067-fc9209c568e9"},
@@ -48,7 +49,7 @@ def generate_parameters(task, memory, seed, model_name, api_key,
 
 if __name__ == "__main__":
     tasks = ["fever", "pddl", "alfworld", "sciworld"]
-    memories = ["voyager", "g-memory"]
+    memories = ["voyager", "g-memory","intrinsicmemory-notemplate"]
     seeds = ["42"]
     model_names = ["o3-mini"]
 
