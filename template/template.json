@@ -77,6 +77,9 @@
         "environmentVariable5": {
             "type": "secureString"
         },
+        "environmentVariable6": {
+            "type": "secureString"
+        },
         "ipAddressType": {
             "type": "string"
         },
@@ -171,6 +174,9 @@
                     "environmentVariable5": {
                         "value": "[parameters('environmentVariable5')]"
                     },
+                    "environmentVariable6": {
+                        "value": "[parameters('environmentVariable6')]"
+                    },
                     "ipAddressType": {
                         "value": "[parameters('ipAddressType')]"
                     },
@@ -253,6 +259,9 @@
                         "environmentVariable5": {
                             "type": "secureString"
                         },
+                        "environmentVariable6": {
+                            "type": "secureString"
+                        },
                         "ipAddressType": {
                             "type": "string"
                         },
@@ -306,6 +315,10 @@
                                                 {
                                                     "name": "OPENAI_API_BASE",
                                                     "secureValue": "[parameters('environmentVariable5')]"
+                                                },
+                                                {
+                                                    "name": "AZURE_CONNECTION_STRING",
+                                                    "secureValue": "[parameters('environmentVariable6')]"
                                                 }
                                             ],
                                             "ports": "[parameters('ports')]"

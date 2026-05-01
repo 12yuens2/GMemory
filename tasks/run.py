@@ -24,6 +24,8 @@ from mas_workflow import get_mas
 from prompts import get_dataset_system_prompt, get_task_few_shots
 from utils import get_model_type
 
+from azure.storage.blob import BlobServiceClient
+from azure.identity import DefaultAzureCredential
 
 with open('tasks/configs.yaml') as reader:
     CONFIG: dict = yaml.safe_load(reader)
@@ -88,6 +90,16 @@ def build_mas(
     task_manager.mas.build_system(reasoning_module, mas_memory_module, task_manager.env, task_manager.mas_config)
 
 def run_task(task_manager: TaskManager, seed: int) -> None:
+    connection_string = os.environ["AZURE_CONNECTION_STRING"]
+    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+
+    container_name = "intrinsic-memory-experiments"
+    blob_name = f"{task_manager.task_name}-{task_manager.memory_type}-intermediate.csv"
+
+    blob_client = blob_service_client.get_blob_client(
+        container = container_name,
+        blob = blob_name,
+    )
 
     task_manager.recorder.dataset_begin()
     
@@ -118,10 +130,16 @@ def run_task(task_manager: TaskManager, seed: int) -> None:
 
         # output results as each task completes
         results, dones, trials = task_manager.recorder.average_results()
-        with open(os.path.join(DB_DIR, "running-summary.csv"), "a") as results_file:
-            results_file.write(f"{model_type},{task},{mas_memory_type},{seed},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens}\n")
+        result_string = f"{model_type},{task},{mas_memory_type},{seed},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens}\n"
+        print(result_string)
+
+        # write to azure
+        if not blob_client.exists():
+            blob_client.create_append_blob()
+        blob_client.append_block(result_string, len(result_string))
 
     task_manager.recorder.dataset_end()
+
 
 if __name__ == '__main__':
     # settings
@@ -156,9 +174,19 @@ if __name__ == '__main__':
     # dir
     DB_DIR = './.db-icml'
     WORKING_DIR = os.path.join(DB_DIR, get_model_type(model_type), task, mas_type, f'{mas_memory_type}')
-    # if os.path.exists(WORKING_DIR):
-    #     shutil.rmtree(WORKING_DIR)
     os.makedirs(WORKING_DIR, exist_ok=True)
+
+    # azure blob storage
+    connection_string = os.environ["AZURE_CONNECTION_STRING"]
+    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+
+    container_name = "intrinsic-memory-experiments"
+    blob_name = "results.csv"
+
+    blob_client = blob_service_client.get_blob_client(
+        container = container_name,
+        blob = blob_name,
+    )
 
     # run tasks
     task_configs: TaskManager = build_task(task, mas_type, mas_memory_type, max_trials)
@@ -183,5 +211,10 @@ if __name__ == '__main__':
 
     results, dones = task_configs.recorder.average_results()
 
-    with open(os.path.join(DB_DIR, "summary.csv"), "a") as results_file:
-        results_file.write(f"{model_type},{task},{mas_memory_type},{results},{dones},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n")
+    result_string = f"{model_type},{task},{mas_memory_type},{results},{dones},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
+    print(result_string)
+
+    if not blob_client.exists():
+        blob_client.create_append_blob()
+    blob_client.append_block(result_string, len(result_string))
+

@@ -3,7 +3,7 @@ import os
 
 from typing import Any, Dict
 
-def generate_parameters(task, memory, seed, model_name, api_key, 
+def generate_parameters(task, memory, seed, model_name, api_key, connection_string
                         container_name: str = "g-memory-console",
                         image_name: str = "intrinsic.azurecr.io/g-memory:latest"):
     
@@ -30,6 +30,7 @@ def generate_parameters(task, memory, seed, model_name, api_key,
             "environmentVariable3": {"value": model_name},
             "environmentVariable4": {"value": "https://agent-scaling-us-east-resource.cognitiveservices.azure.com/openai/v1/"},
             "environmentVariable5": {"value": api_key},
+            "environmentVariable6": {"value": connection_string},
             "ipAddressType": {"value": "Public"},
             "ports": {"value": [{"port": "80", "protocol": "TCP"}]},
             "workspaceRegion": {"value": "westeurope"},
@@ -53,10 +54,11 @@ if __name__ == "__main__":
     model_names = ["o3-mini"]
 
     api_key = os.environ["OPENAI_API_KEY"]
+    connection_string = os.environ["AZURE_CONNECTION_STRING"]
 
     for task in tasks:
         for memory in memories:
             for seed in seeds:
                 for model_name in model_names:
-                    generate_parameters(task, memory, seed, model_name, api_key)
+                    generate_parameters(task, memory, seed, model_name, api_key, connection_string)
 

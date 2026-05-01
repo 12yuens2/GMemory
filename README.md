@@ -1,6 +1,26 @@
 # G-Memory: Tracing Hierarchical Memory for Multi-Agent Systems
 
 ## AZURE Usage
+
+### Building the image
+
+Login to Azure
+```bash
+az acr login --name intrinsic
+```
+
+Build the image
+```bash
+docker build -t intrinsic.azurecr.io/g-memory:latest .
+```
+
+Push the image
+```bash
+docker push intrinsic.azurecr.io/g-memory:latest
+```
+
+
+### Running the containers
 Put secrets into `template/parameters.json`
 - imagePassword can be found in the Azure Portal > Container registry > intrinsic > Settings > Access Keys
 - environmentVariable5 is the Foundry API Key
