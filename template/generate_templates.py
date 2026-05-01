@@ -3,7 +3,7 @@ import os
 
 from typing import Any, Dict
 
-def generate_parameters(task, memory, seed, model_name, api_key, connection_string
+def generate_parameters(task, memory, seed, model_name, api_key, image_password, base_url, connection_string,
                         container_name: str = "g-memory-console",
                         image_name: str = "intrinsic.azurecr.io/g-memory:latest"):
     
@@ -23,15 +23,16 @@ def generate_parameters(task, memory, seed, model_name, api_key, connection_stri
             "sku": {"value": "Standard"},
             "imageRegistryLoginServer": {"value": "intrinsic.azurecr.io"},
             "imageUsername": {"value": "intrinsic"},
-            "imagePassword": {"value": None},
+            "imagePassword": {"value": image_password},
             "environmentVariable0": {"value": task},
             "environmentVariable1": {"value": memory},
             "environmentVariable2": {"value": seed},
             "environmentVariable3": {"value": model_name},
-            "environmentVariable4": {"value": "https://agent-scaling-us-east-resource.cognitiveservices.azure.com/openai/v1/"},
+            "environmentVariable4": {"value": base_url},
             "environmentVariable5": {"value": api_key},
             "environmentVariable6": {"value": connection_string},
-            "ipAddressType": {"value": "Public"},
+            "environmentVariable7": {"value": "autogen_mas"},
+	    "ipAddressType": {"value": "Public"},
             "ports": {"value": [{"port": "80", "protocol": "TCP"}]},
             "workspaceRegion": {"value": "westeurope"},
             "workspaceSubId": {"value": "437ce2b6-c1d8-4df6-b067-fc9209c568e9"},
@@ -49,16 +50,18 @@ def generate_parameters(task, memory, seed, model_name, api_key, connection_stri
 
 if __name__ == "__main__":
     tasks = ["fever", "pddl", "alfworld", "sciworld"]
-    memories = ["voyager", "g-memory"]
+    memories = ["chatdev", "generative", "memorybank", "metagpt", "voyager", "g-memory","intrinsicmemory-notemplate"]
     seeds = ["42"]
     model_names = ["o3-mini"]
 
     api_key = os.environ["OPENAI_API_KEY"]
+    base_url = os.environ["OPENAI_API_BASE"]
+    image_password = os.environ["IMAGE_PASSWORD"]
     connection_string = os.environ["AZURE_CONNECTION_STRING"]
 
     for task in tasks:
         for memory in memories:
             for seed in seeds:
                 for model_name in model_names:
-                    generate_parameters(task, memory, seed, model_name, api_key, connection_string)
+                    generate_parameters(task, memory, seed, model_name, api_key, image_password, base_url, connection_string)
 

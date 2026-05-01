@@ -51,13 +51,16 @@
             "value": "42"
         },
         "environmentVariable3": {
-            "value": "o3-mini"
+            "value": "Llama-4-Maverick-17B-128E-Instruct-FP8"
         },
         "environmentVariable4": {
-            "value": "https://agent-scaling-us-east-resource.cognitiveservices.azure.com/openai/v1/"
+            "value": null
         },
         "environmentVariable5": {
             "value": null
+        },
+        "environmentVariable6": {
+            "value": "autogen_mas"
         },
         "ipAddressType": {
             "value": "Public"

@@ -80,6 +80,9 @@
         "environmentVariable6": {
             "type": "secureString"
         },
+        "environmentVariable7": {
+            "type": "string"
+        },
         "ipAddressType": {
             "type": "string"
         },
@@ -177,6 +180,9 @@
                     "environmentVariable6": {
                         "value": "[parameters('environmentVariable6')]"
                     },
+                    "environmentVariable7": {
+                        "value": "[parameters('environmentVariable7')]"
+                    },
                     "ipAddressType": {
                         "value": "[parameters('ipAddressType')]"
                     },
@@ -262,6 +268,9 @@
                         "environmentVariable6": {
                             "type": "secureString"
                         },
+                        "environmentVariable7": {
+                            "type": "string"
+                        },
                         "ipAddressType": {
                             "type": "string"
                         },
@@ -309,17 +318,22 @@
                                                     "value": "[parameters('environmentVariable3')]"
                                                 },
                                                 {
-                                                    "name": "OPENAI_API_KEY",
+                                                    "name": "OPENAI_API_BASE",
                                                     "secureValue": "[parameters('environmentVariable4')]"
                                                 },
                                                 {
-                                                    "name": "OPENAI_API_BASE",
+                                                    "name": "OPENAI_API_KEY",
                                                     "secureValue": "[parameters('environmentVariable5')]"
                                                 },
                                                 {
                                                     "name": "AZURE_CONNECTION_STRING",
                                                     "secureValue": "[parameters('environmentVariable6')]"
+                                                },
+                                                {
+                                                    "name": "MAS_TYPE",
+                                                    "secureValue": "[parameters('environmentVariable7')]"
                                                 }
+
                                             ],
                                             "ports": "[parameters('ports')]"
                                         }
