@@ -24,9 +24,6 @@ from mas_workflow import get_mas
 from prompts import get_dataset_system_prompt, get_task_few_shots
 from utils import get_model_type
 
-from azure.storage.blob import BlobServiceClient
-from azure.identity import DefaultAzureCredential
-
 with open('tasks/configs.yaml') as reader:
     CONFIG: dict = yaml.safe_load(reader)
 
@@ -65,7 +62,7 @@ def build_task(task: str, mas_type: str, memory_type: str, max_steps: int) -> Ta
         recorder=recorder,
         mas=mas_workflow,
         mas_config=mas_config
-    )   
+    )
 
 def build_mas(
     task_manager: TaskManager,
@@ -85,23 +82,20 @@ def build_mas(
         llm_model=llm_model,
         embedding_func=embed_func 
     )
-    
     task_manager.mas.add_observer(task_manager.recorder)  
     task_manager.mas.build_system(reasoning_module, mas_memory_module, task_manager.env, task_manager.mas_config)
 
+def append_local_result(output_path: str, result_string: str) -> None:
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    with open(output_path, 'a', encoding='utf-8') as writer:
+        writer.write(result_string)
+
+
 def run_task(task_manager: TaskManager, seed: int) -> None:
-    connection_string = os.environ["AZURE_CONNECTION_STRING"]
-    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-
-    container_name = "intrinsic-memory-experiments"
-    blob_name = f"{task_manager.task_name}-{task_manager.memory_type}-intermediate.csv"
-
-    blob_client = blob_service_client.get_blob_client(
-        container = container_name,
-        blob = blob_name,
-    )
-
     task_manager.recorder.dataset_begin()
+    result_path = os.path.join(WORKING_DIR, f"{task_manager.task_name}-{task_manager.memory_type}-results.csv")
     
     for task_id, task_config in tqdm(enumerate(task_manager.tasks), total=len(task_manager.tasks), desc="Running Tasks"):
         task_manager.recorder.task_begin(task_id, task_config)  
@@ -120,7 +114,7 @@ def run_task(task_manager: TaskManager, seed: int) -> None:
             task_manager.recorder.log(agent.add_task_instruction(task_instruction))
 
         reward, done, trials = task_manager.mas.schedule(task_config) # Schedule method from the mas_workflow (e.g. autogen)
-        task_manager.recorder.task_end(reward, done, trials)             
+        task_manager.recorder.task_end(reward, done, trials)
 
         completion_tokens, prompt_tokens, _ = get_price()
         intrinsic_completion_tokens, intrinsic_prompt_tokens = get_intrinsic_price()
@@ -133,10 +127,7 @@ def run_task(task_manager: TaskManager, seed: int) -> None:
         result_string = f"{model_type},{task},{mas_memory_type},{seed},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens}\n"
         print(result_string)
 
-        # write to azure
-        if not blob_client.exists():
-            blob_client.create_append_blob()
-        blob_client.append_block(result_string, len(result_string))
+        append_local_result(result_path, result_string)
 
     task_manager.recorder.dataset_end()
 
@@ -176,18 +167,6 @@ if __name__ == '__main__':
     WORKING_DIR = os.path.join(DB_DIR, get_model_type(model_type), task, mas_type, f'{mas_memory_type}')
     os.makedirs(WORKING_DIR, exist_ok=True)
 
-    # azure blob storage
-    connection_string = os.environ["AZURE_CONNECTION_STRING"]
-    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-
-    container_name = "intrinsic-memory-experiments"
-    blob_name = "results.csv"
-
-    blob_client = blob_service_client.get_blob_client(
-        container = container_name,
-        blob = blob_name,
-    )
-
     # run tasks
     task_configs: TaskManager = build_task(task, mas_type, mas_memory_type, max_trials)
     task_configs.mas_config['successful_topk'] = args.successful_topk
@@ -211,10 +190,9 @@ if __name__ == '__main__':
 
     results, dones, trials = task_configs.recorder.average_results()
 
+    # overall results
     result_string = f"{model_type},{task},{mas_memory_type},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
     print(result_string)
 
-    if not blob_client.exists():
-        blob_client.create_append_blob()
-    blob_client.append_block(result_string, len(result_string))
+    append_local_result(os.path.join(WORKING_DIR, 'results.csv'), result_string)
 
