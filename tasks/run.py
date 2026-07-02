@@ -209,9 +209,9 @@ if __name__ == '__main__':
     task_configs.recorder.log(f'completion_tokens:{completion_tokens}, prompt_tokens:{prompt_tokens}, price={completion_tokens*15/1000000+prompt_tokens*5/1000000}')
     task_configs.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}')
 
-    results, dones = task_configs.recorder.average_results()
+    results, dones, trials = task_configs.recorder.average_results()
 
-    result_string = f"{model_type},{task},{mas_memory_type},{results},{dones},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
+    result_string = f"{model_type},{task},{mas_memory_type},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
     print(result_string)
 
     if not blob_client.exists():

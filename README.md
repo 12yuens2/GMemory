@@ -11,12 +11,12 @@ az acr login --name intrinsic
 
 Build the image
 ```bash
-docker build -t intrinsic.azurecr.io/g-memory:latest .
+docker build -t intrinsic.azurecr.io/g-memory:<tag> .
 ```
 
 Push the image
 ```bash
-docker push intrinsic.azurecr.io/g-memory:latest
+docker push intrinsic.azurecr.io/g-memory:<tag>
 ```
 
 

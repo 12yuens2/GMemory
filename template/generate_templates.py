@@ -49,10 +49,10 @@ def generate_parameters(task, memory, seed, model_name, api_key, image_password,
     print(f"✓ {output_file} created successfully")
 
 if __name__ == "__main__":
-    tasks = ["fever", "pddl", "alfworld", "sciworld"]
+    tasks = ["pddl", "sciworld"]
     memories = ["chatdev", "generative", "memorybank", "metagpt", "voyager", "g-memory","intrinsicmemory-notemplate"]
     seeds = ["42"]
-    model_names = ["o3-mini"]
+    model_names = ["ministral-3b"]
 
     api_key = os.environ["OPENAI_API_KEY"]
     base_url = os.environ["OPENAI_API_BASE"]
@@ -63,5 +63,9 @@ if __name__ == "__main__":
         for memory in memories:
             for seed in seeds:
                 for model_name in model_names:
-                    generate_parameters(task, memory, seed, model_name, api_key, image_password, base_url, connection_string)
+                    if task == "sciworld":
+                        generate_parameters(task, memory, seed, model_name, api_key, image_password, base_url, connection_string, image_name="intrinsic.azurecr.io/g-memory:java")
+                    else:
+                        generate_parameters(task, memory, seed, model_name, api_key, image_password, base_url, connection_string)
+
 
