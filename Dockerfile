@@ -1,8 +1,7 @@
 #FROM python:3.14.4-slim
 #FROM --platform=linux/amd64 python:3.12-slim
 
-FROM --platform=linux/amd64 ubuntu:24.04
-
+FROM --platform=linux/arm64 nvcr.io/nvidia/pytorch:24.06-py3
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -19,12 +18,16 @@ RUN apt-get update && apt-get install -y \
 #RUN apt-get install curl -y
 #RUN apt-get install build-essential -y
 
-#WORKDIR /app
+# install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+WORKDIR /app
 
 COPY requirements.txt .
-RUN python3 -m venv env
-RUN . env/bin/activate && pip install --upgrade pip
-RUN . env/bin/activate && pip install --no-cache-dir -r requirements.txt
+
+#RUN python3 -m venv env
+#RUN . env/bin/activate && pip install --upgrade pip
+#RUN . env/bin/activate && pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
