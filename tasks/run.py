@@ -4,10 +4,13 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import shutil
+import multiprocessing
 import yaml
 from dataclasses import dataclass, field
 import argparse
 import random
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from itertools import product
 from tqdm import tqdm
 
 import mas
@@ -28,6 +31,8 @@ with open('tasks/configs.yaml') as reader:
     CONFIG: dict = yaml.safe_load(reader)
 
 WORKING_DIR: str = None
+DB_DIR: str = './.db-icml'
+OVERALL_RESULTS_PATH: str = os.path.join(DB_DIR, 'overall_results.csv')
 
 @dataclass
 class TaskManager:
@@ -85,31 +90,43 @@ def build_mas(
     task_manager.mas.add_observer(task_manager.recorder)  
     task_manager.mas.build_system(reasoning_module, mas_memory_module, task_manager.env, task_manager.mas_config)
 
-def append_local_result(output_path: str, result_string: str) -> None:
+def append_local_result(output_path: str, result_string: str, output_lock=None) -> None:
     output_dir = os.path.dirname(output_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
-    with open(output_path, 'a', encoding='utf-8') as writer:
-        writer.write(result_string)
+    if output_lock is not None:
+        with output_lock:
+            with open(output_path, 'a', encoding='utf-8') as writer:
+                writer.write(result_string)
+    else:
+        with open(output_path, 'a', encoding='utf-8') as writer:
+            writer.write(result_string)
 
 
-def run_task(task_manager: TaskManager, seed: int) -> None:
+def run_task(
+    task_manager: TaskManager,
+    seed: int,
+    model_type: str = None,
+    task_name: str = None,
+    mas_memory_type: str = None,
+    output_lock=None,
+) -> None:
     task_manager.recorder.dataset_begin()
     result_path = os.path.join(WORKING_DIR, f"{task_manager.task_name}-{task_manager.memory_type}-results.csv")
-    
+
     for task_id, task_config in tqdm(enumerate(task_manager.tasks), total=len(task_manager.tasks), desc="Running Tasks"):
-        task_manager.recorder.task_begin(task_id, task_config)  
-        
-        task_main, task_description = task_manager.mas.env.set_env(task_config)   
+        task_manager.recorder.task_begin(task_id, task_config)
+
+        task_main, task_description = task_manager.mas.env.set_env(task_config)
         few_shots: list[str] = get_task_few_shots(
-            dataset=task_manager.task_name, 
+            dataset=task_manager.task_name,
             task_config=task_config,
             few_shots_num=CONFIG.get(task_manager.task_name).get('few_shots_num', 0)
         )
         task_config.update(task_main=task_main, task_description=task_description, few_shots=few_shots)
-           
+
         task_instruction: str = get_dataset_system_prompt(task_manager.task_name, task_config=task_config)
-        for agent in task_manager.mas.agents_team.values():    
+        for agent in task_manager.mas.agents_team.values():
             task_manager.recorder.log(f'------------ MAS Agent: {agent.name} ------------')
             task_manager.recorder.log(agent.add_task_instruction(task_instruction))
 
@@ -124,21 +141,161 @@ def run_task(task_manager: TaskManager, seed: int) -> None:
 
         # output results as each task completes
         results, dones, trials = task_manager.recorder.average_results()
-        result_string = f"{model_type},{task},{mas_memory_type},{seed},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens}\n"
+        result_string = f"{model_type},{task_name},{mas_memory_type},{seed},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens}\n"
         print(result_string)
 
-        append_local_result(result_path, result_string)
+        append_local_result(result_path, result_string, output_lock=output_lock)
 
     task_manager.recorder.dataset_end()
+
+
+def build_experiment_configs(args) -> list[dict]:
+    params = {
+        'task': getattr(args, 'task'),
+        'mas_type': getattr(args, 'mas_type'),
+        'mas_memory': getattr(args, 'mas_memory'),
+        'reasoning': getattr(args, 'reasoning'),
+        'model': getattr(args, 'model'),
+        'seed': getattr(args, 'seed'),
+        'max_trials': [args.max_trials],
+        'successful_topk': [args.successful_topk],
+        'failed_topk': [args.failed_topk],
+        'insights_topk': [args.insights_topk],
+        'threshold': [args.threshold],
+        'use_projector': [args.use_projector],
+        'hop': [args.hop],
+        'num_workers': [args.num_workers],
+    }
+
+    values = {key: value if isinstance(value, (list, tuple)) else [value] for key, value in params.items()}
+    keys = [key for key, value in values.items() if len(value) > 1]
+    if not keys:
+        return [{key: value[0] for key, value in values.items()}]
+
+    configs = []
+    for combination in product(*[values[key] for key in params.keys()]):
+        configs.append(dict(zip(params.keys(), combination)))
+    return configs
+
+
+def run_experiment(experiment_config: dict, output_lock=None) -> dict:
+    task_name = experiment_config['task']
+    mas_type = experiment_config['mas_type']
+    mas_memory_type = experiment_config['mas_memory']
+    reasoning_type = experiment_config['reasoning']
+    model_type = experiment_config['model']
+    max_trials = experiment_config['max_trials']
+    seed = experiment_config['seed']
+    successful_topk = experiment_config['successful_topk']
+    failed_topk = experiment_config['failed_topk']
+    insights_topk = experiment_config['insights_topk']
+    threshold = experiment_config['threshold']
+    use_projector = experiment_config['use_projector']
+    hop = experiment_config['hop']
+
+    global WORKING_DIR
+    DB_DIR = './.db-icml'
+    WORKING_DIR = os.path.join(DB_DIR, get_model_type(model_type), task_name, mas_type, f'{mas_memory_type}')
+    os.makedirs(WORKING_DIR, exist_ok=True)
+
+    task_configs: TaskManager = build_task(task_name, mas_type, mas_memory_type, max_trials)
+    task_configs.mas_config['successful_topk'] = successful_topk
+    task_configs.mas_config['failed_topk'] = failed_topk
+    task_configs.mas_config['insights_topk'] = insights_topk
+    task_configs.mas_config['threshold'] = threshold
+    task_configs.mas_config['use_projector'] = use_projector
+    task_configs.mem_config.update(
+        working_dir=WORKING_DIR,
+        hop=hop
+    )
+
+    build_mas(task_configs, reasoning_type, mas_memory_type, model_type)
+    run_task(
+        task_configs,
+        seed,
+        model_type=model_type,
+        task_name=task_name,
+        mas_memory_type=mas_memory_type,
+        output_lock=output_lock,
+    )
+
+    completion_tokens, prompt_tokens, _ = get_price()
+    intrinsic_completion_tokens, intrinsic_prompt_tokens = get_intrinsic_price()
+    task_configs.recorder.log(f'completion_tokens:{completion_tokens}, prompt_tokens:{prompt_tokens}, price={completion_tokens*15/1000000+prompt_tokens*5/1000000}')
+    task_configs.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}')
+
+    results, dones, trials = task_configs.recorder.average_results()
+    result_string = f"{model_type},{task_name},{mas_memory_type},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
+    print(result_string)
+
+    append_local_result(os.path.join(WORKING_DIR, 'results.csv'), result_string, output_lock=output_lock)
+    _write_overall_result(experiment_config, result_string, output_lock=output_lock)
+
+    return {
+        'task': task_name,
+        'mas_type': mas_type,
+        'mas_memory': mas_memory_type,
+        'seed': seed,
+        'result_string': result_string,
+    }
+
+
+def _write_overall_result(experiment_config: dict, result_string: str, output_lock=None) -> None:
+    headers = [
+        'task',
+        'mas_type',
+        'mas_memory',
+        'model',
+        'seed',
+        'max_trials',
+        'num_workers',
+        'results',
+        'dones',
+        'trials',
+        'completion_tokens',
+        'prompt_tokens',
+        'intrinsic_completion_tokens',
+        'intrinsic_prompt_tokens',
+    ]
+
+    basic_values = [
+        str(experiment_config.get('task', '')),
+        str(experiment_config.get('mas_type', '')),
+        str(experiment_config.get('mas_memory', '')),
+        str(experiment_config.get('model', '')),
+        str(experiment_config.get('seed', '')),
+        str(experiment_config.get('max_trials', '')),
+        str(experiment_config.get('num_workers', '')),
+    ]
+
+    result_fields = result_string.strip().split(',')
+    if len(result_fields) >= 10:
+        summary_fields = result_fields[3:10]
+    else:
+        summary_fields = result_fields[3:]
+
+    overall_line = ','.join(basic_values + summary_fields) + '\n'
+
+    if output_lock is not None:
+        with output_lock:
+            if not os.path.exists(OVERALL_RESULTS_PATH) or os.path.getsize(OVERALL_RESULTS_PATH) == 0:
+                header_line = ','.join(headers) + '\n'
+                append_local_result(OVERALL_RESULTS_PATH, header_line, output_lock=None)
+            append_local_result(OVERALL_RESULTS_PATH, overall_line, output_lock=None)
+    else:
+        if not os.path.exists(OVERALL_RESULTS_PATH) or os.path.getsize(OVERALL_RESULTS_PATH) == 0:
+            header_line = ','.join(headers) + '\n'
+            append_local_result(OVERALL_RESULTS_PATH, header_line, output_lock=None)
+        append_local_result(OVERALL_RESULTS_PATH, overall_line, output_lock=None)
 
 
 if __name__ == '__main__':
     # settings
 
     parser = argparse.ArgumentParser(description='Run tasks with specified modules.')
-    parser.add_argument('--task', type=str, choices=['alfworld', 'fever', 'pddl', 'sciworld'])
+    parser.add_argument('--task', type=str, nargs='+', choices=['alfworld', 'fever', 'pddl', 'sciworld'], default=['alfworld'], help='One or more tasks to run')
     parser.add_argument('--mas_type', type=str, choices=['autogen','autogen_mas', 'macnet', 'dylan'])
-    parser.add_argument('--mas_memory', type=str, default='none', help='Specify mas memory module')
+    parser.add_argument('--mas_memory', type=str, nargs='+', default=['none'], help='One or more mas memory modules to run')
     parser.add_argument('--reasoning', type=str, default='io', help='Specify reasoning module')
     parser.add_argument('--model', type=str, default='gpt-3.5-turbo-0125', help='Specify the LLM model type')
     parser.add_argument('--max_trials', type=int, default=30, help='max number of steps')
@@ -148,51 +305,22 @@ if __name__ == '__main__':
     parser.add_argument('--threshold', type=float, default=0.0, help='threshold for traj similarity.')
     parser.add_argument('--use_projector', action='store_true', help='whether to use role projector.')
     parser.add_argument('--hop', type=int, default=1, help='hop for traj similarity.')
-    parser.add_argument('--seed', type=int, default=42, help='seed')
+    parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')
+    parser.add_argument('--num_workers', type=int, default=min(72, os.cpu_count() or 1), help='Number of worker processes for parallel experiment execution.')
 
     args = parser.parse_args()
 
-    task: str = args.task
-    mas_type: str = args.mas_type
-    max_trials: int = args.max_trials
-    model_type: str = args.model
-    mas_memory_type: str = args.mas_memory
-    reasoning_type: str = args.reasoning
+    random.seed(args.seed[0])
 
-    seed = args.seed
-    random.seed(seed)
-
-    # dir
-    DB_DIR = './.db-icml'
-    WORKING_DIR = os.path.join(DB_DIR, get_model_type(model_type), task, mas_type, f'{mas_memory_type}')
-    os.makedirs(WORKING_DIR, exist_ok=True)
-
-    # run tasks
-    task_configs: TaskManager = build_task(task, mas_type, mas_memory_type, max_trials)
-    task_configs.mas_config['successful_topk'] = args.successful_topk
-    task_configs.mas_config['failed_topk'] = args.failed_topk
-    task_configs.mas_config['insights_topk'] = args.insights_topk
-    task_configs.mas_config['threshold'] = args.threshold
-    task_configs.mas_config['use_projector'] = args.use_projector
-    task_configs.mem_config.update(
-        working_dir=WORKING_DIR,
-        hop=args.hop
-    )
-
-    build_mas(task_configs, reasoning_type, mas_memory_type, model_type)
-    run_task(task_configs, seed)
-
-    # postprocess
-    completion_tokens, prompt_tokens, _ = get_price()
-    intrinsic_completion_tokens, intrinsic_prompt_tokens = get_intrinsic_price()
-    task_configs.recorder.log(f'completion_tokens:{completion_tokens}, prompt_tokens:{prompt_tokens}, price={completion_tokens*15/1000000+prompt_tokens*5/1000000}')
-    task_configs.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}')
-
-    results, dones, trials = task_configs.recorder.average_results()
-
-    # overall results
-    result_string = f"{model_type},{task},{mas_memory_type},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
-    print(result_string)
-
-    append_local_result(os.path.join(WORKING_DIR, 'results.csv'), result_string)
+    experiments = build_experiment_configs(args)
+    if len(experiments) == 1 or args.num_workers <= 1:
+        for experiment_config in experiments:
+            run_experiment(experiment_config)
+    else:
+        ctx = multiprocessing.get_context('spawn')
+        output_lock = ctx.Lock()
+        with ProcessPoolExecutor(max_workers=min(args.num_workers, len(experiments)), mp_context=ctx) as executor:
+            futures = [executor.submit(run_experiment, experiment_config, output_lock) for experiment_config in experiments]
+            for future in tqdm(as_completed(futures), total=len(futures), desc='Running experiments'):
+                future.result()
 
