@@ -146,11 +146,11 @@ class AutoGen(MetaMAS):
                     description='solver agent',
                 )
             except AgentCallFailed as failure:
-                # Ends this episode only; feedback() below still scores it. Charged
-                # the full budget so an abort cannot look cheaper than an episode
-                # that genuinely ran out of trials.
+                # Ends this episode only; feedback() below still scores it. The
+                # trial count goes unreported: the episode was cut short, so how
+                # many turns the task needed was never established.
                 self.notify_observers(f'Ending episode at trial {i + 1}: {failure}')
-                trials = env.max_trials
+                trials = None
                 break
 
             name: str = solver.name
@@ -173,7 +173,7 @@ class AutoGen(MetaMAS):
                     )
                 except AgentCallFailed as failure:
                     self.notify_observers(f'Ending episode at trial {i + 1}: {failure}')
-                    trials = env.max_trials
+                    trials = None
                     break
                 name: str = ground_truth.name
                 system_instruction = ground_truth.system_instruction

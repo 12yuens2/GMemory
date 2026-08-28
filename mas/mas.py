@@ -42,10 +42,11 @@ class EpisodeResult(NamedTuple):
     """What every workflow's `schedule` returns for one task.
 
     `trials` is the number of trials completed: an episode solved on its first
-    step reports 1, one that exhausts a 30-trial budget reports 30. An episode cut
-    short because an agent could not act is charged the full budget, so aborting
-    can never look cheaper than failing slowly. The trial it actually reached is
-    in the log.
+    step reports 1, one that exhausts a 30-trial budget reports 30. It is None when
+    an agent could not act and the episode was cut short, because how many turns
+    that task needed was never established - aggregates leave those out of the
+    mean rather than counting them as fast or as slow. `reward` and `done` are
+    still real: the task was not solved.
 
     A NamedTuple rather than a dataclass so `reward, done, trials = ...` keeps
     working at call sites outside this repo.
@@ -53,7 +54,7 @@ class EpisodeResult(NamedTuple):
 
     reward: float
     done: bool
-    trials: int
+    trials: Optional[int]
 
 
 @dataclass

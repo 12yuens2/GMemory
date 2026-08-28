@@ -157,15 +157,17 @@ def test_a_failed_agent_scores_the_task_rather_than_dropping_it(mas_type):
 
 
 @pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
-def test_an_aborted_episode_is_charged_the_full_trial_budget(mas_type):
-    """Otherwise an abort on trial 1 reports 1 trial and pulls the mean-trials
-    figure down, making a broken run look more efficient than a working one."""
+def test_an_aborted_episode_reports_no_trial_count(mas_type):
+    """How many turns the task needed was never established, so reporting any
+    number - the trial reached, or the full budget - would be inventing one.
+    Aggregates leave these out of the mean instead."""
     env = FakeEnv(max_trials=5)
     workflow = build_workflow(mas_type, env, replies=[""])
 
     result = workflow.schedule(dict(TASK))
 
-    assert result.trials == 5, "an aborted episode must not look cheaper than a slow failure"
+    assert result.trials is None
+    assert result.done is False, "the task is still scored as unsolved"
     assert any(
         "Ending episode at trial 1" in message for message in workflow.observers[0].messages
     ), "the trial it actually reached still has to be recoverable from the log"
