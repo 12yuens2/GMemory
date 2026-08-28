@@ -3,7 +3,7 @@ import os
 
 from .memory_base import MASMemoryBase
 from .prompt import INTRINSICMEMORY
-from ..common import MASMessage,AgentMessage # a MASMessage, which is a specific type of message used in MAS
+from ..common import MASMessage # a MASMessage, which is a specific type of message used in MAS
 from mas.llm import Message # a "normal" message, not a MASMessage?
 
 @dataclass

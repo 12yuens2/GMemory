@@ -29,13 +29,9 @@ Run:
 """
 
 import os
-import sys
 import pytest
 from unittest.mock import MagicMock
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 # ── skip guard ────────────────────────────────────────────────────────────────
 # Both vars must be real (non-placeholder) values set in the shell.
@@ -47,13 +43,17 @@ _has_real_credentials = (
     and os.getenv("OPENAI_API_KEY") not in (None, _PLACEHOLDER_KEY)
 )
 
-pytestmark = pytest.mark.skipif(
-    not _has_real_credentials,
-    reason=(
-        "Integration tests require real LLM credentials exported as shell env vars: "
-        "OPENAI_API_BASE and OPENAI_API_KEY"
+# `network` keeps these out of the default run; the skipif is the second gate.
+pytestmark = [
+    pytest.mark.network,
+    pytest.mark.skipif(
+        not _has_real_credentials,
+        reason=(
+            "Integration tests require real LLM credentials exported as shell env vars: "
+            "OPENAI_API_BASE and OPENAI_API_KEY"
+        ),
     ),
-)
+]
 
 # ── imports (only reached when credentials are present) ───────────────────────
 from mas.llm import GPTChat

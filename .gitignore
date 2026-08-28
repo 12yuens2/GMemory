@@ -11,8 +11,12 @@ __pycache__
 # environments
 conda-env
 env
+.venv/
 
-#data
+# datasets (the small task manifests under data/ are tracked deliberately)
 data
+
+# run output
+/logs/
 *.out
 tasks/tests/logs

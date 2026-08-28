@@ -86,11 +86,11 @@ class BaseRecorder:
         
         self.start_time = time.time()
 
-        message: str = f"=============== Task Begin ==============="
+        message: str = "=============== Task Begin ==============="
         self.log(message)
 
     def dataset_end(self) -> None:
-        message: str = f"=============== Task End ==============="
+        message: str = "=============== Task End ==============="
 
         end_time = time.time()  
         total_time = end_time - self.start_time

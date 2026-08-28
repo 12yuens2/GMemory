@@ -6,21 +6,14 @@ Run from GMemory root:
     python -m pytest tasks/tests/test_autogen_pddl.py -v --tb=short
 """
 
-import os
-import sys
 import pytest
 from unittest.mock import MagicMock, patch
 
 # ── path setup ────────────────────────────────────────────────────────────────
 # Env vars and dependency stubs are handled by conftest.py in this directory.
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
-from mas.agents import Agent, Env
-from mas.memory.common import AgentMessage
 from mas.memory.mas_memory.intrinsicmemory_notemplate import IntrinsicMASMemoryNoTemplate
-from mas.reasoning import ReasoningBase, ReasoningConfig
+from mas.reasoning import ReasoningBase
 
 from tasks.mas_workflow.autogen.autogen_mas import AutoGen
 from tasks.mas_workflow.autogen.autogen_prompt import AUTOGEN_PROMPT
@@ -582,7 +575,7 @@ class TestScheduleLifecycle:
         ag, _, env = setup
         env.feedback.return_value = (0.75, True, "great job")
         with patch(PATCH_GPTCHAT):
-            reward, done = ag.schedule({"task_main": "t", "task_description": "d"})
+            reward, done, _trials = ag.schedule({"task_main": "t", "task_description": "d"})
         assert reward == 0.75
         assert done is True
 

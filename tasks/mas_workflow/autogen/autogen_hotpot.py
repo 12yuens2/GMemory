@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 
 from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage

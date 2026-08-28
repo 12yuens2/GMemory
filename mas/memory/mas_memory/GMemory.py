@@ -11,7 +11,6 @@ import networkx as nx
 import numpy as np
 from finch import Finch
 import pickle
-import networkx as nx
 import logging
 
 from .memory_base import MASMemoryBase

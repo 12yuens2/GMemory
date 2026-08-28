@@ -8,7 +8,6 @@ dependencies = [
     "annotated-doc==0.0.4",
     "annotated-types==0.7.0",
     "anyio==4.13.0",
-    "attr==0.3.2",
     "attrs==26.1.0",
     "azure-core==1.40.0",
     "azure-identity==1.25.3",
@@ -37,7 +36,7 @@ dependencies = [
     "dotenv==0.9.9",
     "durationpy==0.10",
     "filelock==3.29.0",
-    "finch-api==1.44.1",
+    "finch-clust==0.2.3",
     "flatbuffers==25.12.19",
     "fonttools==4.62.1",
     "fsspec==2026.3.0",
@@ -191,3 +190,68 @@ dependencies = [
     "zipp==3.23.1",
     "zstandard==0.25.0",
 ]
+
+[dependency-groups]
+# Dev environment without CUDA, for running the tests: uv sync --only-group dev
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+    "python-dotenv",
+    "pyyaml",
+    "openai",
+    "networkx",
+    "numpy",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tasks/tests"]
+pythonpath = ["."]
+# Network tests are opt-in: uv run pytest -m network
+addopts = "-ra --strict-markers -m 'not network'"
+markers = [
+    "network: requires a live LLM endpoint and network access; deselected by default",
+]
+
+[tool.uv]
+# Run in place, not installed as a package.
+package = false
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = ["tasks/envs/pddl_env/pddlgym"]  # vendored third-party
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+# Known issues, not rules we disagree with. Each names the phase that removes it.
+[tool.ruff.lint.per-file-ignores]
+
+# E712: `label == True or label == False` is a deliberate tri-state guard -
+# MASMessage.label is Optional[bool]. DO NOT let ruff "fix" these to `if label:`;
+# that stops failed trajectories reaching memory. Phase 5 replaces it with an enum.
+"mas/memory/mas_memory/generative.py" = ["E712"]
+"mas/memory/mas_memory/memorybank.py" = ["E712"]
+"mas/memory/mas_memory/metagpt.py" = ["E712"]
+"mas/memory/mas_memory/voyager.py" = ["E712"]
+"tasks/envs/alfworld_env.py" = ["E712"]
+"mas/memory/mas_memory/GMemory.py" = ["E712", "E722"]  # E722: bare except, Phase 3
+
+# Star imports in the re-export shims and their consumers. Phase 5.
+"mas/agents/__init__.py" = ["F403"]
+"mas/memory/__init__.py" = ["F403"]
+"mas/reasoning/__init__.py" = ["F403"]
+"mas/module_map.py" = ["F403", "F405"]
+"tasks/mas_workflow/macnet/graph_mas.py" = ["F403", "F405"]
+
+# F601: predicate_map has 5 duplicate keys - PDDL domains overwrite each other's
+# predicate wording. Real bug, Phase 3 splits it per domain.
+"tasks/envs/pddl_env/pddl_env.py" = ["F601", "E402"]
+
+# Imports sit after the credentials skip guard on purpose.
+"tasks/tests/test_autogen_mas_integration.py" = ["E402"]
+
+# Dead files with broken bodies. Phase 4 deletes both.
+"tasks/mas_workflow/autogen/autogen_hotpot.py" = ["F821", "F841"]
+"mas/memory/mas_memory/intrinsicmemory_deprecated.py" = ["F841"]

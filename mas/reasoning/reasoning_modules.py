@@ -1,4 +1,4 @@
-from attr import dataclass
+from dataclasses import dataclass
 from mas.llm import LLMCallable, Message
 
 @dataclass

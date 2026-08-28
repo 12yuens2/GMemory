@@ -23,17 +23,12 @@ Derived from run.py's argparse choices:
                intrinsicmemory-notemplate
 """
 
-import os
-import sys
 import pytest
 from unittest.mock import MagicMock, patch
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
 
 from mas.module_map import module_map
-from mas.reasoning import ReasoningBase, ReasoningConfig
+from mas.reasoning import ReasoningBase
 from tasks.mas_workflow.autogen.autogen_mas import AutoGen
 
 # ── constants ─────────────────────────────────────────────────────────────────
@@ -201,13 +196,17 @@ def test_schedule_compatible_with_task_and_memory(task, memory_key, tmp_path):
 
         result = ag.schedule(TASK_CONFIGS[task])
 
-    assert isinstance(result, tuple) and len(result) == 2, (
-        f"[{task}/{memory_key}] schedule() returned {result!r}, expected (float, bool)"
+    # run.py unpacks three: reward, done, trials.
+    assert isinstance(result, tuple) and len(result) == 3, (
+        f"[{task}/{memory_key}] schedule() returned {result!r}, expected (reward, done, trials)"
     )
-    reward, done = result
+    reward, done, trials = result
     assert isinstance(reward, (int, float)), (
         f"[{task}/{memory_key}] reward is {type(reward).__name__}, expected numeric"
     )
     assert isinstance(done, bool), (
         f"[{task}/{memory_key}] done is {type(done).__name__}, expected bool"
+    )
+    assert isinstance(trials, int), (
+        f"[{task}/{memory_key}] trials is {type(trials).__name__}, expected int"
     )
