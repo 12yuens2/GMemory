@@ -126,10 +126,7 @@ class FeverRecorder(BaseRecorder):
     def __post_init__(self):
         super().__post_init__()
         self.task = 'hotpotqa'
-        self.counts = 0
-        self.dones = 0
-        self.rewards = 0
-    
+
     def task_begin(self, task_id: int, task_config: dict):
         super().task_begin(task_id, task_config)
         
@@ -139,13 +136,9 @@ class FeverRecorder(BaseRecorder):
     def task_end(self, episode: EpisodeResult):
         super().task_end(episode)
 
-        self.rewards += episode.reward
-        self.dones += episode.done
-        self.counts += 1
-
-        message = (
-            f'reward: {episode.reward}, ave reward: {self.rewards / self.counts}.\n'
-            f'done: {episode.done}, ave done: {self.dones / self.counts}'
+        averages = self.average_results()
+        self.log(
+            f'reward: {episode.reward}, ave reward: {averages.mean_reward}.\n'
+            f'done: {episode.done}, ave done: {averages.mean_done}'
         )
-        self.log(message)
 

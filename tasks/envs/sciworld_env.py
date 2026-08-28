@@ -189,10 +189,7 @@ class SciworldRecorder(BaseRecorder):
     def __post_init__(self):
         super().__post_init__()
         self.task = 'sciworld'
-        self.counts = 0
-        self.dones = 0
-        self.rewards = 0
-    
+
     def task_begin(self, task_id, task_config):
         super().task_begin(task_id, task_config)
         
@@ -202,12 +199,8 @@ class SciworldRecorder(BaseRecorder):
     def task_end(self, episode: EpisodeResult):
         super().task_end(episode)
 
-        self.rewards += episode.reward
-        self.dones += episode.done
-        self.counts += 1
-
-        message = (
+        averages = self.average_results()
+        self.log(
             f'reward: {episode.reward}, done: {episode.done}.\n'
-            f'ave reward: {self.rewards / self.counts}, ave done: {self.dones / self.counts}'
+            f'ave reward: {averages.mean_reward}, ave done: {averages.mean_done}'
         )
-        self.log(message)

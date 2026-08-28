@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import NamedTuple
 import os
 import logging
@@ -8,6 +8,10 @@ from abc import ABC, abstractmethod
 from mas.agents import Env
 from mas.logging_utils import get_file_logger
 from mas.mas import EpisodeResult
+
+
+def _mean(values: list) -> float:
+    return sum(values) / len(values) if values else 0
 
 class BaseEnv(Env, ABC):
      
@@ -33,15 +37,41 @@ class BaseEnv(Env, ABC):
 
 
 class AggregateResults(NamedTuple):
-    """Means across every task recorded so far.
+    """Means across the episodes recorded so far.
 
-    Separate from EpisodeResult, which describes a single episode: a mean `done`
-    of 0.6 is a rate, not a bool, and the two should not be interchangeable.
+    Three different counts live near each other, so to fix the vocabulary:
+
+    - a **task** is one problem from the dataset. One task produces one episode.
+    - a **trial** is one turn inside an episode: one action sent to the
+      environment. An episode's budget for these is `env.max_trials`.
+    - **episode_count** is how many episodes went into these means. A task whose
+      episode never ran is not among them.
+
+    So `mean_trials` is the average number of turns an episode took, and
+    `mean_done` is a success *rate* - which is why this is not an EpisodeResult,
+    where `done` is a bool for one episode.
+
+    `mean_trials` is averaged only over episodes that reported a trial count. An
+    episode cut short by an agent that could not act reports None, since how many
+    turns that task needed was never established.
     """
 
     mean_reward: float
     mean_done: float
     mean_trials: float
+    episode_count: int
+
+
+def aggregate(episodes: list[EpisodeResult]) -> AggregateResults:
+    """Means over a list of episodes. Zeroes for an empty list."""
+    measured_trials = [episode.trials for episode in episodes if episode.trials is not None]
+
+    return AggregateResults(
+        mean_reward=_mean([episode.reward for episode in episodes]),
+        mean_done=_mean([episode.done for episode in episodes]),
+        mean_trials=_mean(measured_trials),
+        episode_count=len(episodes),
+    )
 
 
 @dataclass
@@ -60,12 +90,9 @@ class BaseRecorder:
         self.logger = get_file_logger(self.file_path, self.file_path, level=logging.DEBUG, echo_console=True)
 
         self.current_task_id: int = None
-        self.current_task_config: dict = field(default_factory=dict)
+        self.current_task_config: dict = {}
 
-        # record total returns and rewards, and number of steps taken (trials)
-        self.total_rewards = []
-        self.total_dones = []
-        self.total_trials = []
+        self.episodes: list[EpisodeResult] = []
 
     def task_begin(self, task_id: int, task_config: dict) -> None:
         
@@ -77,24 +104,11 @@ class BaseRecorder:
         if self.current_task_id is None or self.current_task_config is None:
             raise RuntimeError('The task id or the task config should not be None.')
 
-        self.total_rewards.append(episode.reward)
-        self.total_dones.append(episode.done)
-        self.total_trials.append(episode.trials)
+        self.episodes.append(episode)
 
     def average_results(self) -> AggregateResults:
-        """Means over the tasks recorded so far, zero before the first one."""
-        rewards = 0
-        dones = 0
-        trials = 0
-
-        if self.total_rewards:
-            rewards = sum(self.total_rewards) / len(self.total_rewards)
-        if self.total_dones:
-            dones = sum(self.total_dones) / len(self.total_dones)
-        if self.total_trials:
-            trials = sum(self.total_trials) / len(self.total_trials)
-
-        return AggregateResults(mean_reward=rewards, mean_done=dones, mean_trials=trials)
+        """Means over the episodes recorded so far, zero before the first one."""
+        return aggregate(self.episodes)
         
     def dataset_begin(self) -> None:
         

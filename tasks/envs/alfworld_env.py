@@ -6,7 +6,7 @@ import re
 #from alfworld.agents.environment import get_environment
 from mas.mas import EpisodeResult
 
-from .base_env import BaseEnv, BaseRecorder
+from .base_env import BaseEnv, BaseRecorder, aggregate
 
 prefixes = {  # tasks: task_type
     'pick_and_place': 'put',
@@ -104,8 +104,11 @@ class AlfworldRecorder(BaseRecorder):
         
         super().__post_init__()
         self.task = 'alfworld'
-        self.counts = [0] * 6
-        self.results = [0] * 6
+        # Episodes grouped by ALFWorld task type, for the per-type breakdown in
+        # the log. The overall aggregate comes from BaseRecorder.
+        self.episodes_by_task_type: dict[str, list[EpisodeResult]] = {
+            name: [] for name in prefixes
+        }
 
     def task_begin(self, task_id, task_config):
         super().task_begin(task_id, task_config)
@@ -121,18 +124,9 @@ class AlfworldRecorder(BaseRecorder):
         if env_name is None:
             raise ValueError('Format of the task config is wrong.')
 
-        for i, (k, v) in enumerate(prefixes.items()):
-            if env_name == k:
-                self.results[i] += episode.done
-                self.counts[i] += 1
-                break
+        self.episodes_by_task_type[env_name].append(episode)
 
-        message = f'done: {episode.done}, ave done: {self._average_done_by_task_type()}'
-        self.log(message)
-        self.log("rs: " + str(self.results))
-        self.log("cnts: " + str(self.counts))
-
-    def _average_done_by_task_type(self) -> float:
-        """Success rate across the six ALFWorld task types."""
-        total = sum(self.counts)
-        return sum(self.results) / total if total else 0.0
+        self.log(f'done: {episode.done}, ave done: {self.average_results().mean_done}')
+        for name, episodes in self.episodes_by_task_type.items():
+            if episodes:
+                self.log(f'  {prefixes[name]}: {aggregate(episodes)}')

@@ -12,7 +12,7 @@ from pddlgym.structs import Literal, Predicate
 
 from mas.mas import EpisodeResult
 
-from ..base_env import AggregateResults, BaseEnv, BaseRecorder
+from ..base_env import BaseEnv, BaseRecorder, aggregate
 
 _PUNKT_READY = False
 
@@ -319,75 +319,46 @@ class PDDLRecorder(BaseRecorder):
         super().__post_init__()
 
         self.task = 'pddl'
-        self.cnts: dict[str, int] = {
-            "barman": 0, 
-            "blockworld": 0,
-            "gripper": 0, 
-            "tyreworld": 0
+        # Episodes grouped by PDDL domain, for the per-domain breakdown in the
+        # log. The overall aggregate comes from BaseRecorder: summing per domain
+        # and dividing by the total count gives the same means as averaging over
+        # every episode, so there is nothing for an override to add.
+        self.episodes_by_game: dict[str, list[EpisodeResult]] = {
+            "barman": [],
+            "blockworld": [],
+            "gripper": [],
+            "tyreworld": [],
         }
-        self.dones: dict[str, int] = {
-            "barman": 0, 
-            "blockworld": 0,
-            "gripper": 0, 
-            "tyreworld": 0
-        }
-        self.rewards: dict[str, int] = {
-            "barman": 0, 
-            "blockworld": 0,
-            "gripper": 0, 
-            "tyreworld": 0
-        }
-        self.trials = []
     
     def task_begin(self, task_id, task_config):
         super().task_begin(task_id, task_config)
 
-        game_name: str = self.current_task_config.get('game_name') 
-        if game_name is None:
-            raise ValueError('The task should have an attribute: `game`.')
-            
+        self._current_game_name()
+
         message: str = f'---------- Task: {task_id} ----------'
         self.log(message)
     
     def task_end(self, episode: EpisodeResult):
         super().task_end(episode)
 
-        game_name: str = self.current_task_config.get('game_name') 
+        self.episodes_by_game[self._current_game_name()].append(episode)
+
+        averages = self.average_results()
+        self.log(
+            f'reward: {episode.reward}, done: {episode.done}.\n'
+            f'ave reward: {averages.mean_reward}, ave done: {averages.mean_done}'
+        )
+        for game_name, episodes in self.episodes_by_game.items():
+            if episodes:
+                self.log(f'  {game_name}: {aggregate(episodes)}')
+
+    def _current_game_name(self) -> str:
+        game_name: str = self.current_task_config.get('game_name')
         if game_name is None:
             raise ValueError('The task should have an attribute: `game`.')
-        
-        self.cnts[game_name] += 1
-        self.rewards[game_name] += episode.reward
-        self.dones[game_name] += episode.done
-        self.trials.append(episode.trials)
+        return game_name
 
-        message = (
-            f'reward: {episode.reward}, done: {episode.done}.\n'
-            f'ave reward: {self._get_average_reward()}, ave done: {self._get_average_done()}'
-        )
-        self.log(message)
 
-    
-    def _get_average_reward(self) -> float:
-        total = sum(self.cnts.values())
-        return sum(self.rewards.values()) / total if total else 0.0
-
-    def _get_average_done(self) -> float:
-        total = sum(self.cnts.values())
-        return sum(self.dones.values()) / total if total else 0.0
-
-    def _get_average_trials(self) -> float:
-        return sum(self.trials) / len(self.trials) if self.trials else 0.0
-
-    def average_results(self) -> AggregateResults:
-        """Aggregated across PDDL domains rather than over the flat task list."""
-        return AggregateResults(
-            mean_reward=self._get_average_reward(),
-            mean_done=self._get_average_done(),
-            mean_trials=self._get_average_trials(),
-        )
-    
-        
 # Define the mapping of predicate names to their natural language formats  
 predicate_map = {  
     # Blocks

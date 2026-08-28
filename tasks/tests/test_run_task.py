@@ -111,7 +111,7 @@ def test_every_task_in_the_dataset_is_scheduled(run_task_module, tmp_path):
     run.run_task(manager, seed=42, working_dir=str(tmp_path), task_name="fever")
 
     assert len(mas.scheduled) == 4
-    assert manager.recorder.total_rewards == [1.0] * 4
+    assert [e.reward for e in manager.recorder.episodes] == [1.0] * 4
 
 
 def test_one_result_row_is_written_per_completed_task(run_task_module, tmp_path):
@@ -137,7 +137,7 @@ def test_a_failing_environment_does_not_stop_the_remaining_tasks(run_task_module
     run.run_task(manager, seed=42, working_dir=str(tmp_path), task_name="fever")
 
     assert len(mas.scheduled) == 4, "the four healthy tasks should all have run"
-    assert manager.recorder.total_rewards == [1.0] * 4
+    assert [e.reward for e in manager.recorder.episodes] == [1.0] * 4
 
 
 def test_a_failing_workflow_does_not_stop_the_remaining_tasks(run_task_module, tmp_path):
@@ -149,7 +149,7 @@ def test_a_failing_workflow_does_not_stop_the_remaining_tasks(run_task_module, t
     run.run_task(manager, seed=42, working_dir=str(tmp_path), task_name="fever")
 
     assert len(mas.scheduled) == 4, "every task should have been attempted"
-    assert manager.recorder.total_rewards == [1.0, 1.0], "only the two that ran are scored"
+    assert [e.reward for e in manager.recorder.episodes] == [1.0, 1.0], "only the two that ran are scored"
 
 
 def test_a_failed_task_is_recorded_with_its_error(run_task_module, tmp_path):
@@ -183,7 +183,7 @@ def test_a_failed_task_is_excluded_from_the_averages_not_scored_as_zero(
     assert (averages.mean_reward, averages.mean_done) == (1.0, 1.0), (
         "the mean is over the two tasks that ran"
     )
-    assert len(manager.recorder.total_rewards) == 2
+    assert len(manager.recorder.episodes) == 2
 
 
 def test_the_exclusion_is_stated_loudly(run_task_module, tmp_path, capsys):
@@ -206,7 +206,7 @@ def test_a_dataset_where_every_task_fails_still_finishes(run_task_module, tmp_pa
 
     run.run_task(manager, seed=42, working_dir=str(tmp_path), task_name="fever")
 
-    assert manager.recorder.average_results() == (0, 0, 0)
+    assert manager.recorder.average_results() == (0, 0, 0, 0)
     assert len(read_csv(tmp_path / "failed_tasks.csv")) == 3
 
 
@@ -233,7 +233,7 @@ def test_a_failing_task_is_isolated_whatever_the_task(run_task_module, tmp_path,
 
     assert len(mas.scheduled) == 3, f"[{task}] the three healthy tasks should have run"
     assert len(read_csv(tmp_path / "failed_tasks.csv")) == 1
-    assert len(recorder.total_rewards) == 3
+    assert len(recorder.episodes) == 3
 
 
 @pytest.mark.parametrize("task", sorted(RECORDERS))
@@ -256,6 +256,6 @@ def test_a_task_config_a_recorder_rejects_is_isolated_too(
 
     run.run_task(manager, seed=42, working_dir=str(tmp_path), task_name=task)
 
-    assert len(recorder.total_rewards) >= 2, (
+    assert len(recorder.episodes) >= 2, (
         f"[{task}] the two well-formed tasks should have been scored"
     )

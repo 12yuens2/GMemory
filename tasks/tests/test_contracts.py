@@ -18,7 +18,7 @@ from mas.memory import MASMemoryBase
 from mas.module_map import module_map
 
 from tasks.envs import RECORDERS
-from tasks.envs.base_env import AggregateResults
+from tasks.envs.base_env import AggregateResults, aggregate
 
 from tasks.mas_workflow import MAS
 from tasks.tests.fakes import (
@@ -126,11 +126,9 @@ def test_task_end_accepts_reward_done_and_trials(task, working_dir):
 
     recorder.task_end(EpisodeResult(reward=1.0, done=True, trials=7))
 
-    assert recorder.total_rewards == [1.0], (
-        f"{task}: task_end did not reach BaseRecorder, so total_rewards stayed {recorder.total_rewards}"
+    assert recorder.episodes == [EpisodeResult(reward=1.0, done=True, trials=7)], (
+        f"{task}: task_end did not reach BaseRecorder, episodes are {recorder.episodes}"
     )
-    assert recorder.total_dones == [True]
-    assert recorder.total_trials == [7]
 
 
 @pytest.mark.parametrize("task", sorted(RECORDERS))
@@ -152,7 +150,7 @@ def test_average_results_works_before_any_task_has_ended(task, working_dir):
     """A sweep over an empty task list must report zeros, not divide by zero."""
     recorder = build_recorder(task, working_dir)
 
-    assert recorder.average_results() == (0, 0, 0)
+    assert recorder.average_results() == (0, 0, 0, 0)
 
 
 @pytest.mark.parametrize("task", sorted(RECORDERS))
@@ -245,3 +243,63 @@ def test_an_unsolved_episode_reports_its_whole_budget(mas_type):
 
     assert result.done is False
     assert result.trials == 4
+
+
+# ── what the aggregate is a mean over ─────────────────────────────────────────
+
+def test_aggregate_averages_over_the_episodes_it_is_given():
+    episodes = [
+        EpisodeResult(reward=1.0, done=True, trials=2),
+        EpisodeResult(reward=0.0, done=False, trials=8),
+    ]
+
+    assert aggregate(episodes) == AggregateResults(
+        mean_reward=0.5, mean_done=0.5, mean_trials=5.0, episode_count=2
+    )
+
+
+def test_an_episode_with_no_trial_count_still_counts_towards_reward_and_done():
+    """An aborted episode was not solved, so it belongs in the success rate. What
+    it cannot contribute to is the average number of turns a task takes."""
+    episodes = [
+        EpisodeResult(reward=1.0, done=True, trials=4),
+        EpisodeResult(reward=0.0, done=False, trials=None),
+    ]
+
+    averages = aggregate(episodes)
+
+    assert averages.mean_done == 0.5, "the unsolved episode must pull the rate down"
+    assert averages.episode_count == 2
+    assert averages.mean_trials == 4.0, "the mean turns is over the one episode that reported"
+
+
+def test_an_aggregate_of_nothing_is_zeroes_not_a_division_error():
+    assert aggregate([]) == AggregateResults(0, 0, 0, 0)
+
+
+@pytest.mark.parametrize("task", sorted(RECORDERS))
+def test_episode_count_reports_the_denominator(task, working_dir):
+    """The averages hide their denominator otherwise: a mean over 120 of 134
+    tasks is not comparable to one over all 134."""
+    recorder = build_recorder(task, working_dir)
+    for task_id in range(3):
+        recorder.task_begin(task_id, dict(TASK_CONFIGS[task]))
+        recorder.task_end(EpisodeResult(reward=1.0, done=True, trials=2))
+
+    assert recorder.average_results().episode_count == 3
+
+
+@pytest.mark.parametrize("task", sorted(RECORDERS))
+def test_the_recorder_keeps_the_episodes_it_was_given(task, working_dir):
+    """One list of episodes, rather than parallel lists per field that have to be
+    kept in step."""
+    recorder = build_recorder(task, working_dir)
+    given = [
+        EpisodeResult(reward=1.0, done=True, trials=2),
+        EpisodeResult(reward=0.0, done=False, trials=None),
+    ]
+    for task_id, episode in enumerate(given):
+        recorder.task_begin(task_id, dict(TASK_CONFIGS[task]))
+        recorder.task_end(episode)
+
+    assert recorder.episodes == given
