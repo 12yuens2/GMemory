@@ -30,8 +30,7 @@ with open('tasks/configs.yaml') as reader:
     CONFIG: dict = yaml.safe_load(reader)
 
 WORKING_DIR: str = None
-DB_DIR: str = './.db'
-OVERALL_RESULTS_PATH: str = os.path.join(DB_DIR, 'overall_results.csv')
+DEFAULT_DB_DIR: str = './.db'
 
 @dataclass
 class TaskManager:
@@ -168,6 +167,7 @@ def build_experiment_configs(args) -> list[dict]:
         'use_projector': [args.use_projector],
         'hop': [args.hop],
         'num_workers': [args.num_workers],
+        'db_dir': [args.db_dir],
     }
 
     values = {key: value if isinstance(value, (list, tuple)) else [value] for key, value in params.items()}
@@ -195,11 +195,11 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     threshold = experiment_config['threshold']
     use_projector = experiment_config['use_projector']
     hop = experiment_config['hop']
+    db_dir = experiment_config['db_dir']
 
     # set save dirs
     global WORKING_DIR
-    DB_DIR = './.db-test'
-    WORKING_DIR = os.path.join(DB_DIR, get_model_type(model_type), task_name, mas_type, f'{mas_memory_type}')
+    WORKING_DIR = os.path.join(db_dir, get_model_type(model_type), task_name, mas_type, f'{mas_memory_type}')
     os.makedirs(WORKING_DIR, exist_ok=True)
 
     random.seed(seed)
@@ -241,7 +241,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     print(result_string)
 
     append_local_result(os.path.join(WORKING_DIR, 'results.csv'), result_string, output_lock=output_lock)
-    _write_overall_result(experiment_config, result_string, output_lock=output_lock)
+    _write_overall_result(experiment_config, result_string, db_dir, output_lock=output_lock)
 
     return {
         'task': task_name,
@@ -252,7 +252,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     }
 
 
-def _write_overall_result(experiment_config: dict, result_string: str, output_lock=None) -> None:
+def _write_overall_result(experiment_config: dict, result_string: str, db_dir: str, output_lock=None) -> None:
     headers = [
         'task',
         'mas_type',
@@ -287,18 +287,19 @@ def _write_overall_result(experiment_config: dict, result_string: str, output_lo
         summary_fields = result_fields[3:]
 
     overall_line = ','.join(basic_values + summary_fields) + '\n'
+    overall_results_path = os.path.join(db_dir, 'overall_results.csv')
 
     if output_lock is not None:
         with output_lock:
-            if not os.path.exists(OVERALL_RESULTS_PATH) or os.path.getsize(OVERALL_RESULTS_PATH) == 0:
+            if not os.path.exists(overall_results_path) or os.path.getsize(overall_results_path) == 0:
                 header_line = ','.join(headers) + '\n'
-                append_local_result(OVERALL_RESULTS_PATH, header_line, output_lock=None)
-            append_local_result(OVERALL_RESULTS_PATH, overall_line, output_lock=None)
+                append_local_result(overall_results_path, header_line, output_lock=None)
+            append_local_result(overall_results_path, overall_line, output_lock=None)
     else:
-        if not os.path.exists(OVERALL_RESULTS_PATH) or os.path.getsize(OVERALL_RESULTS_PATH) == 0:
+        if not os.path.exists(overall_results_path) or os.path.getsize(overall_results_path) == 0:
             header_line = ','.join(headers) + '\n'
-            append_local_result(OVERALL_RESULTS_PATH, header_line, output_lock=None)
-        append_local_result(OVERALL_RESULTS_PATH, overall_line, output_lock=None)
+            append_local_result(overall_results_path, header_line, output_lock=None)
+        append_local_result(overall_results_path, overall_line, output_lock=None)
 
 
 if __name__ == '__main__':
@@ -320,6 +321,7 @@ if __name__ == '__main__':
     parser.add_argument('--hop', type=int, default=1, help='hop for traj similarity.')
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')
     parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')
+    parser.add_argument('--db_dir', type=str, default=DEFAULT_DB_DIR, help='Directory to store results, logs, and memory persistence for this run.')
 
     args = parser.parse_args()
 
