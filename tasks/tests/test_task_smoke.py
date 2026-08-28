@@ -1,27 +1,13 @@
 """One episode per (mas_type x task), and the env interface contract.
 
-Phase 1 found six blocking defects. Every one of them sat on a path that no test
-reached, because the 115 tests then in the repository exercised one workflow file
-against one task's worth of stubs. This module walks the matrix instead: for each
-of the four workflows and each of the four tasks it runs the same sequence
-run_task does -
+For each workflow and each task, runs the sequence run_task does -
+dataset_begin, task_begin, schedule, task_end, average_results, dataset_end -
+with the real recorder, prompt module and tasks/configs.yaml, and a fake
+environment and LLM in place of a simulator and an endpoint.
 
-    recorder.dataset_begin()
-    recorder.task_begin(...)
-    mas.schedule(task_config)
-    recorder.task_end(reward, done, trials)
-    recorder.average_results()
-    recorder.dataset_end()
-
-- with the real recorder, the real prompt module and the real tasks/configs.yaml,
-and a fake environment and LLM in place of a simulator and an endpoint. That
-combination is what would have caught the AlfworldRecorder arity bug, the two
-workflows returning the wrong arity, and the MacNet summarize keyword, all in one
-run.
-
-The environments themselves cannot be constructed offline - ALFWorld's is
-commented out, ScienceWorld needs a server, PDDL's needs pddlgym - so their side
-of the contract is asserted against the classes rather than instances.
+The environments cannot be constructed offline (ALFWorld's is commented out,
+ScienceWorld needs a server, PDDL's needs pddlgym), so their side of the contract
+is asserted against the classes rather than instances.
 """
 
 import inspect
@@ -51,7 +37,7 @@ SMOKE_TASK_CONFIGS = {
 }
 
 
-# ── D3 · all four envs share one signature ────────────────────────────────────
+# ── all four envs share one signature ─────────────────────────────────────────
 
 @pytest.mark.parametrize("task", sorted(ENVS))
 def test_every_env_is_a_base_env(task):
@@ -70,11 +56,8 @@ def test_every_env_is_a_base_env(task):
 def test_every_env_declares_the_return_type_its_callers_unpack(task, method, expected_returns):
     """The workflows unpack these positionally, so the arity is the contract.
 
-    Annotations are what is checked here rather than behaviour, because none of
-    the four environments can be constructed without its simulator. An annotation
-    is a weaker guarantee than a call, but it is the one that was wrong on
-    schedule() - both AutoGen workflows returned three values and annotated two -
-    so keeping the annotations honest has caught real defects here.
+    Annotations rather than behaviour, since no environment constructs without its
+    simulator. A weaker guarantee than a call, but it is the guarantee available.
     """
     signature = inspect.signature(getattr(ENVS[task], method))
 
@@ -94,8 +77,7 @@ def test_every_env_accepts_a_config_and_a_trial_budget(task):
 
 @pytest.mark.parametrize("task", sorted(ENVS))
 def test_process_action_does_not_need_an_instance(task):
-    """The workflows call env.process_action, but BaseEnv declares it a
-    classmethod and two of the four implement it as a staticmethod."""
+    """BaseEnv declares it a classmethod; two of the four use staticmethod."""
     assert callable(ENVS[task].process_action)
 
 
@@ -150,8 +132,7 @@ def test_one_episode_runs_end_to_end(mas_type, task, tmp_path):
 @pytest.mark.parametrize("mas_type", sorted(MAS))
 @pytest.mark.parametrize("task", sorted(RECORDERS))
 def test_an_episode_that_never_solves_still_records_a_result(mas_type, task, tmp_path):
-    """The trial budget has to be a bound, not a hope. A task that never reports
-    done must still leave a row for the CSV rather than hanging or raising."""
+    """The trial budget is a bound: an unsolved task still leaves a result."""
     task_config = dict(SMOKE_TASK_CONFIGS[task])
     recorder = RECORDERS[task](working_dir=str(tmp_path), namespace=f"{task}-unsolved")
     env = FakeEnv(max_trials=3, steps_to_done=99)

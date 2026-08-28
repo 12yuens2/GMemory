@@ -1,10 +1,7 @@
-"""Settings are resolved on demand, not at import (test plan item, Phase 2 step 6).
+"""Settings are resolved on demand, not at import.
 
-mas/llm.py used to read os.environ["OPENAI_API_BASE"] and
-load_config("configs/configs.yaml") while being imported. So importing mas
-required credentials, the config path was relative to the working directory, and
-import order was load-bearing - mas/__init__.py had to run first because it was
-what loaded .env. tasks/tests/conftest.py existed to work around it.
+Importing mas must need no credentials and no particular working directory, and a
+missing variable must say which one it is.
 """
 
 import subprocess
@@ -33,15 +30,12 @@ def clean_settings_cache():
 
 
 def test_the_config_path_is_absolute_and_exists():
-    """It was "configs/configs.yaml", which bound the process to one directory."""
     assert DEFAULT_CONFIG_PATH.is_absolute()
     assert DEFAULT_CONFIG_PATH.exists()
     assert DEFAULT_ENV_PATH.is_absolute()
 
 
 def test_missing_credentials_name_themselves(monkeypatch, tmp_path):
-    """os.environ[...] raised a bare KeyError, and mas/__init__.py's
-    os.environ[x] = os.getenv(x) raised TypeError - neither said what to set."""
     monkeypatch.delenv("OPENAI_API_BASE", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr("mas.settings.DEFAULT_ENV_PATH", tmp_path / "absent.env")
@@ -82,14 +76,12 @@ def test_the_defaults_survive_a_config_with_no_llm_block(monkeypatch, tmp_path):
 
 
 def test_the_default_settings_are_loaded_once_per_process():
-    """A sweep builds a GPTChat per experiment and per memory reset; none of them
-    should re-read the config file."""
+    """A sweep builds a GPTChat per experiment and per memory reset."""
     assert default_llm_settings() is default_llm_settings()
 
 
 def test_importing_mas_llm_needs_no_credentials_and_no_working_directory():
-    """The real regression guard: a subprocess with the variables stripped,
-    started somewhere other than the repository root."""
+    """A subprocess with the variables stripped, started outside the repo."""
     result = subprocess.run(
         [sys.executable, "-c", f"import sys; sys.path.insert(0, {str(REPO_ROOT)!r}); import mas.llm"],
         cwd="/",

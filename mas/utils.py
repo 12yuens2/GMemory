@@ -59,8 +59,7 @@ class EmbeddingFunc:
     model_type: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     def __post_init__(self):
-        # Imported here, not at module scope: sentence_transformers pulls torch,
-        # which on Linux pulls the whole CUDA stack.
+        # Imported lazily: sentence_transformers pulls in torch.
         from sentence_transformers import SentenceTransformer
 
         if self.model_type not in _EMBEDDING_MODEL_CACHE:

@@ -1,15 +1,10 @@
-"""Contract tests across the registries (test plan group D).
+"""Contract tests across the registries.
 
-Every blocking defect found in the Phase 1 review was one member of a family
-disagreeing with its siblings: a recorder with the wrong arity, two workflows
-returning two values where the caller unpacks three, a memory module rejecting a
-keyword its base class swallowed. Asserting the family contract once, over the
-registry, is what catches the next one - a test written against a single
-implementation cannot.
+Each family - workflows, recorders, memory modules - has one contract its callers
+rely on, asserted here once over the whole family rather than per implementation.
 
-These tests deliberately read the registries (`MAS`, `RECORDERS`, `ENVS`) rather
-than hard-coded lists, so a new implementation is covered the moment it is
-registered.
+These read the registries (`MAS`, `RECORDERS`, `ENVS`) rather than hard-coded
+lists, so a new implementation is covered the moment it is registered.
 """
 
 import numbers
@@ -70,11 +65,7 @@ def build_workflow(mas_type: str, env: FakeEnv, memory_cls=MASMemoryBase, replie
 
 @pytest.mark.parametrize("mas_type", sorted(MAS))
 def test_schedule_returns_the_episode_result_run_py_unpacks(mas_type):
-    """schedule() must return what run.py:131 reads: reward, done and trials.
-
-    DyLAN and MacNet returned a 2-tuple here, so `--mas_type dylan` and
-    `--mas_type macnet` died on the first completed task with a ValueError.
-    """
+    """schedule() must return what run.py reads: reward, done and trials."""
     env = FakeEnv(max_trials=2, steps_to_done=1)
     workflow = build_workflow(mas_type, env)
 
@@ -90,11 +81,9 @@ def test_schedule_returns_the_episode_result_run_py_unpacks(mas_type):
 
 @pytest.mark.parametrize("mas_type", sorted(MAS))
 def test_schedule_result_still_unpacks_positionally(mas_type):
-    """The NamedTuple keeps `reward, done, trials = schedule(...)` working.
+    """`reward, done, trials = schedule(...)` must keep working.
 
-    Analysis notebooks and Slurm wrappers outside this repo unpack the result
-    positionally; that is why EpisodeResult is a NamedTuple and not a plain
-    dataclass.
+    Call sites outside this repo unpack the result positionally.
     """
     env = FakeEnv(max_trials=2, steps_to_done=1)
     workflow = build_workflow(mas_type, env)
@@ -130,11 +119,7 @@ def build_recorder(task: str, working_dir: str):
 
 @pytest.mark.parametrize("task", sorted(RECORDERS))
 def test_task_end_accepts_reward_done_and_trials(task, working_dir):
-    """run.py:132 calls task_end(reward, done, trials) on every recorder.
-
-    AlfworldRecorder took two arguments, so --task alfworld - the argparse
-    default - raised TypeError on the first completed task.
-    """
+    """run.py calls task_end(reward, done, trials) on every recorder."""
     recorder = build_recorder(task, working_dir)
     recorder.task_begin(0, dict(TASK_CONFIGS[task]))
 
@@ -163,10 +148,7 @@ def test_average_results_returns_three_numerics(task, working_dir):
 
 @pytest.mark.parametrize("task", sorted(RECORDERS))
 def test_average_results_works_before_any_task_has_ended(task, working_dir):
-    """A sweep over an empty task list must report zeros, not divide by zero.
-
-    Both AlfworldRecorder and PDDLRecorder divided by a count that starts at 0.
-    """
+    """A sweep over an empty task list must report zeros, not divide by zero."""
     recorder = build_recorder(task, working_dir)
 
     rewards, dones, trials = recorder.average_results()
@@ -202,9 +184,8 @@ MEMORY_KEYS = [
 ]
 
 
-# g-memory is the one registered module the matrix cannot drive: it persists
-# through langchain_chroma, which this suite stubs. Excluded here so the omission
-# is stated rather than silent.
+# g-memory persists through langchain_chroma, which this suite stubs, so it cannot
+# be driven offline. Named here so the omission is explicit.
 UNTESTABLE_OFFLINE = {"g-memory"}
 
 
@@ -212,7 +193,7 @@ def test_the_memory_matrix_covers_every_registered_module():
     """Fails when a module is added to module_map but not to MEMORY_KEYS.
 
     module_map exposes no registry, but its error message lists every allowed
-    value, which is enough to compare against.
+    value.
     """
     with pytest.raises(ValueError, match="Allowed values") as raised:
         module_map("io", "not-a-memory-module")
@@ -226,13 +207,10 @@ def test_the_memory_matrix_covers_every_registered_module():
 @pytest.mark.parametrize("mas_type", sorted(MAS))
 @pytest.mark.parametrize("memory_key", MEMORY_KEYS)
 def test_every_memory_module_survives_every_workflow(mas_type, memory_key):
-    """The summarize() keyword contract, across the whole matrix.
+    """Every memory module must survive an episode driven by any workflow.
 
-    MacNet called summarize(upstream_agent_ids=None). MASMemoryBase.summarize
-    took **kargs and swallowed it, but IntrinsicMASMemory declares real
-    parameters and raised TypeError - so all six intrinsic modules were broken
-    under --mas_type macnet, and the **kargs on the base is exactly why nobody
-    noticed: it made every keyword look valid at the call site.
+    Mostly this exercises the summarize() keyword contract, which is the one
+    place the workflows and the memory modules have to agree.
     """
     _, memory_cls = module_map("io", memory_key)
     env = FakeEnv(max_trials=2, steps_to_done=1)
@@ -248,8 +226,7 @@ def test_every_memory_module_survives_every_workflow(mas_type, memory_key):
 @pytest.mark.parametrize("mas_type", sorted(MAS))
 @pytest.mark.parametrize("steps_to_done, expected_trials", [(1, 1), (2, 2), (3, 3)])
 def test_trials_counts_the_trials_completed(mas_type, steps_to_done, expected_trials):
-    """It was `trials = i`, a zero-based loop index, so an episode solved on its
-    first step reported 0 and every mean-trials figure was one low."""
+    """trials is a count of completed trials, not a loop index."""
     env = FakeEnv(max_trials=5, steps_to_done=steps_to_done)
     workflow = build_workflow(mas_type, env)
 
@@ -268,4 +245,4 @@ def test_an_unsolved_episode_reports_its_whole_budget(mas_type):
     result = workflow.schedule({"task_main": "m", "task_description": "d", "few_shots": []})
 
     assert result.done is False
-    assert result.trials == 4, "an episode that used its whole budget used 4 trials, not 3"
+    assert result.trials == 4

@@ -17,9 +17,9 @@ from datetime import datetime
 class LLMCallFailed(RuntimeError):
     """Every retry of an LLM call was exhausted without a usable answer.
 
-    Previously this returned "", indistinguishable from a model that genuinely
-    answered with nothing. That ambiguity is what made the agent retry loops spin:
-    they treated "" as "try again", and an API error produced "" on every attempt.
+    Distinct from a model that answered with an empty string, which is returned
+    as the answer it is. Callers need to tell the two apart to decide whether
+    retrying could help.
     """
 
 
@@ -45,9 +45,7 @@ class Message:
     role: Literal["system", "user", "assistant"]
     content: str
 
-# None means "whatever the settings say"; these used to be module constants read
-# from configs.yaml at import time, which bound the process to one working
-# directory before any caller had a say.
+# None on any of these means "whatever the settings say".
 class LLMCallable(Protocol):
 
     def __call__(
@@ -87,8 +85,6 @@ class GPTChat(LLM):
         settings: Optional[LLMSettings] = None,
     ):
         super().__init__(model_name=model_name)
-        # Credentials are read here, on first construction, rather than when this
-        # module is imported - so importing mas needs no environment at all.
         self.settings: LLMSettings = settings if settings is not None else default_llm_settings()
         self.client = OpenAI(
             base_url=self.settings.api_base,
@@ -149,8 +145,6 @@ class GPTChat(LLM):
                 if "rate limit" in error_message.lower() or "429" in error_message:
                     print(f"Rate limited, waiting {wait_time}s before retry {attempt + 2}/{max_retries}", file=sys.stderr)
                     time.sleep(wait_time)
-                    # The wait was fixed at 1s for every retry, so five attempts
-                    # took five seconds and gave a throttled endpoint no room.
                     wait_time *= 2
                 else:
                     print(f"Error during API call: {error_message}", file=sys.stderr)

@@ -131,6 +131,6 @@ class AlfworldRecorder(BaseRecorder):
         self.log("cnts: " + str(self.counts))
 
     def _average_done_by_task_type(self) -> float:
-        """Success rate across the six ALFWorld task types this recorder breaks out."""
+        """Success rate across the six ALFWorld task types."""
         total = sum(self.counts)
         return sum(self.results) / total if total else 0.0

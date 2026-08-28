@@ -12,15 +12,15 @@ from pddlgym.structs import Literal, Predicate
 
 from ..base_env import BaseEnv, BaseRecorder
 
-# nltk.word_tokenize needs the punkt tokeniser. This used to be two unconditional
-# nltk.download calls: one at module scope, so importing tasks.envs reached the
-# network for every task and not just PDDL, and one inside set_env, so it ran again
-# for every task in the dataset. Now it runs at most once per process, only when a
-# PDDL environment is actually built, and only if the data is not already present.
 _PUNKT_READY = False
 
 
 def ensure_punkt_tokeniser() -> None:
+    """Fetch the punkt tokenisers nltk.word_tokenize needs, at most once.
+
+    Called when a PDDL environment is built rather than at import, so importing
+    the env registry never touches the network.
+    """
     global _PUNKT_READY
     if _PUNKT_READY:
         return

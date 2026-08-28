@@ -1,19 +1,15 @@
-"""run_task's loop over a dataset (test plan group C, partial).
+"""run_task's loop over a dataset.
 
-The sweep runner had no tests. Every fixture here drives the real run_task with a
-fake environment, workflow and LLM, so the loop, the failure handling and the
-per-task CSV row are exercised rather than described.
+Drives the real run_task with a fake environment, workflow and LLM.
 
-The failure behaviour these tests pin is deliberately split in two:
+Failure handling is split in two, and both are pinned here:
 
   - an agent that cannot produce an action is handled inside schedule, where the
-    trial count is known, and the task IS scored - as unsolved;
-  - anything around the episode (set_env, prompt assembly, the recorder) is
-    recorded and NOT scored, because an environment fault is not an episode
-    outcome and does not belong in the reward column.
+    trial count is known, and the task IS scored, as unsolved;
+  - a fault around the episode (set_env, prompt assembly, the recorder) is
+    recorded and NOT scored, since it is not an episode outcome.
 
-Either way the next task in the dataset runs. Before this, both killed the whole
-experiment.
+Either way the next task in the dataset runs.
 """
 
 import csv
@@ -28,8 +24,8 @@ from tasks.tests.fakes import FakeEnv
 
 
 class StubMAS:
-    """Stands in for a built workflow: run_task only reaches .env, .agents_team
-    and .schedule."""
+    """Stands in for a built workflow: run_task reaches .env, .agents_team and
+    .schedule."""
 
     def __init__(self, env, outcomes=None, fail_on=()):
         self.env = env
@@ -66,8 +62,7 @@ class ExplodingEnv(FakeEnv):
 
 @pytest.fixture
 def run_task_module(monkeypatch):
-    """run.py reads tasks/configs.yaml at import and needs credentials for the
-    sweep entry point, neither of which this module's tests should depend on."""
+    """run.py reads tasks/configs.yaml at import; these tests supply their own."""
     import importlib
     import sys
 
@@ -126,10 +121,9 @@ def test_one_result_row_is_written_per_completed_task(run_task_module, tmp_path)
     assert len(rows) == 3
 
 
-# ── C4 · one failing task does not kill the experiment ────────────────────────
+# ── one failing task does not stop the rest ───────────────────────────────────
 
 def test_a_failing_environment_does_not_stop_the_remaining_tasks(run_task_module, tmp_path):
-    """A simulator that fails to load one task used to abandon the rest."""
     run = run_task_module
     tasks = [{"task": f"claim {i}"} for i in range(5)]
     mas = StubMAS(ExplodingEnv(fail_on=(2,)))
@@ -172,8 +166,7 @@ def test_a_failed_task_is_recorded_with_its_error(run_task_module, tmp_path):
 def test_a_failed_task_is_excluded_from_the_averages_not_scored_as_zero(
     run_task_module, tmp_path
 ):
-    """An environment fault is not an episode outcome. Scoring it 0 would put
-    infrastructure noise in the reward column."""
+    """An environment fault is not an episode outcome, so it is not scored."""
     run = run_task_module
     tasks = [{"task": f"claim {i}"} for i in range(3)]
     mas = StubMAS(ExplodingEnv(fail_on=(0,)))
@@ -187,8 +180,7 @@ def test_a_failed_task_is_excluded_from_the_averages_not_scored_as_zero(
 
 
 def test_the_exclusion_is_stated_loudly(run_task_module, tmp_path, capsys):
-    """results.csv does not say how many tasks are behind its mean, so the log
-    and stderr have to."""
+    """results.csv does not record how many tasks are behind its mean."""
     run = run_task_module
     tasks = [{"task": f"claim {i}"} for i in range(4)]
     mas = StubMAS(ExplodingEnv(fail_on=(0, 3)))

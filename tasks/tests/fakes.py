@@ -1,10 +1,9 @@
 """Fakes shared by the contract and smoke tests.
 
-Everything here stands in for something that needs a network, a GPU or a
-simulator binary, so the suite can exercise real workflow, recorder and memory
-code paths offline. Nothing here is a mock with recorded expectations - each
-fake is a working, minimal implementation of the interface the production code
-is entitled to assume.
+Each one stands in for something needing a network, a GPU or a simulator binary,
+so the real workflow, recorder and memory code paths can run offline. These are
+working minimal implementations of the interfaces the production code expects,
+not mocks with recorded expectations.
 """
 
 import hashlib
@@ -20,12 +19,10 @@ class RunawayLoop(AssertionError):
 class FakeLLM:
     """A GPTChat stand-in that returns scripted replies and counts tokens.
 
-    `replies` is cycled, so a single-element list is an always-the-same LLM and
-    an empty string is the failure the retry loops are built around.
+    `replies` is cycled, so a single-element list is an always-the-same LLM.
 
-    `max_calls` is a runaway guard, not a behaviour: it turns a test that would
-    hang on an unbounded retry loop into one that fails in milliseconds with a
-    message naming the cause.
+    `max_calls` is a runaway guard rather than a behaviour: it turns a test that
+    would otherwise hang into one that fails immediately, naming the cause.
     """
 
     def __init__(self, replies=None, model_name="fake-model", tracker=None, max_calls=200):
@@ -93,9 +90,8 @@ class FakeEnv:
 class FakeEmbeddingFunc:
     """A deterministic embedding, so cosine similarity is real arithmetic.
 
-    DyLAN's edge weighting feeds these vectors straight into np.dot and
-    np.linalg.norm, so a MagicMock would not do - this returns actual floats
-    derived from a hash of the text, which is stable across runs and processes.
+    Callers feed these vectors into np.dot and np.linalg.norm, so the values have
+    to be floats. Derived from a hash of the text, and stable across processes.
     """
 
     dims = 16

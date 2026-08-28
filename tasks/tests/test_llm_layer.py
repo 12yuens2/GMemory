@@ -1,13 +1,10 @@
-"""GPTChat's failure and retry behaviour (test plan item E3).
+"""GPTChat's failure and retry behaviour.
 
-GPTChat returned "" when its retries ran out, which is indistinguishable from a
-model that answered with nothing. That single ambiguity is what kept the agent
-retry loops alive: they read "" as "try again", and a persistent API error
-produced "" on every attempt, so the loop had nothing to terminate on.
+The property under test is that an exhausted retry budget is distinguishable from
+a model that answered with nothing.
 
-Everything here drives a fake OpenAI client. No network is touched, and no wall
-clock time is spent - time.sleep is patched out, since the point of the test is
-the retry accounting, not the delay.
+Everything here drives a fake OpenAI client, with time.sleep patched out: the
+subject is the retry accounting, not the delay.
 """
 
 from types import SimpleNamespace
@@ -55,7 +52,7 @@ def no_sleeping():
         yield
 
 
-# ── E3 · exhausted retries are distinguishable from an empty answer ───────────
+# ── exhausted retries are distinguishable from an empty answer ───────────────
 
 def test_a_persistent_api_error_raises_rather_than_returning_empty_string():
     chat, _ = build_chat([RuntimeError("500 internal server error")])
@@ -75,8 +72,7 @@ def test_the_underlying_api_error_is_kept_as_the_cause():
 
 
 def test_a_model_that_answers_with_nothing_is_not_an_error():
-    """An empty string is a real answer and is returned as one; the caller's
-    retry helper decides whether it is usable."""
+    """An empty string is a real answer; the caller decides if it is usable."""
     chat, _ = build_chat([""])
 
     assert chat(PROMPT) == ""
@@ -112,9 +108,7 @@ def test_a_rate_limit_error_is_retried_with_a_growing_wait():
 
     assert len(completions.calls) == 5
     waits = [call.args[0] for call in sleep.call_args_list]
-    assert waits == [1, 2, 4, 8, 16], (
-        f"waited {waits}; a fixed 1s wait gave a throttled endpoint no room to recover"
-    )
+    assert waits == [1, 2, 4, 8, 16], f"waited {waits}, expected a doubling backoff"
 
 
 def test_a_rate_limit_that_clears_returns_the_answer():
@@ -137,9 +131,7 @@ def test_usage_is_recorded_on_the_shared_tracker():
 
 
 def test_an_intrinsic_call_is_billed_to_the_intrinsic_columns_too():
-    """intrinsic=True is the only route to the intrinsic_* columns written to
-    every result CSV. No memory module passes it today, which is why those
-    columns are always zero - recorded as a Phase 3 finding."""
+    """intrinsic=True is the only route to the intrinsic_* columns."""
     tracker = TokenTracker()
     chat, _ = build_chat(["updated memory"], tracker=tracker)
 

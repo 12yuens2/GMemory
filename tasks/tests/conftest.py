@@ -14,10 +14,7 @@ from pathlib import Path
 from datetime import datetime
 from unittest.mock import MagicMock
 
-# Importing mas no longer needs credentials - mas.settings reads them when a
-# GPTChat is first constructed. These are here only so a test that does construct
-# one gets an endpoint it will never reach rather than a real one from a
-# developer's .env.
+# An endpoint no test will reach, so a developer's .env cannot leak into a run.
 os.environ["OPENAI_API_BASE"] = "http://localhost:9999"
 os.environ["OPENAI_API_KEY"] = "test-key"
 
@@ -27,9 +24,8 @@ def _stub_module(name: str):
         sys.modules[name] = MagicMock()
 
 
-# The task environments import their simulators at module scope, so importing the
-# env/recorder registry offline needs these stubbed. nltk in particular downloads a
-# tokeniser at import time, which a test run must not depend on.
+# The task environments import their simulators at module scope, so the env and
+# recorder registries need these stubbed to be importable offline.
 for _mod in (
     "langchain_chroma",
     "langchain_core",

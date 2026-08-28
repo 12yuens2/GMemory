@@ -10,40 +10,27 @@ from .memory import MASMemoryBase
 class AgentCallFailed(RuntimeError):
     """An agent could not produce a usable action within its retry budget.
 
-    Not the same thing as a failed LLM call, though that is the usual cause.
-    Every one of these spends the budget and ends here:
+    Broader than a failed LLM call, though that is the usual cause. The endpoint
+    failing, the model answering with an empty string every time, and
+    env.process_action rejecting every answer all end here; `__cause__` carries
+    which.
 
-      - the endpoint failed, so GPTChat raised LLMCallFailed on all 5 of its
-        own retries (infrastructure);
-      - the model answered with an empty string every time (model behaviour);
-      - env.process_action raised on every answer (a parse or environment
-        mismatch, not a network problem).
-
-    `__cause__` carries whichever it was.
-
-    Raised instead of falling through with `action` unbound, which is what the
-    hand-written retry loops did - the resulting NameError masked the original
-    failure entirely.
-
-    Scope: this ends one episode, not the experiment. The workflows catch it
-    inside their trial loop, so the task is scored as unsolved with an accurate
-    trial count and the sweep moves to the next task. See the catch sites in
-    tasks/mas_workflow/autogen/.
+    Scope is one episode, not the experiment: the workflows catch it inside their
+    trial loop so the task is scored as unsolved and the sweep continues.
     """
 
 
 class RetryAgentCall(Exception):
     """Raised by an attempt that wants another try, spending one from the budget.
 
-    Used where a workflow rejects its own agent's answer - AutoGenMAS re-prompts
-    the solver when the validator returns INVALID - so that path is counted like
-    any other failed attempt rather than looping without limit.
+    For a workflow that rejects its own agent's answer, such as AutoGenMAS
+    re-prompting its solver on an INVALID validator verdict.
 
     `fallback` is a thunk producing the action the attempt would not accept. If
-    the budget runs out it is called and its action used, rather than failing the
-    episode: an action a reviewer disliked can still be sent to the environment,
-    whereas an empty one cannot. It is a thunk and not a string so that nothing
-    is computed on the retry path, where the action is about to be discarded.
+    the budget runs out it is called and its action used rather than failing the
+    episode: a disputed action can still be sent to the environment, an empty one
+    cannot. A thunk rather than a string so nothing is computed on the retry path,
+    where the action is discarded anyway.
     """
 
     def __init__(self, reason: str, fallback: Optional[Callable[[], str]] = None):
@@ -54,18 +41,13 @@ class RetryAgentCall(Exception):
 class EpisodeResult(NamedTuple):
     """What every workflow's `schedule` returns for one task.
 
-    A NamedTuple rather than a plain dataclass so `reward, done, trials = ...`
-    keeps working at call sites outside this repo (analysis notebooks, Slurm
-    wrappers) while the fields finally have names.
-
     `trials` is the number of trials completed: an episode solved on its first
-    step reports 1, and one that exhausts a 30-trial budget reports 30. It was
-    `trials = i`, the zero-based loop index, so every number was one low and a
-    solved-immediately episode reported 0 trials taken.
+    step reports 1, one that exhausts a 30-trial budget reports 30. An episode cut
+    short by an agent that could not act reports the trials that completed, not
+    the one it failed on.
 
-    An episode that ends early because an agent could not act reports the trials
-    that did complete, not the one it failed on - so 0 when the very first agent
-    call fails.
+    A NamedTuple rather than a dataclass so `reward, done, trials = ...` keeps
+    working at call sites outside this repo.
     """
 
     reward: float
@@ -80,8 +62,6 @@ class MetaMAS:
     agents_team: Dict[str, Agent] = field(default_factory=dict)  
     env: Optional[Env] = None  
     meta_memory: Optional[MASMemoryBase] = None  
-    # Declared here because _call_agent_with_retries reports through it; the four
-    # workflows each carried an identical copy of the two methods below.
     observers: list = field(default_factory=list)  
     
     def hire(self, agents: Iterable[Agent]) -> None:
@@ -113,22 +93,12 @@ class MetaMAS:
     ) -> str:
         """Call `attempt` until it yields a non-empty action, at most max_tries times.
 
-        Every route through the loop spends one try. The four hand-written copies
-        of this loop each incremented their counter at the bottom of the body and
-        reached it only on the exception path: an empty response hit
-        `if action == '': continue`, which jumped straight over the increment. So
-        `while tries < 3` never terminated for an LLM that kept returning "" -
-        and GPTChat returned "" on any non-rate-limit API error, the condition
-        most likely to persist. A failing backend hung the experiment instead of
-        failing it, with the ProcessPoolExecutor parent waiting on
-        future.result() with no timeout.
+        Every route through the loop spends one try: an empty answer, a raised
+        exception and a RetryAgentCall all count.
 
-        On exhaustion, the last action a RetryAgentCall offered as a fallback is
-        used, so a persistently rejected but non-empty action still advances the
-        episode. With no fallback there is nothing to act on, and AgentCallFailed
-        reaches the experiment boundary run.py already records - rather than
-        leaving the caller's `action` unbound and raising NameError, which masked
-        whatever the original failure was.
+        On exhaustion, the last fallback a RetryAgentCall offered is used, so a
+        persistently rejected but non-empty action still advances the episode.
+        With no fallback there is nothing to act on and AgentCallFailed is raised.
         """
         last_error: Optional[BaseException] = None
         fallback: Optional[str] = None

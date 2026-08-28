@@ -1,10 +1,7 @@
-"""The PDDL tokeniser download is scoped to PDDL (new finding, Phase 2).
+"""The PDDL tokeniser download is scoped to PDDL.
 
-pddl_env.py called nltk.download twice unconditionally: once at module scope, so
-importing tasks.envs reached the network for every task and not just PDDL, and
-once inside set_env, so it ran again for every task in the dataset. run.py imports
-the env registry regardless of --task, so an ALFWorld sweep downloaded a PDDL
-tokeniser, and an offline machine could not import the registry at all.
+run.py imports the env registry regardless of --task, so importing it must not
+reach the network, and the download must not repeat per task.
 """
 
 import importlib
@@ -29,7 +26,7 @@ def nltk_spy(monkeypatch):
 
 
 def test_importing_the_module_downloads_nothing(nltk_spy):
-    """The whole point: tasks.envs must be importable without a network."""
+    """tasks.envs must be importable without a network."""
     spy, _ = nltk_spy
 
     spy.download.assert_not_called()
@@ -45,7 +42,6 @@ def test_the_tokeniser_is_fetched_when_a_pddl_env_is_actually_built(nltk_spy):
 
 
 def test_it_is_fetched_at_most_once_per_process(nltk_spy):
-    """It used to run once per task in the dataset."""
     spy, module = nltk_spy
 
     module.ensure_punkt_tokeniser()

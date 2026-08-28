@@ -1,27 +1,10 @@
-"""The agent retry budget (test plan items B2, B3, E3).
+"""The agent retry budget.
 
-Each workflow used to carry its own copy of
+Two properties: the budget is spent on every route through the loop, and running
+out of it ends one episode rather than the sweep.
 
-    tries = 0
-    while tries < 3:
-        try:
-            action = agent.response(...)
-            if action == '':
-                continue          # <- jumps past the increment below
-            action = env.process_action(action)
-            break
-        except Exception as e:
-            print(...)
-        tries += 1
-
-The `continue` skipped `tries += 1`, so an agent that kept returning "" spun
-without limit - and GPTChat returned "" on any non-rate-limit API error, which is
-the failure most likely to persist. The parent process waited on
-`future.result()` with no timeout, so one bad endpoint hung a whole sweep.
-
-Every test here that exercises the empty-response path is written against a fake
-with a call ceiling, so the unbounded version fails in milliseconds rather than
-hanging the suite.
+Tests exercising the empty-response path use a fake with a call ceiling, so an
+unbounded loop fails in milliseconds instead of hanging the suite.
 """
 
 import pytest
@@ -51,7 +34,7 @@ def harness():
     return mas
 
 
-# ── the budget is spent on every path, not just the exception path ─────────────
+# ── the budget is spent on every path ─────────────────────────────────────────
 
 def test_an_empty_response_spends_a_try(harness):
     attempts = []
@@ -105,9 +88,8 @@ def test_a_late_success_is_returned(harness):
     assert len(attempts) == 3
 
 
-def test_exhaustion_raises_rather_than_leaving_the_action_unbound(harness):
-    """The caller used to fall through to AgentMessage(message=action) with
-    `action` never bound, so the real failure surfaced as a NameError."""
+def test_exhaustion_raises_rather_than_returning_nothing(harness):
+    """A caller must never be handed an unusable action, or none at all."""
     with pytest.raises(AgentCallFailed, match="produced no usable action in 3 attempts"):
         harness._call_agent_with_retries(lambda: "", description="solver agent")
 
@@ -123,7 +105,7 @@ def test_the_underlying_error_is_kept_as_the_cause(harness):
 
 
 def test_a_rejected_action_is_used_once_the_budget_runs_out(harness):
-    """A reviewer-rejected action is still an action; only an empty one is not."""
+    """A reviewer-rejected action is still an action; an empty one is not."""
     calls = []
 
     def rejected():
@@ -133,12 +115,10 @@ def test_a_rejected_action_is_used_once_the_budget_runs_out(harness):
     assert len(calls) == 1, "the fallback should only be built when it is actually needed"
 
 
-# ── B2 · an always-empty LLM ends the episode, and nothing else ───────────────
+# ── an always-empty LLM ends the episode, and nothing else ────────────────────
 
 @pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
 def test_an_always_empty_llm_does_not_hang(mas_type):
-    """On the previous code this looped without limit; the call ceiling on
-    FakeLLM turns that into a fast failure instead of a hung suite."""
     env = FakeEnv(max_trials=2)
     workflow = build_workflow(mas_type, env, replies=[""])
 
@@ -161,13 +141,8 @@ def test_an_always_failing_llm_does_not_hang(mas_type):
 
 @pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
 def test_a_failed_agent_scores_the_task_rather_than_dropping_it(mas_type):
-    """The failure has to stay inside one episode.
-
-    AgentCallFailed used to propagate out of schedule, through run_task's loop
-    over tasks, to run_experiment's except - abandoning every remaining task in
-    the dataset over one bad LLM call. It now ends the episode, which is still
-    scored, with an accurate trial count.
-    """
+    """A failed agent ends the episode, which is still scored, with an accurate
+    trial count - the task is not dropped from the denominator."""
     env = FakeEnv(max_trials=5)
     workflow = build_workflow(mas_type, env, replies=[""])
     observer = workflow.observers[0]
@@ -194,15 +169,11 @@ def test_an_agent_that_recovers_mid_episode_still_completes(mas_type):
     assert env.actions, "the recovered action should have reached the environment"
 
 
-# ── B3 · a persistently INVALID verdict is bounded and the episode advances ────
+# ── a persistently INVALID verdict is bounded, and the episode advances ───────
 
 def test_a_persistent_invalid_verdict_still_advances_the_episode():
-    """AutoGenMAS re-prompts the solver whenever the validator says INVALID.
-
-    That path had no bound of its own; it now spends the shared budget, and on
-    exhaustion the episode proceeds with the rejected action rather than dying,
-    because refusing to act at all is worse than acting on a disputed answer.
-    """
+    """Re-prompting the solver spends the shared budget; on exhaustion the
+    episode proceeds with the rejected action rather than failing."""
     env = FakeEnv(max_trials=1, steps_to_done=1)
     workflow = build_workflow("autogen_mas", env, replies=["go to desk 1", "INVALID: bad format"])
 
@@ -222,8 +193,7 @@ def test_a_persistent_invalid_verdict_re_prompts_at_most_three_times():
     workflow.schedule(dict(TASK))
 
     # The validator prompt is the one carrying "Solver's latest response", so
-    # counting those counts attempts without depending on how many other calls
-    # the shared fake also serves.
+    # counting those counts attempts regardless of what else the fake serves.
     validations = [
         call for call in solver_llm.calls
         if "Solver's latest response" in call[-1].content

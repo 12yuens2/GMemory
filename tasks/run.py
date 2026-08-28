@@ -135,11 +135,10 @@ def run_task(
             episode = task_manager.mas.schedule(task_config) # Schedule method from the mas_workflow (e.g. autogen)
             task_manager.recorder.task_end(episode.reward, episode.done, episode.trials)
         except Exception as error:
-            # Everything outside the episode itself: set_env, prompt assembly, the
-            # recorder. Not an episode outcome, so it is recorded rather than
-            # scored - scoring it would put an environment fault in the reward
-            # column. An agent that cannot act is handled inside schedule, where
-            # the trial count is known, and does reach task_end.
+            # A fault around the episode - set_env, prompt assembly, the recorder -
+            # is recorded but not scored, since it is not an episode outcome. An
+            # agent that cannot act is handled inside schedule and does reach
+            # task_end.
             failed_tasks.append({'task_id': task_id, 'error': error})
             task_manager.recorder.log(
                 f'TASK FAILED task_id={task_id}: {type(error).__name__}: {error}\n'
@@ -168,8 +167,8 @@ def run_task(
         append_local_result(result_path, result_string, output_lock=output_lock)
 
     if failed_tasks:
-        # Loud, and on both streams: a mean computed over 120 of 134 tasks is not
-        # comparable to one over all 134, and results.csv does not say which it is.
+        # On both streams: results.csv does not record how many tasks are behind
+        # its averages, so an exclusion has to be visible somewhere.
         summary = (
             f'{len(failed_tasks)}/{len(task_manager.tasks)} tasks failed and are excluded '
             f'from the averages above'
@@ -416,9 +415,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    # Resolved here, before any worker is spawned, so a missing OPENAI_API_BASE or
-    # OPENAI_API_KEY fails immediately with a readable message rather than once per
-    # worker inside a traceback.
+    # Resolved before any worker is spawned, so missing credentials are reported
+    # once, here, rather than inside each worker's traceback.
     settings: LLMSettings = default_llm_settings()
     print(f'LLM endpoint: {settings.api_base}, max_tokens: {settings.max_tokens}')
 

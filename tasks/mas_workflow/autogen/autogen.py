@@ -146,10 +146,7 @@ class AutoGen(MetaMAS):
                     description='solver agent',
                 )
             except AgentCallFailed as failure:
-                # One episode ends here, not the experiment. env.feedback() below
-                # still reports the true state, and `trials` still says how far
-                # the episode got, so the task is scored as unsolved rather than
-                # dropped - and the next task in the dataset still runs.
+                # Ends this episode only; feedback() below still scores it.
                 self.notify_observers(f'Ending episode at trial {i + 1}: {failure}')
                 break
 
