@@ -16,6 +16,7 @@ from mas.module_map import module_map
 from mas.reasoning import ReasoningBase
 from mas.memory import MASMemoryBase
 from mas.llm import LLMCallable, GPTChat, TokenTracker
+from mas.settings import LLMSettings, default_llm_settings
 from mas.mas import MetaMAS
 from mas.utils import EmbeddingFunc
 
@@ -354,6 +355,12 @@ if __name__ == '__main__':
     parser.add_argument('--db_dir', type=str, default=DEFAULT_DB_DIR, help='Directory to store results, logs, and memory persistence for this run.')
 
     args = parser.parse_args()
+
+    # Resolved here, before any worker is spawned, so a missing OPENAI_API_BASE or
+    # OPENAI_API_KEY fails immediately with a readable message rather than once per
+    # worker inside a traceback.
+    settings: LLMSettings = default_llm_settings()
+    print(f'LLM endpoint: {settings.api_base}, max_tokens: {settings.max_tokens}')
 
     experiments = build_experiment_configs(args)
     if len(experiments) == 1 or args.num_workers <= 1:
