@@ -28,7 +28,7 @@ import pytest
 
 from mas.mas import AgentCallFailed, EpisodeResult, MetaMAS, RetryAgentCall
 
-from tasks.tests.fakes import FakeEnv, FakeLLM, RecordingObserver, RunawayLoop
+from tasks.tests.fakes import FakeEnv, FakeLLM, RecordingObserver
 from tasks.tests.test_contracts import build_workflow
 
 TASK = {"task_main": "m", "task_description": "d", "few_shots": []}

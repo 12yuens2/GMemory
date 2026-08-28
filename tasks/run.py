@@ -113,24 +113,44 @@ def run_task(
     task_manager.recorder.dataset_begin()
     result_path = os.path.join(working_dir, f"{task_manager.task_name}-{task_manager.memory_type}-results.csv")
 
+    failed_tasks: list[dict] = []
+
     for task_id, task_config in tqdm(enumerate(task_manager.tasks), total=len(task_manager.tasks), desc="Running Tasks"):
-        task_manager.recorder.task_begin(task_id, task_config)
+        try:
+            task_manager.recorder.task_begin(task_id, task_config)
 
-        task_main, task_description = task_manager.mas.env.set_env(task_config)
-        few_shots: list[str] = get_task_few_shots(
-            dataset=task_manager.task_name,
-            task_config=task_config,
-            few_shots_num=CONFIG.get(task_manager.task_name).get('few_shots_num', 0)
-        )
-        task_config.update(task_main=task_main, task_description=task_description, few_shots=few_shots)
+            task_main, task_description = task_manager.mas.env.set_env(task_config)
+            few_shots: list[str] = get_task_few_shots(
+                dataset=task_manager.task_name,
+                task_config=task_config,
+                few_shots_num=CONFIG.get(task_manager.task_name).get('few_shots_num', 0)
+            )
+            task_config.update(task_main=task_main, task_description=task_description, few_shots=few_shots)
 
-        task_instruction: str = get_dataset_system_prompt(task_manager.task_name, task_config=task_config)
-        for agent in task_manager.mas.agents_team.values():
-            task_manager.recorder.log(f'------------ MAS Agent: {agent.name} ------------')
-            task_manager.recorder.log(agent.add_task_instruction(task_instruction))
+            task_instruction: str = get_dataset_system_prompt(task_manager.task_name, task_config=task_config)
+            for agent in task_manager.mas.agents_team.values():
+                task_manager.recorder.log(f'------------ MAS Agent: {agent.name} ------------')
+                task_manager.recorder.log(agent.add_task_instruction(task_instruction))
 
-        episode = task_manager.mas.schedule(task_config) # Schedule method from the mas_workflow (e.g. autogen)
-        task_manager.recorder.task_end(episode.reward, episode.done, episode.trials)
+            episode = task_manager.mas.schedule(task_config) # Schedule method from the mas_workflow (e.g. autogen)
+            task_manager.recorder.task_end(episode.reward, episode.done, episode.trials)
+        except Exception as error:
+            # Everything outside the episode itself: set_env, prompt assembly, the
+            # recorder. Not an episode outcome, so it is recorded rather than
+            # scored - scoring it would put an environment fault in the reward
+            # column. An agent that cannot act is handled inside schedule, where
+            # the trial count is known, and does reach task_end.
+            failed_tasks.append({'task_id': task_id, 'error': error})
+            task_manager.recorder.log(
+                f'TASK FAILED task_id={task_id}: {type(error).__name__}: {error}\n'
+                f'{traceback.format_exc()}'
+            )
+            print(
+                f'Task failed, continuing: task={task_manager.task_name} task_id={task_id} '
+                f'{type(error).__name__}: {error}',
+                file=sys.stderr,
+            )
+            continue
 
         tracker = task_manager.token_tracker
         completion_tokens, prompt_tokens = tracker.completion_tokens, tracker.prompt_tokens
@@ -147,7 +167,47 @@ def run_task(
 
         append_local_result(result_path, result_string, output_lock=output_lock)
 
+    if failed_tasks:
+        # Loud, and on both streams: a mean computed over 120 of 134 tasks is not
+        # comparable to one over all 134, and results.csv does not say which it is.
+        summary = (
+            f'{len(failed_tasks)}/{len(task_manager.tasks)} tasks failed and are excluded '
+            f'from the averages above'
+        )
+        task_manager.recorder.log(summary)
+        print(summary, file=sys.stderr)
+        _write_failed_tasks(task_manager, seed, failed_tasks, working_dir, output_lock=output_lock)
+
     task_manager.recorder.dataset_end()
+
+
+def _write_failed_tasks(
+    task_manager: TaskManager,
+    seed: int,
+    failed_tasks: list[dict],
+    working_dir: str,
+    output_lock=None,
+) -> None:
+    """One row per task that could not be run, alongside the experiment's results."""
+    headers = ['task', 'mas_type', 'mas_memory', 'seed', 'task_id', 'error_type', 'error_message']
+    path = os.path.join(working_dir, 'failed_tasks.csv')
+
+    for failure in failed_tasks:
+        error = failure['error']
+        _append_csv_row(
+            path,
+            headers,
+            [
+                task_manager.task_name,
+                task_manager.mas_type,
+                task_manager.memory_type,
+                str(seed),
+                str(failure['task_id']),
+                type(error).__name__,
+                str(error).replace('\n', ' ').replace(',', ';'),
+            ],
+            output_lock=output_lock,
+        )
 
 
 def build_experiment_configs(args) -> list[dict]:
