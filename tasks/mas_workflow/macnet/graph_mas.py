@@ -200,12 +200,6 @@ class MacNet(MetaMAS):
         self.meta_memory.backward(final_done)    
 
         return EpisodeResult(reward=final_reward, done=final_done, trials=trials)
-    def add_observer(self, observer):
-        self.observers.append(observer)
-
-    def notify_observers(self, message: str):
-        for observer in self.observers:
-            observer.log(message)
     
     def _update_memory(self) -> None:
         for node in self._agent_nodes.values():

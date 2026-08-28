@@ -70,12 +70,6 @@ class AutoGen(MetaMAS):
         self.set_env(env_executor)
         self.meta_memory = mas_memory
         
-    def add_observer(self, observer):
-        self.observers.append(observer)
-
-    def notify_observers(self, message: str):
-        for observer in self.observers:
-            observer.log(message)
     
     def schedule(self, task_config: dict) -> EpisodeResult:
         """
@@ -144,20 +138,12 @@ class AutoGen(MetaMAS):
                 insights=roles_rules.get(solver.profile, raw_rules),
                 task_description=self.meta_memory.summarize(solver_message=solver.total_system_instruction)
             )
-            tries = 0
-
             print(f"\n==== SOLVER AGENT PROMPT ====\n{user_prompt}\n==== END SOLVER AGENT PROMPT ====\n", file=sys.stderr)
-            
-            while tries < 3:
-                try:  
-                    action: str = solver.response(user_prompt, self.reasoning_config)
-                    if action == '':
-                        continue
-                    action = env.process_action(action)
-                    break
-                except Exception as e:
-                    print(f'Error during execution of solver agent: {e}')
-                tries += 1
+
+            action: str = self._call_agent_with_retries(
+                lambda: env.process_action(solver.response(user_prompt, self.reasoning_config)),
+                description='solver agent',
+            )
 
             name: str = solver.name
             system_instruction = solver.system_instruction
@@ -172,17 +158,10 @@ class AutoGen(MetaMAS):
 
                 print(f'==== GROUND TRUTH AGENT PROMPT ==== \n{user_prompt}\n====END GROUNDTRUTH AGENT PROMPT ====\n', file=sys.stderr)
 
-                tries = 0
-                while tries < 3:
-                    try: 
-                        action: str = ground_truth.response(user_prompt, self.reasoning_config)
-                        if action == '':
-                            continue
-                        action = env.process_action(action)
-                        break
-                    except Exception as e:
-                        print(f'Error during execution of ground truth agent: {e}')
-                    tries += 1
+                action: str = self._call_agent_with_retries(
+                    lambda: env.process_action(ground_truth.response(user_prompt, self.reasoning_config)),
+                    description='ground truth agent',
+                )
                 name: str = ground_truth.name
                 system_instruction = ground_truth.system_instruction
             

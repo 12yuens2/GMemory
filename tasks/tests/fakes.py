@@ -13,21 +13,34 @@ from mas.llm import Message, TokenTracker
 from mas.reasoning import ReasoningConfig, ReasoningIO
 
 
+class RunawayLoop(AssertionError):
+    """A fake was called far more often than any bounded loop would need."""
+
+
 class FakeLLM:
     """A GPTChat stand-in that returns scripted replies and counts tokens.
 
     `replies` is cycled, so a single-element list is an always-the-same LLM and
     an empty string is the failure the retry loops are built around.
+
+    `max_calls` is a runaway guard, not a behaviour: it turns a test that would
+    hang on an unbounded retry loop into one that fails in milliseconds with a
+    message naming the cause.
     """
 
-    def __init__(self, replies=None, model_name="fake-model", tracker=None):
+    def __init__(self, replies=None, model_name="fake-model", tracker=None, max_calls=200):
         self.replies = list(replies) if replies else ["look at desk 1"]
         self.model_name = model_name
         self.tracker = tracker if tracker is not None else TokenTracker()
+        self.max_calls = max_calls
         self.calls: list[list[Message]] = []
 
     def __call__(self, messages, temperature=None, max_tokens=None,
                  stop_strs=None, num_comps=None, intrinsic=False):
+        if len(self.calls) >= self.max_calls:
+            raise RunawayLoop(
+                f"FakeLLM was called {self.max_calls} times - the caller is not bounding its retries"
+            )
         self.calls.append(list(messages))
         self.tracker.record(prompt_tokens=10, completion_tokens=5, intrinsic=intrinsic)
         return self.replies[(len(self.calls) - 1) % len(self.replies)]
