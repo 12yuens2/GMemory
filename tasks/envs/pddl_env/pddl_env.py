@@ -330,6 +330,8 @@ class PDDLRecorder(BaseRecorder):
         self.log(message)
     
     def task_end(self, reward: float, done: bool, trials):
+        super().task_end(reward, done, trials)
+
         game_name: str = self.current_task_config.get('game_name') 
         if game_name is None:
             raise ValueError('The task should have an attribute: `game`.')
@@ -344,13 +346,15 @@ class PDDLRecorder(BaseRecorder):
 
     
     def _get_average_reward(self) -> float:
-        return sum(self.rewards.values()) / sum(self.cnts.values())
+        total = sum(self.cnts.values())
+        return sum(self.rewards.values()) / total if total else 0.0
 
     def _get_average_done(self) -> float:
-        return sum(self.dones.values()) / sum(self.cnts.values())
+        total = sum(self.cnts.values())
+        return sum(self.dones.values()) / total if total else 0.0
 
-    def _get_average_trials(self):
-        return sum(self.trials) / len(self.trials)
+    def _get_average_trials(self) -> float:
+        return sum(self.trials) / len(self.trials) if self.trials else 0.0
 
     def average_results(self):
         return self._get_average_reward(), self._get_average_done(), self._get_average_trials()

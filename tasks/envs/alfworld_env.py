@@ -111,7 +111,9 @@ class AlfworldRecorder(BaseRecorder):
         message: str = f'---------- Task: {task_id} ----------'
         self.log(message)
     
-    def task_end(self, reward: float, done: bool):
+    def task_end(self, reward: float, done: bool, trials: int):
+        super().task_end(reward, done, trials)
+
         gamefile: str = self.current_task_config['env_kwargs']['gamefile']
         env_name = get_env_name_from_gamefile(gamefile)
         if env_name is None:
@@ -123,11 +125,12 @@ class AlfworldRecorder(BaseRecorder):
                 self.counts[i] += 1
                 break
 
-        message = f'done: {done}, ave done: {sum(self.results) / sum(self.counts)}'
+        message = f'done: {done}, ave done: {self._average_done_by_task_type()}'
         self.log(message)
         self.log("rs: " + str(self.results))
         self.log("cnts: " + str(self.counts))
 
-    def average_results(self):
-        average_results = sum(self.results) / sum(self.counts)
-        return average_results, average_results
+    def _average_done_by_task_type(self) -> float:
+        """Success rate across the six ALFWorld task types this recorder breaks out."""
+        total = sum(self.counts)
+        return sum(self.results) / total if total else 0.0

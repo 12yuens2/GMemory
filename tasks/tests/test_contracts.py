@@ -20,6 +20,8 @@ import pytest
 from mas.mas import EpisodeResult
 from mas.memory import MASMemoryBase
 
+from tasks.envs import RECORDERS
+
 from tasks.mas_workflow import MAS
 from tasks.tests.fakes import (
     FakeEmbeddingFunc,
@@ -30,6 +32,15 @@ from tasks.tests.fakes import (
 )
 
 MEMORY_CONFIG_KEYS = ("successful_topk", "failed_topk", "insights_topk", "threshold")
+
+# One task config per task, carrying whichever keys that task's recorder reads
+# out of current_task_config in task_end.
+TASK_CONFIGS = {
+    "alfworld": {"env_kwargs": {"gamefile": "/data/pick_and_place_simple-1/game.tw-pw"}},
+    "fever": {},
+    "pddl": {"game_name": "blockworld"},
+    "sciworld": {},
+}
 
 
 def build_workflow(mas_type: str, env: FakeEnv, memory_cls=MASMemoryBase, replies=None):
@@ -102,3 +113,69 @@ def test_schedule_rejects_a_task_config_missing_its_required_keys(mas_type):
 
     with pytest.raises(ValueError, match="task_main|task_description"):
         workflow.schedule({})
+
+
+# ── D1 · all four recorders share one signature ───────────────────────────────
+
+@pytest.fixture
+def working_dir(tmp_path):
+    return str(tmp_path)
+
+
+def build_recorder(task: str, working_dir: str):
+    return RECORDERS[task](working_dir=working_dir, namespace=f"{task}-contract")
+
+
+@pytest.mark.parametrize("task", sorted(RECORDERS))
+def test_task_end_accepts_reward_done_and_trials(task, working_dir):
+    """run.py:132 calls task_end(reward, done, trials) on every recorder.
+
+    AlfworldRecorder took two arguments, so --task alfworld - the argparse
+    default - raised TypeError on the first completed task.
+    """
+    recorder = build_recorder(task, working_dir)
+    recorder.task_begin(0, dict(TASK_CONFIGS[task]))
+
+    recorder.task_end(1.0, True, 7)
+
+    assert recorder.total_rewards == [1.0], (
+        f"{task}: task_end did not reach BaseRecorder, so total_rewards stayed {recorder.total_rewards}"
+    )
+    assert recorder.total_dones == [True]
+    assert recorder.total_trials == [7]
+
+
+@pytest.mark.parametrize("task", sorted(RECORDERS))
+def test_average_results_returns_three_numerics(task, working_dir):
+    recorder = build_recorder(task, working_dir)
+    recorder.task_begin(0, dict(TASK_CONFIGS[task]))
+    recorder.task_end(1.0, True, 7)
+
+    results = recorder.average_results()
+
+    assert len(results) == 3, (
+        f"{task}: average_results() returned {len(results)} values, run.py:143 unpacks 3"
+    )
+    assert all(isinstance(value, numbers.Real) for value in results), f"{task}: {results!r}"
+
+
+@pytest.mark.parametrize("task", sorted(RECORDERS))
+def test_average_results_works_before_any_task_has_ended(task, working_dir):
+    """A sweep over an empty task list must report zeros, not divide by zero.
+
+    Both AlfworldRecorder and PDDLRecorder divided by a count that starts at 0.
+    """
+    recorder = build_recorder(task, working_dir)
+
+    rewards, dones, trials = recorder.average_results()
+
+    assert (rewards, dones, trials) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("task", sorted(RECORDERS))
+def test_task_end_before_task_begin_is_rejected(task, working_dir):
+    """The base class refuses to record a result it cannot attribute to a task."""
+    recorder = build_recorder(task, working_dir)
+
+    with pytest.raises(RuntimeError, match="task id or the task config"):
+        recorder.task_end(1.0, True, 7)
