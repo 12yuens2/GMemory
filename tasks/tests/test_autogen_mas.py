@@ -582,7 +582,8 @@ class TestScheduleLifecycle:
         ag, _, env = setup
         env.feedback.return_value = (0.75, True, "great job")
         with patch(PATCH_GPTCHAT):
-            reward, done = ag.schedule({"task_main": "t", "task_description": "d"})
+            # Three values, matching the caller in tasks/run.py.
+            reward, done, _trials = ag.schedule({"task_main": "t", "task_description": "d"})
         assert reward == 0.75
         assert done is True
 
