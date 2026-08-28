@@ -28,10 +28,6 @@ from utils import get_model_type
 with open('tasks/configs.yaml') as reader:
     CONFIG: dict = yaml.safe_load(reader)
 
-DEFAULT_DB_DIR: str = './.db'
-FAILED_TASKS_FILENAME: str = 'failed_tasks.csv'
-FAILED_EXPERIMENTS_FILENAME: str = 'failed_experiments.csv'
-OVERALL_RESULTS_FILENAME: str = 'overall_results.csv'
 
 @dataclass
 class TaskManager:
@@ -185,7 +181,7 @@ def _write_failed_tasks(
     failed_tasks: list[dict],
     working_dir: str,
     output_lock=None,
-    filename: str = FAILED_TASKS_FILENAME,
+    filename: str = 'failed_tasks.csv',
 ) -> None:
     """One row per task that could not be run, alongside the experiment's results."""
     headers = ['task', 'mas_type', 'mas_memory', 'seed', 'task_id', 'error_type', 'error_message']
@@ -312,7 +308,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         }
     except Exception as e:
         print(f"Experiment failed: task={task_name} mas_memory={mas_memory_type} seed={seed}\n{traceback.format_exc()}", file=sys.stderr)
-        _write_failed_experiment(experiment_config, e, db_dir, output_lock=output_lock)
+        failed_path = _write_failed_experiment(experiment_config, e, db_dir, output_lock=output_lock)
         return {
             'task': task_name,
             'mas_type': mas_type,
@@ -320,6 +316,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
             'seed': seed,
             'status': 'failed',
             'error': f'{type(e).__name__}: {e}',
+            'failed_path': failed_path,
         }
 
 
@@ -343,7 +340,7 @@ def _write_overall_result(
     result_string: str,
     db_dir: str,
     output_lock=None,
-    filename: str = OVERALL_RESULTS_FILENAME,
+    filename: str = 'overall_results.csv',
 ) -> None:
     headers = [
         'task',
@@ -387,8 +384,8 @@ def _write_failed_experiment(
     error: Exception,
     db_dir: str,
     output_lock=None,
-    filename: str = FAILED_EXPERIMENTS_FILENAME,
-) -> None:
+    filename: str = 'failed_experiments.csv',
+) -> str:
     headers = ['task', 'mas_type', 'mas_memory', 'model', 'seed', 'error_type', 'error_message']
     values = [
         str(experiment_config.get('task', '')),
@@ -402,6 +399,7 @@ def _write_failed_experiment(
 
     failed_path = os.path.join(db_dir, filename)
     _append_csv_row(failed_path, headers, values, output_lock=output_lock)
+    return failed_path
 
 
 if __name__ == '__main__':
@@ -423,7 +421,7 @@ if __name__ == '__main__':
     parser.add_argument('--hop', type=int, default=1, help='hop for traj similarity.')
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')
     parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')
-    parser.add_argument('--db_dir', type=str, default=DEFAULT_DB_DIR, help='Directory to store results, logs, and memory persistence for this run.')
+    parser.add_argument('--db_dir', type=str, default='./.db', help='Directory to store results, logs, and memory persistence for this run.')
 
     args = parser.parse_args()
 
@@ -445,7 +443,8 @@ if __name__ == '__main__':
 
     failed = [r for r in results if r.get('status') == 'failed']
     if failed:
-        failed_path = os.path.join(args.db_dir, FAILED_EXPERIMENTS_FILENAME)
+        # Reported by whichever worker wrote it, rather than reconstructed here
+        failed_path = failed[0]['failed_path']
         print(f"\n{len(failed)}/{len(results)} experiments failed. See {failed_path} for details.")
         for r in failed:
             print(f"  FAILED: task={r['task']} mas_memory={r['mas_memory']} seed={r['seed']} — {r['error']}")
