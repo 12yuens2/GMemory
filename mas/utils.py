@@ -1,11 +1,13 @@
-from sentence_transformers import SentenceTransformer
 import yaml
 import os
-from typing import Union, Any
+from typing import TYPE_CHECKING, Union, Any
 import random
 import json
 from dataclasses import dataclass
 import math
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 
 def load_config(config_path: str):
@@ -57,10 +59,16 @@ class EmbeddingFunc:
     model_type: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     def __post_init__(self):
+        # sentence_transformers pulls in torch, and on Linux torch pulls the whole
+        # nvidia CUDA wheel set. Importing it here rather than at module scope keeps
+        # `import mas` usable - and the offline test suite installable - without that
+        # stack. Any code that actually embeds still needs it present.
+        from sentence_transformers import SentenceTransformer
+
         if self.model_type not in _EMBEDDING_MODEL_CACHE:
             _EMBEDDING_MODEL_CACHE[self.model_type] = SentenceTransformer(self.model_type)
 
-        self.func: SentenceTransformer = _EMBEDDING_MODEL_CACHE[self.model_type]
+        self.func: "SentenceTransformer" = _EMBEDDING_MODEL_CACHE[self.model_type]
 
     def embed_documents(self, texts: list[str]) -> list[list]:
         return [self.func.encode(text).tolist() for text in texts]
