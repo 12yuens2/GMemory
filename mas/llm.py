@@ -28,8 +28,21 @@ KEY = os.environ["OPENAI_API_KEY"]
 #print('# api key: ', KEY)
 
 
-completion_tokens, prompt_tokens = 0, 0
-intrinsic_completion_tokens, intrinsic_prompt_tokens = 0, 0
+@dataclass
+class TokenTracker:
+    """Per-instance token accounting, scoped to whatever owns it (typically one GPTChat)."""
+
+    completion_tokens: int = 0
+    prompt_tokens: int = 0
+    intrinsic_completion_tokens: int = 0
+    intrinsic_prompt_tokens: int = 0
+
+    def record(self, prompt_tokens: int, completion_tokens: int, intrinsic: bool = False) -> None:
+        self.prompt_tokens += prompt_tokens
+        self.completion_tokens += completion_tokens
+        if intrinsic:
+            self.intrinsic_prompt_tokens += prompt_tokens
+            self.intrinsic_completion_tokens += completion_tokens
 
 
 @dataclass(frozen=True)
@@ -69,12 +82,13 @@ class LLM(ABC):
 
 class GPTChat(LLM):
 
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, tracker: Optional["TokenTracker"] = None):
         super().__init__(model_name=model_name)
         self.client = OpenAI(
             base_url=URL,
             api_key=KEY
         )
+        self.tracker: TokenTracker = tracker if tracker is not None else TokenTracker()
 
     def __call__(
         self,
@@ -86,8 +100,7 @@ class GPTChat(LLM):
         intrinsic: bool = False,
     ) -> str:
         import time
-        global prompt_tokens, completion_tokens
-        
+
         messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
         max_retries = 5  
@@ -105,13 +118,12 @@ class GPTChat(LLM):
                 )
 
                 answer = response.choices[0].message.content
-                prompt_tokens += response.usage.prompt_tokens
-                completion_tokens += response.usage.completion_tokens
+                self.tracker.record(
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
+                    intrinsic=intrinsic,
+                )
 
-                if intrinsic:
-                    intrinsic_prompt_tokens += response.usage.prompt_tokens
-                    intrinsic_completion_tokens += response.usage.completion_tokens
-                
                 if answer is None:
                     print("Error: LLM returned None")
                     continue
@@ -127,14 +139,5 @@ class GPTChat(LLM):
                     print(f"Error during API call: {error_message}")
                     break 
 
-        return "" 
-
-
-def get_price():
-    global completion_tokens, prompt_tokens
-    return completion_tokens, prompt_tokens, completion_tokens*60/1000000+prompt_tokens*30/1000000
-
-def get_intrinsic_price():
-    global intrinsic_completion_tokens, intrinsic_prompt_tokens
-    return intrinsic_completion_tokens, intrinsic_prompt_tokens
+        return ""
 

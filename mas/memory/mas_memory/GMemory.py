@@ -20,6 +20,7 @@ from ..utils import cosine_similarity
 from .prompt import GMemoryPrompts
 from mas.utils import load_json, write_json, random_divide_list
 from mas.llm import LLMCallable, Message
+from mas.logging_utils import get_file_logger
 
 @dataclass
 class GMemory(MASMemoryBase):
@@ -478,16 +479,15 @@ class InsightsManager:
     def __post_init__(self):
         self.persist_file: str = os.path.join(self.working_dir,f'{self.namespace}.json')
         self.insights_memory: list[dict] = load_json(self.persist_file) or []
-       
+
+        # use unique log path per experiment as the logger name
         log_path = os.path.join(self.working_dir, 'insights.log')
-        logging.basicConfig(
+        self.logger = get_file_logger(
+            log_path,
+            log_path,
             level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_path, encoding='utf-8')
-            ]
+            fmt='%(asctime)s - %(levelname)s - %(message)s',
         )
-        self.logger = logging.getLogger(__name__)
         
 
     def query_insights_with_score(self, task_query: str, top_k: int = None) -> list[tuple[str, float]]:

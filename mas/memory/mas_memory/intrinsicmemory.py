@@ -67,9 +67,10 @@ class IntrinsicMASMemory(MASMemoryBase):
         self.counter = 0
         self.agent_intrinsic_memory = ""
 
-        # reset self.llm_model
+        # reset self.llm_model, but keep accounting on the same tracker so
+        # per-experiment token totals survive the swap
         llm_model_name = self.llm_model.model_name
-        self.llm_model = GPTChat(model_name=llm_model_name)
+        self.llm_model = GPTChat(model_name=llm_model_name, tracker=self.llm_model.tracker)
 
     # chat history
     # context
