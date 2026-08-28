@@ -3,7 +3,7 @@ from difflib import SequenceMatcher
 
 from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage
-from mas.mas import EpisodeResult, MetaMAS, RetryAgentCall
+from mas.mas import AgentCallFailed, EpisodeResult, MetaMAS, RetryAgentCall
 from mas.reasoning import ReasoningBase, ReasoningConfig
 from mas.memory import MASMemoryBase, GMemory
 from mas.agents import Env
@@ -217,10 +217,18 @@ class AutoGen(MetaMAS):
 
                 return env.process_action(action)
 
-            action: str = self._call_agent_with_retries(
-                solve_and_validate,
-                description='solver agent',
-            )
+            try:
+                action: str = self._call_agent_with_retries(
+                    solve_and_validate,
+                    description='solver agent',
+                )
+            except AgentCallFailed as failure:
+                # One episode ends here, not the experiment. env.feedback() below
+                # still reports the true state, and `trials` still says how far
+                # the episode got, so the task is scored as unsolved rather than
+                # dropped - and the next task in the dataset still runs.
+                self.notify_observers(f'Ending episode at trial {i + 1}: {failure}')
+                break
 
             name: str = solver.name
             system_instruction = solver.system_instruction
@@ -235,10 +243,14 @@ class AutoGen(MetaMAS):
 
                 print(f'==== GROUND TRUTH AGENT PROMPT ==== \n{user_prompt}\n====END GROUNDTRUTH AGENT PROMPT ====\n', file=sys.stderr)
 
-                action: str = self._call_agent_with_retries(
-                    lambda: env.process_action(ground_truth.response(user_prompt, self.reasoning_config)),
-                    description='ground truth agent',
-                )
+                try:
+                    action: str = self._call_agent_with_retries(
+                        lambda: env.process_action(ground_truth.response(user_prompt, self.reasoning_config)),
+                        description='ground truth agent',
+                    )
+                except AgentCallFailed as failure:
+                    self.notify_observers(f'Ending episode at trial {i + 1}: {failure}')
+                    break
                 name: str = ground_truth.name
                 system_instruction = ground_truth.system_instruction
             

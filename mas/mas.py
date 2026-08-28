@@ -10,9 +10,25 @@ from .memory import MASMemoryBase
 class AgentCallFailed(RuntimeError):
     """An agent could not produce a usable action within its retry budget.
 
+    Not the same thing as a failed LLM call, though that is the usual cause.
+    Every one of these spends the budget and ends here:
+
+      - the endpoint failed, so GPTChat raised LLMCallFailed on all 5 of its
+        own retries (infrastructure);
+      - the model answered with an empty string every time (model behaviour);
+      - env.process_action raised on every answer (a parse or environment
+        mismatch, not a network problem).
+
+    `__cause__` carries whichever it was.
+
     Raised instead of falling through with `action` unbound, which is what the
-    hand-written retry loops did - the resulting NameError masked whatever the
-    original failure was.
+    hand-written retry loops did - the resulting NameError masked the original
+    failure entirely.
+
+    Scope: this ends one episode, not the experiment. The workflows catch it
+    inside their trial loop, so the task is scored as unsolved with an accurate
+    trial count and the sweep moves to the next task. See the catch sites in
+    tasks/mas_workflow/autogen/.
     """
 
 

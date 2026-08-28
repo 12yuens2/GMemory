@@ -133,7 +133,7 @@ def test_a_rejected_action_is_used_once_the_budget_runs_out(harness):
     assert len(calls) == 1, "the fallback should only be built when it is actually needed"
 
 
-# ── B2 · an always-empty LLM terminates the episode ───────────────────────────
+# ── B2 · an always-empty LLM ends the episode, and nothing else ───────────────
 
 @pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
 def test_an_always_empty_llm_does_not_hang(mas_type):
@@ -142,8 +142,10 @@ def test_an_always_empty_llm_does_not_hang(mas_type):
     env = FakeEnv(max_trials=2)
     workflow = build_workflow(mas_type, env, replies=[""])
 
-    with pytest.raises(AgentCallFailed):
-        workflow.schedule(dict(TASK))
+    result = workflow.schedule(dict(TASK))
+
+    assert result.done is False
+    assert env.actions == [], "no action should have reached the environment"
 
 
 @pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
@@ -152,10 +154,44 @@ def test_an_always_failing_llm_does_not_hang(mas_type):
     workflow = build_workflow(mas_type, env)
     workflow.get_agent("solver").reasoning.llm_model = FakeLLM(max_calls=0)
 
-    with pytest.raises((AgentCallFailed, RunawayLoop)) as raised:
-        workflow.schedule(dict(TASK))
+    result = workflow.schedule(dict(TASK))
 
-    assert not isinstance(raised.value, RunawayLoop), "the retry loop is still unbounded"
+    assert result.done is False
+
+
+@pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
+def test_a_failed_agent_scores_the_task_rather_than_dropping_it(mas_type):
+    """The failure has to stay inside one episode.
+
+    AgentCallFailed used to propagate out of schedule, through run_task's loop
+    over tasks, to run_experiment's except - abandoning every remaining task in
+    the dataset over one bad LLM call. It now ends the episode, which is still
+    scored, with an accurate trial count.
+    """
+    env = FakeEnv(max_trials=5)
+    workflow = build_workflow(mas_type, env, replies=[""])
+    observer = workflow.observers[0]
+
+    result = workflow.schedule(dict(TASK))
+
+    assert result.reward == 0.0
+    assert result.done is False
+    assert result.trials == 0, "the episode ended on its first trial"
+    assert any("Ending episode at trial 1" in message for message in observer.messages), (
+        "the log must say why the episode ended"
+    )
+
+
+@pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
+def test_an_agent_that_recovers_mid_episode_still_completes(mas_type):
+    """A transient failure should cost attempts, not the episode."""
+    env = FakeEnv(max_trials=4, steps_to_done=1)
+    workflow = build_workflow(mas_type, env, replies=["", "", "go to desk 1", "VALID"])
+
+    result = workflow.schedule(dict(TASK))
+
+    assert result.done is True
+    assert env.actions, "the recovered action should have reached the environment"
 
 
 # ── B3 · a persistently INVALID verdict is bounded and the episode advances ────
