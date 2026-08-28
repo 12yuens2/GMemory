@@ -14,5 +14,5 @@ env
 
 #data
 data
-slurm
+*.out
 tasks/tests/logs
