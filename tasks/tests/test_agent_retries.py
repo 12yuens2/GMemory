@@ -141,8 +141,8 @@ def test_an_always_failing_llm_does_not_hang(mas_type):
 
 @pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
 def test_a_failed_agent_scores_the_task_rather_than_dropping_it(mas_type):
-    """A failed agent ends the episode, which is still scored, with an accurate
-    trial count - the task is not dropped from the denominator."""
+    """A failed agent ends the episode, which is still scored - the task is not
+    dropped from the denominator."""
     env = FakeEnv(max_trials=5)
     workflow = build_workflow(mas_type, env, replies=[""])
     observer = workflow.observers[0]
@@ -151,10 +151,24 @@ def test_a_failed_agent_scores_the_task_rather_than_dropping_it(mas_type):
 
     assert result.reward == 0.0
     assert result.done is False
-    assert result.trials == 0, "the episode ended on its first trial"
     assert any("Ending episode at trial 1" in message for message in observer.messages), (
         "the log must say why the episode ended"
     )
+
+
+@pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
+def test_an_aborted_episode_is_charged_the_full_trial_budget(mas_type):
+    """Otherwise an abort on trial 1 reports 1 trial and pulls the mean-trials
+    figure down, making a broken run look more efficient than a working one."""
+    env = FakeEnv(max_trials=5)
+    workflow = build_workflow(mas_type, env, replies=[""])
+
+    result = workflow.schedule(dict(TASK))
+
+    assert result.trials == 5, "an aborted episode must not look cheaper than a slow failure"
+    assert any(
+        "Ending episode at trial 1" in message for message in workflow.observers[0].messages
+    ), "the trial it actually reached still has to be recoverable from the log"
 
 
 @pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])

@@ -43,8 +43,9 @@ class EpisodeResult(NamedTuple):
 
     `trials` is the number of trials completed: an episode solved on its first
     step reports 1, one that exhausts a 30-trial budget reports 30. An episode cut
-    short by an agent that could not act reports the trials that completed, not
-    the one it failed on.
+    short because an agent could not act is charged the full budget, so aborting
+    can never look cheaper than failing slowly. The trial it actually reached is
+    in the log.
 
     A NamedTuple rather than a dataclass so `reward, done, trials = ...` keeps
     working at call sites outside this repo.
