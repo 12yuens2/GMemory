@@ -11,8 +11,19 @@ __pycache__
 # environments
 conda-env
 env
+.venv/
 
-#data
+# datasets
+# The small task manifests under data/ (task lists, FEVER dev set, PDDL/SciWorld
+# test splits) ARE tracked - the code reads them by path from
+# tasks/envs/__init__.py and a fresh clone needs them. This pattern is for the
+# large dataset payloads the README tells you to download alongside them, e.g.
+# ALFWorld's game files.
 data
+
+# run output
+# logs/ was tracked (3.7MB of old qwen2.5 runs) but nothing reads or writes it -
+# recorders write under --db_dir instead.
+/logs/
 *.out
 tasks/tests/logs
