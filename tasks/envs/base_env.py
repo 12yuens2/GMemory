@@ -5,6 +5,7 @@ import time
 from abc import ABC, abstractmethod
 
 from mas.agents import Env
+from mas.logging_utils import get_file_logger
 
 class BaseEnv(Env, ABC):
      
@@ -39,19 +40,10 @@ class BaseRecorder:
     def __post_init__(self):
 
         self.file_path = os.path.join(self.working_dir, self.namespace + '.log')
-        os.makedirs(os.path.dirname(self.file_path), exist_ok=True) 
-        
-        self.logger = logging.getLogger(self.namespace)
-        self.logger.setLevel(logging.DEBUG)
-
-        file_handler = logging.FileHandler(self.file_path)
-        formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-        file_handler.setFormatter(formatter)
-        self.logger.addHandler(file_handler)
-
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(logging.Formatter('%(message)s'))
-        self.logger.addHandler(console_handler)
+        # log file path is unique per experiment, so using it as the logger name
+        # guarantees a fresh logger even when the same namespace recurs on a
+        # reused multiprocessing worker
+        self.logger = get_file_logger(self.file_path, self.file_path, level=logging.DEBUG, echo_console=True)
 
         self.current_task_id: int = None
         self.current_task_config: dict = field(default_factory=dict)
