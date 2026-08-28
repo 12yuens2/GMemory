@@ -7,43 +7,15 @@ Everything here drives a fake OpenAI client, with time.sleep patched out: the
 subject is the retry accounting, not the delay.
 """
 
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
-from mas.llm import GPTChat, LLMCallFailed, Message, TokenTracker
+from mas.llm import LLMCallFailed, Message, TokenTracker
+
+from tasks.tests.fakes import chat_over_fake_completions as build_chat
 
 PROMPT = [Message("system", "you are a solver"), Message("user", "what next?")]
-
-
-class FakeCompletions:
-    """Stands in for client.chat.completions, scripted per call.
-
-    Each entry in `script` is either an answer string, None (the model returned
-    no content), or an exception instance to raise.
-    """
-
-    def __init__(self, script):
-        self.script = list(script)
-        self.calls = []
-
-    def create(self, **kwargs):
-        self.calls.append(kwargs)
-        outcome = self.script[min(len(self.calls) - 1, len(self.script) - 1)]
-        if isinstance(outcome, BaseException):
-            raise outcome
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=outcome))],
-            usage=SimpleNamespace(prompt_tokens=11, completion_tokens=7),
-        )
-
-
-def build_chat(script, tracker=None) -> tuple[GPTChat, FakeCompletions]:
-    chat = GPTChat(model_name="fake-model", tracker=tracker)
-    completions = FakeCompletions(script)
-    chat.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
-    return chat, completions
 
 
 @pytest.fixture(autouse=True)

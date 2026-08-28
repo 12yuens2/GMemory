@@ -7,8 +7,9 @@ not mocks with recorded expectations.
 """
 
 import hashlib
+from types import SimpleNamespace
 
-from mas.llm import Message, TokenTracker
+from mas.llm import GPTChat, Message, TokenTracker
 from mas.reasoning import ReasoningConfig, ReasoningIO
 
 
@@ -108,6 +109,41 @@ class FakeEmbeddingFunc:
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return [self._vector(text) for text in texts]
+
+
+class FakeCompletions:
+    """Stands in for client.chat.completions, scripted per call.
+
+    Each entry in `script` is either an answer string, None (the model returned
+    no content), or an exception instance to raise. The last entry repeats once
+    the script runs out.
+    """
+
+    def __init__(self, script, prompt_tokens: int = 11, completion_tokens: int = 7):
+        self.script = list(script)
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.calls: list[dict] = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        outcome = self.script[min(len(self.calls) - 1, len(self.script) - 1)]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=outcome))],
+            usage=SimpleNamespace(
+                prompt_tokens=self.prompt_tokens, completion_tokens=self.completion_tokens
+            ),
+        )
+
+
+def chat_over_fake_completions(script, tracker=None, model_name="fake-model"):
+    """A real GPTChat with a scripted client, for testing its retry behaviour."""
+    chat = GPTChat(model_name=model_name, tracker=tracker)
+    completions = FakeCompletions(script)
+    chat.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    return chat, completions
 
 
 class RecordingObserver:
