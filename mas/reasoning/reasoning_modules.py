@@ -6,7 +6,6 @@ class ReasoningConfig:
     temperature: float = None
     max_tokens: int = None
     stop_strs: list[str] = None
-    num_comps: int = None
 
 class ReasoningBase:
     def __init__(self, llm_model: LLMCallable):
@@ -30,6 +29,5 @@ class ReasoningIO(ReasoningBase):
             temperature=config.temperature,
             max_tokens=config.max_tokens,
             stop_strs=config.stop_strs,
-            num_comps=config.num_comps
         )
         return reasoning_result

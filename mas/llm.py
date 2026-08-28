@@ -54,7 +54,6 @@ class LLMCallable(Protocol):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         stop_strs: Optional[List[str]] = None,
-        num_comps: Optional[int] = None,
         intrinsic: bool = False # pass intrinsic flag to count tokens used by intrinsic memory
     ) -> str:
         pass
@@ -71,7 +70,6 @@ class LLM(ABC):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         stop_strs: Optional[List[str]] = None,
-        num_comps: Optional[int] = None,
         intrinsic: bool = False
     ) -> str:
         pass
@@ -98,15 +96,12 @@ class GPTChat(LLM):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         stop_strs: Optional[List[str]] = None,
-        num_comps: Optional[int] = None,
         intrinsic: bool = False,
     ) -> str:
         import time
 
         if max_tokens is None:
             max_tokens = self.settings.max_tokens
-        if num_comps is None:
-            num_comps = self.settings.num_comps
 
         messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
@@ -121,7 +116,6 @@ class GPTChat(LLM):
                     messages=messages,
                     max_completion_tokens=max_tokens,
                     #temperature=temperature,
-                    n=num_comps,
                     stop=stop_strs
                 )
 

@@ -35,19 +35,13 @@ class LLMSettings:
         max_tokens: Ceiling on the tokens generated per response, sent as
             `max_completion_tokens`. A truncated answer is still returned.
         temperature: Sampling temperature. **Currently not sent to the API** -
-            see the `temperature` item in the Phase 3 backlog.
-        num_comps: How many completions to request per call, sent as OpenAI's
-            `n`. 1 means one answer per prompt; higher values return several
-            independent samples for the same prompt, and every one of them is
-            billed. Nothing in this repo reads past the first choice, so raising
-            it only costs tokens.
+            see the `temperature` item in docs/BACKLOG.md.
     """
 
     api_base: str
     api_key: str
     max_tokens: int = 512
     temperature: float = 0.1
-    num_comps: int = 1
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "LLMSettings":
@@ -78,7 +72,6 @@ class LLMSettings:
             api_key=api_key,
             max_tokens=llm_config.get("max_token", 512),
             temperature=llm_config.get("temperature", 0.1),
-            num_comps=llm_config.get("num_comps", 1),
         )
 
 

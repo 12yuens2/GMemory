@@ -34,7 +34,7 @@ class FakeLLM:
         self.calls: list[list[Message]] = []
 
     def __call__(self, messages, temperature=None, max_tokens=None,
-                 stop_strs=None, num_comps=None, intrinsic=False):
+                 stop_strs=None, intrinsic=False):
         if len(self.calls) >= self.max_calls:
             raise RunawayLoop(
                 f"FakeLLM was called {self.max_calls} times - the caller is not bounding its retries"

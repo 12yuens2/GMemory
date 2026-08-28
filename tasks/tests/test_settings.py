@@ -55,13 +55,13 @@ def test_only_the_absent_variable_is_named(monkeypatch, tmp_path):
 
 def test_the_llm_config_is_read_from_the_yaml(monkeypatch, tmp_path):
     config = tmp_path / "configs.yaml"
-    config.write_text("llm_config:\n  max_token: 128\n  temperature: 0.7\n  num_comps: 4\n")
+    config.write_text("llm_config:\n  max_token: 128\n  temperature: 0.7\n")
     monkeypatch.setenv("OPENAI_API_BASE", "http://localhost:9999")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
     settings = LLMSettings.load(config_path=config)
 
-    assert (settings.max_tokens, settings.temperature, settings.num_comps) == (128, 0.7, 4)
+    assert (settings.max_tokens, settings.temperature) == (128, 0.7)
 
 
 def test_the_defaults_survive_a_config_with_no_llm_block(monkeypatch, tmp_path):
@@ -72,7 +72,7 @@ def test_the_defaults_survive_a_config_with_no_llm_block(monkeypatch, tmp_path):
 
     settings = LLMSettings.load(config_path=config)
 
-    assert (settings.max_tokens, settings.temperature, settings.num_comps) == (512, 0.1, 1)
+    assert (settings.max_tokens, settings.temperature) == (512, 0.1)
 
 
 def test_the_default_settings_are_loaded_once_per_process():
