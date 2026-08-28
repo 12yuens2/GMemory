@@ -4,6 +4,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import shutil
 import multiprocessing
+import traceback
 import yaml
 from dataclasses import dataclass, field
 import argparse
@@ -202,54 +203,82 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     WORKING_DIR = os.path.join(db_dir, get_model_type(model_type), task_name, mas_type, f'{mas_memory_type}')
     os.makedirs(WORKING_DIR, exist_ok=True)
 
-    random.seed(seed)
+    try:
+        random.seed(seed)
 
-    task_configs: TaskManager = build_task(task_name, mas_type, mas_memory_type, max_trials, seed)
-    task_configs.mas_config['successful_topk'] = successful_topk
-    task_configs.mas_config['failed_topk'] = failed_topk
-    task_configs.mas_config['insights_topk'] = insights_topk
-    task_configs.mas_config['threshold'] = threshold
-    task_configs.mas_config['use_projector'] = use_projector
+        task_configs: TaskManager = build_task(task_name, mas_type, mas_memory_type, max_trials, seed)
+        task_configs.mas_config['successful_topk'] = successful_topk
+        task_configs.mas_config['failed_topk'] = failed_topk
+        task_configs.mas_config['insights_topk'] = insights_topk
+        task_configs.mas_config['threshold'] = threshold
+        task_configs.mas_config['use_projector'] = use_projector
 
-    # each seed gets its own memory persistence dir so concurrent seeds of the same
-    # experiment config never read/write the same graph/vector-store/insights files
-    memory_dir = os.path.join(WORKING_DIR, f'seed_{seed}')
-    task_configs.mem_config.update(
-        working_dir=memory_dir,
-        hop=hop
-    )
+        # each seed gets its own memory persistence dir so concurrent seeds of the same
+        # experiment config never read/write the same graph/vector-store/insights files
+        memory_dir = os.path.join(WORKING_DIR, f'seed_{seed}')
+        task_configs.mem_config.update(
+            working_dir=memory_dir,
+            hop=hop
+        )
 
-    build_mas(task_configs, reasoning_type, mas_memory_type, model_type)
-    run_task(
-        task_configs,
-        seed,
-        model_type=model_type,
-        task_name=task_name,
-        mas_memory_type=mas_memory_type,
-        output_lock=output_lock,
-    )
+        build_mas(task_configs, reasoning_type, mas_memory_type, model_type)
+        run_task(
+            task_configs,
+            seed,
+            model_type=model_type,
+            task_name=task_name,
+            mas_memory_type=mas_memory_type,
+            output_lock=output_lock,
+        )
 
-    tracker = task_configs.token_tracker
-    completion_tokens, prompt_tokens = tracker.completion_tokens, tracker.prompt_tokens
-    intrinsic_completion_tokens = tracker.intrinsic_completion_tokens
-    intrinsic_prompt_tokens = tracker.intrinsic_prompt_tokens
-    task_configs.recorder.log(f'completion_tokens:{completion_tokens}, prompt_tokens:{prompt_tokens}, price={completion_tokens*15/1000000+prompt_tokens*5/1000000}')
-    task_configs.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}')
+        tracker = task_configs.token_tracker
+        completion_tokens, prompt_tokens = tracker.completion_tokens, tracker.prompt_tokens
+        intrinsic_completion_tokens = tracker.intrinsic_completion_tokens
+        intrinsic_prompt_tokens = tracker.intrinsic_prompt_tokens
+        task_configs.recorder.log(f'completion_tokens:{completion_tokens}, prompt_tokens:{prompt_tokens}, price={completion_tokens*15/1000000+prompt_tokens*5/1000000}')
+        task_configs.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}')
 
-    results, dones, trials = task_configs.recorder.average_results()
-    result_string = f"{model_type},{task_name},{mas_memory_type},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
-    print(result_string)
+        results, dones, trials = task_configs.recorder.average_results()
+        result_string = f"{model_type},{task_name},{mas_memory_type},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
+        print(result_string)
 
-    append_local_result(os.path.join(WORKING_DIR, 'results.csv'), result_string, output_lock=output_lock)
-    _write_overall_result(experiment_config, result_string, db_dir, output_lock=output_lock)
+        append_local_result(os.path.join(WORKING_DIR, 'results.csv'), result_string, output_lock=output_lock)
+        _write_overall_result(experiment_config, result_string, db_dir, output_lock=output_lock)
 
-    return {
-        'task': task_name,
-        'mas_type': mas_type,
-        'mas_memory': mas_memory_type,
-        'seed': seed,
-        'result_string': result_string,
-    }
+        return {
+            'task': task_name,
+            'mas_type': mas_type,
+            'mas_memory': mas_memory_type,
+            'seed': seed,
+            'result_string': result_string,
+            'status': 'success',
+        }
+    except Exception as e:
+        print(f"Experiment failed: task={task_name} mas_memory={mas_memory_type} seed={seed}\n{traceback.format_exc()}", file=sys.stderr)
+        _write_failed_experiment(experiment_config, e, db_dir, output_lock=output_lock)
+        return {
+            'task': task_name,
+            'mas_type': mas_type,
+            'mas_memory': mas_memory_type,
+            'seed': seed,
+            'status': 'failed',
+            'error': f'{type(e).__name__}: {e}',
+        }
+
+
+def _append_csv_row(path: str, headers: list[str], row_values: list[str], output_lock=None) -> None:
+    line = ','.join(row_values) + '\n'
+
+    def _write():
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            append_local_result(path, ','.join(headers) + '\n', output_lock=None)
+        append_local_result(path, line, output_lock=None)
+
+    if output_lock is not None:
+        with output_lock:
+            _write()
+    else:
+        _write()
 
 
 def _write_overall_result(experiment_config: dict, result_string: str, db_dir: str, output_lock=None) -> None:
@@ -286,20 +315,24 @@ def _write_overall_result(experiment_config: dict, result_string: str, db_dir: s
     else:
         summary_fields = result_fields[3:]
 
-    overall_line = ','.join(basic_values + summary_fields) + '\n'
     overall_results_path = os.path.join(db_dir, 'overall_results.csv')
+    _append_csv_row(overall_results_path, headers, basic_values + summary_fields, output_lock=output_lock)
 
-    if output_lock is not None:
-        with output_lock:
-            if not os.path.exists(overall_results_path) or os.path.getsize(overall_results_path) == 0:
-                header_line = ','.join(headers) + '\n'
-                append_local_result(overall_results_path, header_line, output_lock=None)
-            append_local_result(overall_results_path, overall_line, output_lock=None)
-    else:
-        if not os.path.exists(overall_results_path) or os.path.getsize(overall_results_path) == 0:
-            header_line = ','.join(headers) + '\n'
-            append_local_result(overall_results_path, header_line, output_lock=None)
-        append_local_result(overall_results_path, overall_line, output_lock=None)
+
+def _write_failed_experiment(experiment_config: dict, error: Exception, db_dir: str, output_lock=None) -> None:
+    headers = ['task', 'mas_type', 'mas_memory', 'model', 'seed', 'error_type', 'error_message']
+    values = [
+        str(experiment_config.get('task', '')),
+        str(experiment_config.get('mas_type', '')),
+        str(experiment_config.get('mas_memory', '')),
+        str(experiment_config.get('model', '')),
+        str(experiment_config.get('seed', '')),
+        type(error).__name__,
+        str(error).replace('\n', ' ').replace(',', ';'),
+    ]
+
+    failed_path = os.path.join(db_dir, 'failed_experiments.csv')
+    _append_csv_row(failed_path, headers, values, output_lock=output_lock)
 
 
 if __name__ == '__main__':
@@ -327,14 +360,19 @@ if __name__ == '__main__':
 
     experiments = build_experiment_configs(args)
     if len(experiments) == 1 or args.num_workers <= 1:
-        for experiment_config in experiments:
-            run_experiment(experiment_config)
+        results = [run_experiment(experiment_config) for experiment_config in experiments]
     else:
         ctx = multiprocessing.get_context('spawn')
         with multiprocessing.Manager() as manager:
             output_lock = manager.Lock()
             with ProcessPoolExecutor(max_workers=min(args.num_workers, len(experiments)), mp_context=ctx) as executor:
                 futures = [executor.submit(run_experiment, experiment_config, output_lock) for experiment_config in experiments]
-                for future in tqdm(as_completed(futures), total=len(futures), desc='Running experiments'):
-                    future.result()
+                results = [future.result() for future in tqdm(as_completed(futures), total=len(futures), desc='Running experiments')]
+
+    failed = [r for r in results if r.get('status') == 'failed']
+    if failed:
+        failed_path = os.path.join(args.db_dir, 'failed_experiments.csv')
+        print(f"\n{len(failed)}/{len(results)} experiments failed. See {failed_path} for details.")
+        for r in failed:
+            print(f"  FAILED: task={r['task']} mas_memory={r['mas_memory']} seed={r['seed']} — {r['error']}")
 
