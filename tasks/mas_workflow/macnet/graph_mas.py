@@ -189,7 +189,7 @@ class MacNet(MetaMAS):
 
             self.meta_memory.move_memory_state(action, observation, reward=reward) 
 
-            trials = i
+            trials = i + 1
             if done:
                 break
 

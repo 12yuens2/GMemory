@@ -58,10 +58,14 @@ class EpisodeResult(NamedTuple):
     keeps working at call sites outside this repo (analysis notebooks, Slurm
     wrappers) while the fields finally have names.
 
-    `trials` counts the loop index the episode ended on, so an episode solved on
-    the first step reports 0. That is the convention the AutoGen workflows
-    already used; it is recorded here rather than changed, because the mean
-    trials column of every existing result CSV was produced under it.
+    `trials` is the number of trials completed: an episode solved on its first
+    step reports 1, and one that exhausts a 30-trial budget reports 30. It was
+    `trials = i`, the zero-based loop index, so every number was one low and a
+    solved-immediately episode reported 0 trials taken.
+
+    An episode that ends early because an agent could not act reports the trials
+    that did complete, not the one it failed on - so 0 when the very first agent
+    call fails.
     """
 
     reward: float

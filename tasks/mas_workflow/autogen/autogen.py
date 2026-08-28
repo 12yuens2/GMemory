@@ -192,7 +192,7 @@ class AutoGen(MetaMAS):
             self.notify_observers(step_message)
 
             self.meta_memory.move_memory_state(action, observation, reward=reward)   
-            trials = i
+            trials = i + 1
             if done:  
                 break
 

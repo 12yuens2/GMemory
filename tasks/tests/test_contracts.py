@@ -241,3 +241,31 @@ def test_every_memory_module_survives_every_workflow(mas_type, memory_key):
     result = workflow.schedule({"task_main": "m", "task_description": "d", "few_shots": []})
 
     assert isinstance(result, EpisodeResult)
+
+
+# ── the trials convention ─────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("mas_type", sorted(MAS))
+@pytest.mark.parametrize("steps_to_done, expected_trials", [(1, 1), (2, 2), (3, 3)])
+def test_trials_counts_the_trials_completed(mas_type, steps_to_done, expected_trials):
+    """It was `trials = i`, a zero-based loop index, so an episode solved on its
+    first step reported 0 and every mean-trials figure was one low."""
+    env = FakeEnv(max_trials=5, steps_to_done=steps_to_done)
+    workflow = build_workflow(mas_type, env)
+
+    result = workflow.schedule({"task_main": "m", "task_description": "d", "few_shots": []})
+
+    assert result.done is True
+    assert result.trials == expected_trials
+    assert result.trials == len(env.actions), "trials should match the steps actually taken"
+
+
+@pytest.mark.parametrize("mas_type", sorted(MAS))
+def test_an_unsolved_episode_reports_its_whole_budget(mas_type):
+    env = FakeEnv(max_trials=4, steps_to_done=99)
+    workflow = build_workflow(mas_type, env)
+
+    result = workflow.schedule({"task_main": "m", "task_description": "d", "few_shots": []})
+
+    assert result.done is False
+    assert result.trials == 4, "an episode that used its whole budget used 4 trials, not 3"

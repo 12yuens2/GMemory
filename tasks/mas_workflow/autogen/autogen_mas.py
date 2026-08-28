@@ -272,7 +272,7 @@ class AutoGen(MetaMAS):
             # Add latest action and observation to task_trajectory
             self.meta_memory_solver.move_memory_state(action, observation, reward=reward)   # I think we should only move the memory state for the solver
             
-            trials = i
+            trials = i + 1
             if done:  
                 break
 
