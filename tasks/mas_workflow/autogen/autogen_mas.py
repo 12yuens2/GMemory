@@ -12,7 +12,6 @@ from .autogen_prompt import AUTOGEN_PROMPT
 from ..format import format_task_prompt_with_insights, format_task_context
 
 import sys
-import time
 
 @dataclass
 class AutoGen(MetaMAS):   
@@ -172,7 +171,6 @@ class AutoGen(MetaMAS):
             
             #print(f"\n==== FEW SHOTS ====\n{few_shots[:]}\n==== END FEW SHOTS ====\n", file=sys.stderr)
             print(f"\n==== SOLVER AGENT PROMPT ====\n{user_prompt}\n==== END SOLVER AGENT PROMPT ====\n", file=sys.stderr)
-            time.sleep(5)
 
             solver_instruction = ""
             while tries < 3:
@@ -210,7 +208,6 @@ class AutoGen(MetaMAS):
                         Original instructions: \n
                         """
                         print(f'==== SOLVER INSTRUCTION FOR REVISION ====\n{solver_instruction}\n==== END SOLVER INSTRUCTION FOR REVISION ====\n', file=sys.stderr)
-                        time.sleep(5)
                         tries += 1
                         continue
                     
