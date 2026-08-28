@@ -46,13 +46,13 @@ class TaskManager:
     mem_config: dict = field(default_factory=dict)   # memory configs
 
 
-def build_task(task: str, mas_type: str, memory_type: str, max_steps: int) -> TaskManager:
+def build_task(task: str, mas_type: str, memory_type: str, max_steps: int, seed: int) -> TaskManager:
 
     with open(CONFIG.get(task).get('env_config_path')) as reader:
         config = yaml.safe_load(reader)
 
     env: BaseEnv = get_env(task, config, max_steps)
-    recorder: BaseRecorder = get_recorder(task, working_dir=WORKING_DIR, namespace='total_task')
+    recorder: BaseRecorder = get_recorder(task, working_dir=WORKING_DIR, namespace=f'total_task-seed_{seed}')
     tasks: list[dict] = get_task(task)
     mas_workflow: MetaMAS = get_mas(mas_type)
     mas_config: dict = CONFIG.get(mas_type, {})
@@ -200,14 +200,18 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
 
     random.seed(seed)
 
-    task_configs: TaskManager = build_task(task_name, mas_type, mas_memory_type, max_trials)
+    task_configs: TaskManager = build_task(task_name, mas_type, mas_memory_type, max_trials, seed)
     task_configs.mas_config['successful_topk'] = successful_topk
     task_configs.mas_config['failed_topk'] = failed_topk
     task_configs.mas_config['insights_topk'] = insights_topk
     task_configs.mas_config['threshold'] = threshold
     task_configs.mas_config['use_projector'] = use_projector
+
+    # each seed gets its own memory persistence dir so concurrent seeds of the same
+    # experiment config never read/write the same graph/vector-store/insights files
+    memory_dir = os.path.join(WORKING_DIR, f'seed_{seed}')
     task_configs.mem_config.update(
-        working_dir=WORKING_DIR,
+        working_dir=memory_dir,
         hop=hop
     )
 
