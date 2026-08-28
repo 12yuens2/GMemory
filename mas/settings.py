@@ -27,7 +27,21 @@ class MissingSettings(RuntimeError):
 
 @dataclass(frozen=True)
 class LLMSettings:
-    """Everything GPTChat needs to reach an endpoint and size a request."""
+    """Everything GPTChat needs to reach an endpoint and size a request.
+
+    Attributes:
+        api_base: OpenAI-compatible endpoint URL.
+        api_key: Credential for that endpoint.
+        max_tokens: Ceiling on the tokens generated per response, sent as
+            `max_completion_tokens`. A truncated answer is still returned.
+        temperature: Sampling temperature. **Currently not sent to the API** -
+            see the `temperature` item in the Phase 3 backlog.
+        num_comps: How many completions to request per call, sent as OpenAI's
+            `n`. 1 means one answer per prompt; higher values return several
+            independent samples for the same prompt, and every one of them is
+            billed. Nothing in this repo reads past the first choice, so raising
+            it only costs tokens.
+    """
 
     api_base: str
     api_key: str
