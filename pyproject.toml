@@ -208,6 +208,20 @@ dev = [
     "numpy",
 ]
 
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tasks/tests"]
+# Makes the repo root importable, so test modules do not each have to prepend it
+# to sys.path themselves.
+pythonpath = ["."]
+# The offline suite is the default. Tests needing a live LLM endpoint are marked
+# `network` and deselected unless explicitly asked for:
+#   uv run pytest -m network
+addopts = "-ra --strict-markers -m 'not network'"
+markers = [
+    "network: requires a live LLM endpoint and network access; deselected by default",
+]
+
 [tool.uv]
 # Virtual project: `uv sync` resolves and installs dependencies without trying to
 # build this repo as a distributable package.
