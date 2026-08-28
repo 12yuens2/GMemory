@@ -18,7 +18,7 @@ class FeverEnv(BaseEnv):
         
         self.reset()
         
-    def set_env(self, configs: dict) -> None:
+    def set_env(self, configs: dict) -> tuple[str, str]:
         if configs.get('answer') is None:
             raise ValueError('Please provide the answer for the question.')
         if configs.get('task') is None:

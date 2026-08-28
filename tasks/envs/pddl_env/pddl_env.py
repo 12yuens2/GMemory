@@ -94,7 +94,7 @@ class PDDLEnv(BaseEnv):
         self.done = False
         self.won = False
     
-    def step(self, action: str):
+    def step(self, action: str) -> tuple[str, float, bool]:
 
         if 'think' in action:
             return 'Ok. But you should not think too much!', -1, self.done
@@ -116,7 +116,6 @@ class PDDLEnv(BaseEnv):
         
         if action_literal is not None:
             obs_temp, reward, done, infos = self.env.step(action_literal)
-            print(reward)
             reward = max(self.reward, self._constraint_satisfaction_metric(obs_temp.literals, self.goal_literals))
             
             if obs_temp == self.last_obs: 
