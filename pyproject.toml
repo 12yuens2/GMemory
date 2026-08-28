@@ -8,7 +8,6 @@ dependencies = [
     "annotated-doc==0.0.4",
     "annotated-types==0.7.0",
     "anyio==4.13.0",
-    "attr==0.3.2",
     "attrs==26.1.0",
     "azure-core==1.40.0",
     "azure-identity==1.25.3",
@@ -37,7 +36,7 @@ dependencies = [
     "dotenv==0.9.9",
     "durationpy==0.10",
     "filelock==3.29.0",
-    "finch-api==1.44.1",
+    "finch-clust==0.2.3",
     "flatbuffers==25.12.19",
     "fonttools==4.62.1",
     "fsspec==2026.3.0",
@@ -190,6 +189,23 @@ dependencies = [
     "xxhash==3.6.0",
     "zipp==3.23.1",
     "zstandard==0.25.0",
+]
+
+[dependency-groups]
+# Offline development/CI environment. Deliberately NOT the full dependency list
+# above: that one pins torch plus the entire nvidia CUDA wheel set, which the
+# offline unit suite never touches. Keep this set minimal - if a test needs a
+# heavy dependency, prefer stubbing it in tasks/tests/conftest.py.
+#
+# Install with:  uv sync --only-group dev
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+    "python-dotenv",
+    "pyyaml",
+    "openai",
+    "networkx",
+    "numpy",
 ]
 
 [tool.uv]
