@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import NamedTuple
 import os
 import logging
 import time
@@ -6,6 +7,7 @@ from abc import ABC, abstractmethod
 
 from mas.agents import Env
 from mas.logging_utils import get_file_logger
+from mas.mas import EpisodeResult
 
 class BaseEnv(Env, ABC):
      
@@ -28,6 +30,18 @@ class BaseEnv(Env, ABC):
     @abstractmethod
     def feedback(self) -> tuple[float, bool, str]:
         pass
+
+
+class AggregateResults(NamedTuple):
+    """Means across every task recorded so far.
+
+    Separate from EpisodeResult, which describes a single episode: a mean `done`
+    of 0.6 is a rate, not a bool, and the two should not be interchangeable.
+    """
+
+    mean_reward: float
+    mean_done: float
+    mean_trials: float
 
 
 @dataclass
@@ -58,17 +72,17 @@ class BaseRecorder:
         self.current_task_id = task_id
         self.current_task_config = task_config
 
-    def task_end(self, reward: float, done: bool, trials: int) -> None:
+    def task_end(self, episode: EpisodeResult) -> None:
 
         if self.current_task_id is None or self.current_task_config is None:
             raise RuntimeError('The task id or the task config should not be None.')
 
-        self.total_rewards.append(reward)
-        self.total_dones.append(done)
-        self.total_trials.append(trials)
+        self.total_rewards.append(episode.reward)
+        self.total_dones.append(episode.done)
+        self.total_trials.append(episode.trials)
 
-    def average_results(self):
-        """ Returns a tuple (average rewards, average dones) """
+    def average_results(self) -> AggregateResults:
+        """Means over the tasks recorded so far, zero before the first one."""
         rewards = 0
         dones = 0
         trials = 0
@@ -80,7 +94,7 @@ class BaseRecorder:
         if self.total_trials:
             trials = sum(self.total_trials) / len(self.total_trials)
 
-        return rewards, dones, trials
+        return AggregateResults(mean_reward=rewards, mean_done=dones, mean_trials=trials)
         
     def dataset_begin(self) -> None:
         

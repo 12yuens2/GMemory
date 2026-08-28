@@ -4,6 +4,8 @@ from typing import Union, Any
 import re
 
 #from alfworld.agents.environment import get_environment
+from mas.mas import EpisodeResult
+
 from .base_env import BaseEnv, BaseRecorder
 
 prefixes = {  # tasks: task_type
@@ -111,8 +113,8 @@ class AlfworldRecorder(BaseRecorder):
         message: str = f'---------- Task: {task_id} ----------'
         self.log(message)
     
-    def task_end(self, reward: float, done: bool, trials: int):
-        super().task_end(reward, done, trials)
+    def task_end(self, episode: EpisodeResult):
+        super().task_end(episode)
 
         gamefile: str = self.current_task_config['env_kwargs']['gamefile']
         env_name = get_env_name_from_gamefile(gamefile)
@@ -121,11 +123,11 @@ class AlfworldRecorder(BaseRecorder):
 
         for i, (k, v) in enumerate(prefixes.items()):
             if env_name == k:
-                self.results[i] += done
+                self.results[i] += episode.done
                 self.counts[i] += 1
                 break
 
-        message = f'done: {done}, ave done: {self._average_done_by_task_type()}'
+        message = f'done: {episode.done}, ave done: {self._average_done_by_task_type()}'
         self.log(message)
         self.log("rs: " + str(self.results))
         self.log("cnts: " + str(self.counts))

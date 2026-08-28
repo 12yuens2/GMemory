@@ -118,15 +118,17 @@ def test_one_episode_runs_end_to_end(mas_type, task, tmp_path):
         agent.add_task_instruction(task_instruction)
 
     episode: EpisodeResult = workflow.schedule(task_config)
-    recorder.task_end(episode.reward, episode.done, episode.trials)
+    recorder.task_end(episode)
 
-    rewards, dones, trials = recorder.average_results()
+    averages = recorder.average_results()
     recorder.dataset_end()
 
     assert episode.done is True, f"[{mas_type}/{task}] the episode did not complete"
     assert env.actions, f"[{mas_type}/{task}] no action reached the environment"
-    assert (rewards, dones) == (1.0, 1.0), f"[{mas_type}/{task}] recorded {rewards}, {dones}"
-    assert trials == episode.trials
+    assert (averages.mean_reward, averages.mean_done) == (1.0, 1.0), (
+        f"[{mas_type}/{task}] recorded {averages}"
+    )
+    assert averages.mean_trials == episode.trials
 
 
 @pytest.mark.parametrize("mas_type", sorted(MAS))
@@ -144,8 +146,9 @@ def test_an_episode_that_never_solves_still_records_a_result(mas_type, task, tmp
     task_config.update(task_main=task_main, task_description=task_description, few_shots=[])
 
     episode = workflow.schedule(task_config)
-    recorder.task_end(episode.reward, episode.done, episode.trials)
+    recorder.task_end(episode)
 
+    averages = recorder.average_results()
     assert episode.done is False
     assert len(env.actions) == 3, f"[{mas_type}/{task}] took {len(env.actions)} of 3 trials"
-    assert recorder.average_results()[:2] == (0.0, 0)
+    assert (averages.mean_reward, averages.mean_done) == (0.0, 0)

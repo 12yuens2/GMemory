@@ -10,7 +10,9 @@ sys.path.append(os.path.join(os.getcwd(), 'envs', 'pddl_env'))
 import pddlgym
 from pddlgym.structs import Literal, Predicate
 
-from ..base_env import BaseEnv, BaseRecorder
+from mas.mas import EpisodeResult
+
+from ..base_env import AggregateResults, BaseEnv, BaseRecorder
 
 _PUNKT_READY = False
 
@@ -347,19 +349,22 @@ class PDDLRecorder(BaseRecorder):
         message: str = f'---------- Task: {task_id} ----------'
         self.log(message)
     
-    def task_end(self, reward: float, done: bool, trials):
-        super().task_end(reward, done, trials)
+    def task_end(self, episode: EpisodeResult):
+        super().task_end(episode)
 
         game_name: str = self.current_task_config.get('game_name') 
         if game_name is None:
             raise ValueError('The task should have an attribute: `game`.')
         
         self.cnts[game_name] += 1
-        self.rewards[game_name] += reward
-        self.dones[game_name] += done
-        self.trials.append(trials)
+        self.rewards[game_name] += episode.reward
+        self.dones[game_name] += episode.done
+        self.trials.append(episode.trials)
 
-        message = f'reward: {reward}, done: {done}.\nave reward: {self._get_average_reward()}, ave done: {self._get_average_done()}'
+        message = (
+            f'reward: {episode.reward}, done: {episode.done}.\n'
+            f'ave reward: {self._get_average_reward()}, ave done: {self._get_average_done()}'
+        )
         self.log(message)
 
     
@@ -374,8 +379,13 @@ class PDDLRecorder(BaseRecorder):
     def _get_average_trials(self) -> float:
         return sum(self.trials) / len(self.trials) if self.trials else 0.0
 
-    def average_results(self):
-        return self._get_average_reward(), self._get_average_done(), self._get_average_trials()
+    def average_results(self) -> AggregateResults:
+        """Aggregated across PDDL domains rather than over the flat task list."""
+        return AggregateResults(
+            mean_reward=self._get_average_reward(),
+            mean_done=self._get_average_done(),
+            mean_trials=self._get_average_trials(),
+        )
     
         
 # Define the mapping of predicate names to their natural language formats  

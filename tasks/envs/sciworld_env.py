@@ -2,6 +2,8 @@ from scienceworld import ScienceWorldEnv
 import re
 from dataclasses import dataclass
 
+from mas.mas import EpisodeResult
+
 from .base_env import BaseEnv, BaseRecorder
 
 def build_simplification_str():
@@ -197,12 +199,15 @@ class SciworldRecorder(BaseRecorder):
         message: str = f'---------- Task: {task_id} ----------'
         self.log(message)
     
-    def task_end(self, reward: float, done: bool, trials):
-        super().task_end(reward, done, trials)
-        
-        self.rewards += reward
-        self.dones += done
+    def task_end(self, episode: EpisodeResult):
+        super().task_end(episode)
+
+        self.rewards += episode.reward
+        self.dones += episode.done
         self.counts += 1
 
-        message = f'reward: {reward}, done: {done}.\nave reward: {self.rewards / self.counts}, ave done: {self.dones / self.counts}'
+        message = (
+            f'reward: {episode.reward}, done: {episode.done}.\n'
+            f'ave reward: {self.rewards / self.counts}, ave done: {self.dones / self.counts}'
+        )
         self.log(message)

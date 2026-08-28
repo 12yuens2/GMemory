@@ -29,6 +29,9 @@ with open('tasks/configs.yaml') as reader:
     CONFIG: dict = yaml.safe_load(reader)
 
 DEFAULT_DB_DIR: str = './.db'
+FAILED_TASKS_FILENAME: str = 'failed_tasks.csv'
+FAILED_EXPERIMENTS_FILENAME: str = 'failed_experiments.csv'
+OVERALL_RESULTS_FILENAME: str = 'overall_results.csv'
 
 @dataclass
 class TaskManager:
@@ -133,12 +136,8 @@ def run_task(
                 task_manager.recorder.log(agent.add_task_instruction(task_instruction))
 
             episode = task_manager.mas.schedule(task_config) # Schedule method from the mas_workflow (e.g. autogen)
-            task_manager.recorder.task_end(episode.reward, episode.done, episode.trials)
+            task_manager.recorder.task_end(episode)
         except Exception as error:
-            # A fault around the episode - set_env, prompt assembly, the recorder -
-            # is recorded but not scored, since it is not an episode outcome. An
-            # agent that cannot act is handled inside schedule and does reach
-            # task_end.
             failed_tasks.append({'task_id': task_id, 'error': error})
             task_manager.recorder.log(
                 f'TASK FAILED task_id={task_id}: {type(error).__name__}: {error}\n'
@@ -160,8 +159,8 @@ def run_task(
         task_manager.recorder.log(f'seed: {seed}\n')
 
         # output results as each task completes
-        results, dones, trials = task_manager.recorder.average_results()
-        result_string = f"{model_type},{task_name},{mas_memory_type},{seed},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens}\n"
+        averages = task_manager.recorder.average_results()
+        result_string = f"{model_type},{task_name},{mas_memory_type},{seed},{averages.mean_reward},{averages.mean_done},{averages.mean_trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens}\n"
         print(result_string)
 
         append_local_result(result_path, result_string, output_lock=output_lock)
@@ -186,10 +185,11 @@ def _write_failed_tasks(
     failed_tasks: list[dict],
     working_dir: str,
     output_lock=None,
+    filename: str = FAILED_TASKS_FILENAME,
 ) -> None:
     """One row per task that could not be run, alongside the experiment's results."""
     headers = ['task', 'mas_type', 'mas_memory', 'seed', 'task_id', 'error_type', 'error_message']
-    path = os.path.join(working_dir, 'failed_tasks.csv')
+    path = os.path.join(working_dir, filename)
 
     for failure in failed_tasks:
         error = failure['error']
@@ -295,8 +295,8 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         task_configs.recorder.log(f'completion_tokens:{completion_tokens}, prompt_tokens:{prompt_tokens}')
         task_configs.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}')
 
-        results, dones, trials = task_configs.recorder.average_results()
-        result_string = f"{model_type},{task_name},{mas_memory_type},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
+        averages = task_configs.recorder.average_results()
+        result_string = f"{model_type},{task_name},{mas_memory_type},{averages.mean_reward},{averages.mean_done},{averages.mean_trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
         print(result_string)
 
         append_local_result(os.path.join(working_dir, 'results.csv'), result_string, output_lock=output_lock)
@@ -338,7 +338,13 @@ def _append_csv_row(path: str, headers: list[str], row_values: list[str], output
         _write()
 
 
-def _write_overall_result(experiment_config: dict, result_string: str, db_dir: str, output_lock=None) -> None:
+def _write_overall_result(
+    experiment_config: dict,
+    result_string: str,
+    db_dir: str,
+    output_lock=None,
+    filename: str = OVERALL_RESULTS_FILENAME,
+) -> None:
     headers = [
         'task',
         'mas_type',
@@ -372,11 +378,17 @@ def _write_overall_result(experiment_config: dict, result_string: str, db_dir: s
     else:
         summary_fields = result_fields[3:]
 
-    overall_results_path = os.path.join(db_dir, 'overall_results.csv')
+    overall_results_path = os.path.join(db_dir, filename)
     _append_csv_row(overall_results_path, headers, basic_values + summary_fields, output_lock=output_lock)
 
 
-def _write_failed_experiment(experiment_config: dict, error: Exception, db_dir: str, output_lock=None) -> None:
+def _write_failed_experiment(
+    experiment_config: dict,
+    error: Exception,
+    db_dir: str,
+    output_lock=None,
+    filename: str = FAILED_EXPERIMENTS_FILENAME,
+) -> None:
     headers = ['task', 'mas_type', 'mas_memory', 'model', 'seed', 'error_type', 'error_message']
     values = [
         str(experiment_config.get('task', '')),
@@ -388,7 +400,7 @@ def _write_failed_experiment(experiment_config: dict, error: Exception, db_dir: 
         str(error).replace('\n', ' ').replace(',', ';'),
     ]
 
-    failed_path = os.path.join(db_dir, 'failed_experiments.csv')
+    failed_path = os.path.join(db_dir, filename)
     _append_csv_row(failed_path, headers, values, output_lock=output_lock)
 
 
@@ -433,7 +445,7 @@ if __name__ == '__main__':
 
     failed = [r for r in results if r.get('status') == 'failed']
     if failed:
-        failed_path = os.path.join(args.db_dir, 'failed_experiments.csv')
+        failed_path = os.path.join(args.db_dir, FAILED_EXPERIMENTS_FILENAME)
         print(f"\n{len(failed)}/{len(results)} experiments failed. See {failed_path} for details.")
         for r in failed:
             print(f"  FAILED: task={r['task']} mas_memory={r['mas_memory']} seed={r['seed']} — {r['error']}")

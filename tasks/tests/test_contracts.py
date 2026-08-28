@@ -18,6 +18,7 @@ from mas.memory import MASMemoryBase
 from mas.module_map import module_map
 
 from tasks.envs import RECORDERS
+from tasks.envs.base_env import AggregateResults
 
 from tasks.mas_workflow import MAS
 from tasks.tests.fakes import (
@@ -119,11 +120,11 @@ def build_recorder(task: str, working_dir: str):
 
 @pytest.mark.parametrize("task", sorted(RECORDERS))
 def test_task_end_accepts_reward_done_and_trials(task, working_dir):
-    """run.py calls task_end(reward, done, trials) on every recorder."""
+    """run.py hands every recorder the EpisodeResult a workflow returned."""
     recorder = build_recorder(task, working_dir)
     recorder.task_begin(0, dict(TASK_CONFIGS[task]))
 
-    recorder.task_end(1.0, True, 7)
+    recorder.task_end(EpisodeResult(reward=1.0, done=True, trials=7))
 
     assert recorder.total_rewards == [1.0], (
         f"{task}: task_end did not reach BaseRecorder, so total_rewards stayed {recorder.total_rewards}"
@@ -136,12 +137,12 @@ def test_task_end_accepts_reward_done_and_trials(task, working_dir):
 def test_average_results_returns_three_numerics(task, working_dir):
     recorder = build_recorder(task, working_dir)
     recorder.task_begin(0, dict(TASK_CONFIGS[task]))
-    recorder.task_end(1.0, True, 7)
+    recorder.task_end(EpisodeResult(reward=1.0, done=True, trials=7))
 
     results = recorder.average_results()
 
-    assert len(results) == 3, (
-        f"{task}: average_results() returned {len(results)} values, run.py:143 unpacks 3"
+    assert isinstance(results, AggregateResults), (
+        f"{task}: average_results() returned {type(results).__name__}"
     )
     assert all(isinstance(value, numbers.Real) for value in results), f"{task}: {results!r}"
 
@@ -151,9 +152,7 @@ def test_average_results_works_before_any_task_has_ended(task, working_dir):
     """A sweep over an empty task list must report zeros, not divide by zero."""
     recorder = build_recorder(task, working_dir)
 
-    rewards, dones, trials = recorder.average_results()
-
-    assert (rewards, dones, trials) == (0, 0, 0)
+    assert recorder.average_results() == (0, 0, 0)
 
 
 @pytest.mark.parametrize("task", sorted(RECORDERS))
@@ -162,7 +161,7 @@ def test_task_end_before_task_begin_is_rejected(task, working_dir):
     recorder = build_recorder(task, working_dir)
 
     with pytest.raises(RuntimeError, match="task id or the task config"):
-        recorder.task_end(1.0, True, 7)
+        recorder.task_end(EpisodeResult(reward=1.0, done=True, trials=7))
 
 
 # ── D4 · every memory module works with every workflow ────────────────────────

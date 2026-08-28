@@ -19,8 +19,10 @@ import pytest
 
 from mas.mas import EpisodeResult
 
+from tasks.envs import RECORDERS
 from tasks.envs.base_env import BaseRecorder
 from tasks.tests.fakes import FakeEnv
+from tasks.tests.test_task_smoke import SMOKE_TASK_CONFIGS
 
 
 class StubMAS:
@@ -74,10 +76,13 @@ def run_task_module(monkeypatch):
     return module
 
 
-def build_manager(run, tmp_path, tasks, mas):
-    recorder = BaseRecorder(working_dir=str(tmp_path), namespace="run-task-test")
+def build_manager(run, tmp_path, tasks, mas, task_name="fever", recorder=None):
+    """`fever` is the default only because its task config is the smallest; the
+    loop and its failure handling do not read anything task-specific."""
+    if recorder is None:
+        recorder = BaseRecorder(working_dir=str(tmp_path), namespace="run-task-test")
     return run.TaskManager(
-        task_name="fever",
+        task_name=task_name,
         mas_type="autogen",
         memory_type="empty",
         tasks=tasks,
@@ -174,8 +179,10 @@ def test_a_failed_task_is_excluded_from_the_averages_not_scored_as_zero(
 
     run.run_task(manager, seed=42, working_dir=str(tmp_path), task_name="fever")
 
-    rewards, dones, _ = manager.recorder.average_results()
-    assert (rewards, dones) == (1.0, 1.0), "the mean is over the two tasks that ran"
+    averages = manager.recorder.average_results()
+    assert (averages.mean_reward, averages.mean_done) == (1.0, 1.0), (
+        "the mean is over the two tasks that ran"
+    )
     assert len(manager.recorder.total_rewards) == 2
 
 
@@ -201,3 +208,54 @@ def test_a_dataset_where_every_task_fails_still_finishes(run_task_module, tmp_pa
 
     assert manager.recorder.average_results() == (0, 0, 0)
     assert len(read_csv(tmp_path / "failed_tasks.csv")) == 3
+
+
+# ── the failure handling holds for every task, not just the smallest one ───────
+
+@pytest.mark.parametrize("task", sorted(RECORDERS))
+def test_a_failing_task_is_isolated_whatever_the_task(run_task_module, tmp_path, task, monkeypatch):
+    """The generic loop is task-agnostic, but the recorders are not.
+
+    Each real recorder reads different keys out of current_task_config and raises
+    its own errors - AlfworldRecorder indexes env_kwargs.gamefile, PDDLRecorder
+    demands game_name - so the isolation has to be asserted against all four
+    rather than inferred from one.
+    """
+    run = run_task_module
+    monkeypatch.setattr(run, "CONFIG", {task: {"few_shots_num": 1}})
+
+    tasks = [dict(SMOKE_TASK_CONFIGS[task]) for _ in range(4)]
+    recorder = RECORDERS[task](working_dir=str(tmp_path), namespace=f"{task}-isolation")
+    mas = StubMAS(ExplodingEnv(fail_on=(1,)))
+    manager = build_manager(run, tmp_path, tasks, mas, task_name=task, recorder=recorder)
+
+    run.run_task(manager, seed=42, working_dir=str(tmp_path), task_name=task)
+
+    assert len(mas.scheduled) == 3, f"[{task}] the three healthy tasks should have run"
+    assert len(read_csv(tmp_path / "failed_tasks.csv")) == 1
+    assert len(recorder.total_rewards) == 3
+
+
+@pytest.mark.parametrize("task", sorted(RECORDERS))
+def test_a_task_config_a_recorder_rejects_is_isolated_too(
+    run_task_module, tmp_path, task, monkeypatch
+):
+    """A malformed task config is a per-task fault like any other.
+
+    This is the failure mode that differs per task: an empty config is fine for
+    the FEVER and SciWorld recorders and fatal for the ALFWorld and PDDL ones,
+    which is exactly why it should not stop the sweep either way.
+    """
+    run = run_task_module
+    monkeypatch.setattr(run, "CONFIG", {task: {"few_shots_num": 1}})
+
+    tasks = [dict(SMOKE_TASK_CONFIGS[task]), {}, dict(SMOKE_TASK_CONFIGS[task])]
+    recorder = RECORDERS[task](working_dir=str(tmp_path), namespace=f"{task}-malformed")
+    mas = StubMAS(FakeEnv())
+    manager = build_manager(run, tmp_path, tasks, mas, task_name=task, recorder=recorder)
+
+    run.run_task(manager, seed=42, working_dir=str(tmp_path), task_name=task)
+
+    assert len(recorder.total_rewards) >= 2, (
+        f"[{task}] the two well-formed tasks should have been scored"
+    )
