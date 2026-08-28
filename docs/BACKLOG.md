@@ -21,7 +21,7 @@ findings that turned up during them and do not belong to a phase.
 | [`g-memory` offline](#g-memory-cannot-be-exercised-by-the-offline-test-suite) | test coverage | |
 | [`max_trials` naming](#max_trials-names-two-different-budgets-in-dylan) | tech debt | |
 | [Dependency pins](#single-source-the-dependency-pins) | tech debt | **needs a decision** |
-| [`field()` misuse](#baserecorder-assigns-fielddefault_factorydict-outside-a-dataclass-body) | bug | latent |
+| [Per-episode tokens](#per-episode-token-attribution) | tech debt | |
 | [Test backlog](#test-backlog-groups-a-b-c-and-e) | tests | |
 
 ---
@@ -72,7 +72,9 @@ Every published figure touched by one of these was produced under it.
   Either pass it and accept the behaviour change, or delete it everywhere. Phase 2
   made this sharper: the parameter now resolves from `LLMSettings` and is threaded
   all the way to the call, where that one commented line still drops it. **One
-  line from working, or one line from honest.**
+  line from working, or one line from honest.** `num_comps`, the other sampling
+  parameter, was removed in `737a8e5` on the same reasoning — it was sent to the
+  API and could only cost money, since nothing reads past the first choice.
 - [ ] **Repair or retire `intrinsicmemory-llm-structured-template`.** `summarize`
   generates a template and stores it in `agent_intrinsic_memory`, then passes
   `template_instructions=self.memory_template` — a field initialised to `""` and
@@ -167,10 +169,9 @@ serve. Mostly moves — do each as its own commit.
   written with `csv.DictWriter` and real headers. Retires the
   `result_fields[3:10]` positional slicing, which recovers columns by re-parsing a
   string that was just formatted.
-  - [ ] **Add a task-count column** while doing it. Failed tasks are excluded from
-    the averages, so a mean can be over 120 of 134 tasks and `results.csv` does
-    not say which. Currently mitigated only by a stderr line and
-    `failed_tasks.csv`; the denominator belongs in the row.
+  - [ ] **Add the task-count column** while doing it. `AggregateResults` now
+    carries `episode_count`, so the denominator exists — it just is not written to
+    the CSV yet, because that needs the schema work.
 - [ ] **Extract `sweep.py` from `run.py`,** owning config expansion — including
   the dead `keys` computation at `:172`, whose result is never used.
 - [ ] **Decide what the per-task CSV means.** `run_task` appends
@@ -182,6 +183,9 @@ serve. Mostly moves — do each as its own commit.
 - [ ] **Unify the env hierarchy:** fold `mas.agents.Env` into `BaseEnv`, declare
   `max_trials` on the base (all four subclasses set it independently), and give
   `BaseEnv.__init__` a real body instead of `pass`.
+
+~~`BaseRecorder` assigning `field(default_factory=dict)` outside a dataclass body~~
+— removed in `78c914b` as a side effect of the recorder refactor.
 
 Test **C5** golden-files the CSV schema and should land with the `results.py`
 extraction.
@@ -475,34 +479,29 @@ Phase 6 needs this resolved before the Dockerfile can `uv sync --frozen`.
 
 ---
 
-## BaseRecorder assigns `field(default_factory=dict)` outside a dataclass body
+## Per-episode token attribution
 
-`bug` `tech-debt` · found during Phase 1 · latent
+`tech-debt` · raised in review of PR #5
 
-`tasks/envs/base_env.py`, inside `BaseRecorder.__post_init__`:
+There is no per-episode token accounting. One `TokenTracker` is shared by every
+call in an experiment, `run.py` writes its cumulative totals after each task, and
+nothing attributes tokens to the episode that spent them.
 
-```python
-self.current_task_config: dict = field(default_factory=dict)
-```
+Two things want it:
 
-`dataclasses.field` is only meaningful in a dataclass *body*, evaluated by the
-`@dataclass` decorator. Called in a method it returns a `Field` object, so
-`current_task_config` holds a `Field` — annotated `dict` — until `task_begin`
-overwrites it.
+- **Excluding a failed episode's tokens.** Raised in review. Not done, and I would
+  argue against it on its own: tokens are a cost that really was incurred, not a
+  measure of the system, so hiding real spend understates what a run cost. Trials
+  and reward are measures and should not be flattered by a fault; tokens are a
+  bill. But the option does not currently exist either way.
+- **The always-zero intrinsic token columns** (see above). Reporting what the
+  memory costs against the baseline needs per-call attribution to land somewhere
+  per-episode, not just in a running total.
 
-**Severity: latent.** `task_end` guards with
-`if self.current_task_id is None or self.current_task_config is None`, and
-`current_task_id` *is* correctly `None`, so the guard fires for the right reason
-and the wrong value is never read. Pinned by
-`test_contracts.py::test_task_end_before_task_begin_is_rejected`.
-
-It becomes a real bug the moment anyone reads `current_task_config` before
-`task_begin`, or changes that guard to check the config rather than the id —
-`Field is not None` is true, so the guard would silently pass and a recorder would
-attribute a result to a task that never began.
-
-**Fix:** one line, `self.current_task_config: dict = {}`. Group it with the Phase 5
-env-hierarchy work, which touches this class anyway.
+**Sketch:** snapshot the tracker at `task_begin` and diff at `task_end`, so
+`EpisodeResult` or the recorder can carry a per-episode figure. Cheap, and it
+makes both of the above possible. Land it with the intrinsic-token work, and with
+Phase 5's CSV schema so the columns have somewhere honest to go.
 
 ---
 
