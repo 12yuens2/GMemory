@@ -4,7 +4,6 @@ import nltk
 import json
 import sys
 import os
-nltk.download('punkt_tab')
 sys.path.append(os.path.join(os.getcwd(), 'tasks', 'envs', 'pddl_env')) 
 sys.path.append(os.path.join(os.getcwd(), 'envs', 'pddl_env')) 
 
@@ -12,6 +11,26 @@ import pddlgym
 from pddlgym.structs import Literal, Predicate
 
 from ..base_env import BaseEnv, BaseRecorder
+
+# nltk.word_tokenize needs the punkt tokeniser. This used to be two unconditional
+# nltk.download calls: one at module scope, so importing tasks.envs reached the
+# network for every task and not just PDDL, and one inside set_env, so it ran again
+# for every task in the dataset. Now it runs at most once per process, only when a
+# PDDL environment is actually built, and only if the data is not already present.
+_PUNKT_READY = False
+
+
+def ensure_punkt_tokeniser() -> None:
+    global _PUNKT_READY
+    if _PUNKT_READY:
+        return
+    for resource in ('punkt', 'punkt_tab'):
+        try:
+            nltk.data.find(f'tokenizers/{resource}')
+        except LookupError:
+            nltk.download(resource)
+    _PUNKT_READY = True
+
 
 def get_all_environment_configs(game_names: list[str], label_path: str):
     def load_annotation(path):
@@ -59,8 +78,8 @@ class PDDLEnv(BaseEnv):
         self.last_obs = None
 
     def set_env(self, configs: dict) -> tuple[str, str]: 
-        nltk.download('punkt')
-        
+        ensure_punkt_tokeniser()
+
         self.game_name: str = configs.get('game_name')
         problem_index: int = configs.get('problem_index')
         if self.game_name is None or problem_index is None:
