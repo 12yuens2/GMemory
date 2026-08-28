@@ -30,7 +30,7 @@ with open('tasks/configs.yaml') as reader:
     CONFIG: dict = yaml.safe_load(reader)
 
 WORKING_DIR: str = None
-DB_DIR: str = './.db-icml'
+DB_DIR: str = './.db'
 OVERALL_RESULTS_PATH: str = os.path.join(DB_DIR, 'overall_results.csv')
 
 @dataclass
@@ -192,10 +192,13 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     use_projector = experiment_config['use_projector']
     hop = experiment_config['hop']
 
+    # set save dirs
     global WORKING_DIR
-    DB_DIR = './.db-icml'
+    DB_DIR = './.db-test'
     WORKING_DIR = os.path.join(DB_DIR, get_model_type(model_type), task_name, mas_type, f'{mas_memory_type}')
     os.makedirs(WORKING_DIR, exist_ok=True)
+
+    random.seed(seed)
 
     task_configs: TaskManager = build_task(task_name, mas_type, mas_memory_type, max_trials)
     task_configs.mas_config['successful_topk'] = successful_topk
@@ -290,6 +293,7 @@ def _write_overall_result(experiment_config: dict, result_string: str, output_lo
 
 if __name__ == '__main__':
     # settings
+    num_cpus = max(1, os.cpu_count() - 32)
 
     parser = argparse.ArgumentParser(description='Run tasks with specified modules.')
     parser.add_argument('--task', type=str, nargs='+', choices=['alfworld', 'fever', 'pddl', 'sciworld'], default=['alfworld'], help='One or more tasks to run')
@@ -305,11 +309,9 @@ if __name__ == '__main__':
     parser.add_argument('--use_projector', action='store_true', help='whether to use role projector.')
     parser.add_argument('--hop', type=int, default=1, help='hop for traj similarity.')
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')
-    parser.add_argument('--num_workers', type=int, default=min(72, os.cpu_count() or 1), help='Number of worker processes for parallel experiment execution.')
+    parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')
 
     args = parser.parse_args()
-
-    random.seed(args.seed[0])
 
     experiments = build_experiment_configs(args)
     if len(experiments) == 1 or args.num_workers <= 1:
@@ -317,9 +319,10 @@ if __name__ == '__main__':
             run_experiment(experiment_config)
     else:
         ctx = multiprocessing.get_context('spawn')
-        output_lock = ctx.Lock()
-        with ProcessPoolExecutor(max_workers=min(args.num_workers, len(experiments)), mp_context=ctx) as executor:
-            futures = [executor.submit(run_experiment, experiment_config, output_lock) for experiment_config in experiments]
-            for future in tqdm(as_completed(futures), total=len(futures), desc='Running experiments'):
-                future.result()
+        with multiprocessing.Manager() as manager:
+            output_lock = manager.Lock()
+            with ProcessPoolExecutor(max_workers=min(args.num_workers, len(experiments)), mp_context=ctx) as executor:
+                futures = [executor.submit(run_experiment, experiment_config, output_lock) for experiment_config in experiments]
+                for future in tqdm(as_completed(futures), total=len(futures), desc='Running experiments'):
+                    future.result()
 
