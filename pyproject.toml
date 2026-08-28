@@ -191,3 +191,22 @@ dependencies = [
     "zipp==3.23.1",
     "zstandard==0.25.0",
 ]
+
+[tool.uv]
+# Virtual project: `uv sync` resolves and installs dependencies without trying to
+# build this repo as a distributable package.
+package = false
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+# tasks/envs/pddl_env/pddlgym is vendored third-party code and is not reviewed,
+# reformatted or linted as part of this repo.
+extend-exclude = ["tasks/envs/pddl_env/pddlgym"]
+
+[tool.ruff.lint]
+# Deliberately the high-signal floor rather than a broad rule set: pyflakes (F)
+# catches unused imports and undefined names, E4/E7/E9 catch import and syntax
+# level errors. Widening this (isort, pyupgrade, bugbear) is worth doing, but as
+# its own change - each new rule family rewrites many files at once.
+select = ["E4", "E7", "E9", "F"]
