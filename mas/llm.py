@@ -28,6 +28,15 @@ KEY = os.environ["OPENAI_API_KEY"]
 #print('# api key: ', KEY)
 
 
+class LLMCallFailed(RuntimeError):
+    """Every retry of an LLM call was exhausted without a usable answer.
+
+    Previously this returned "", indistinguishable from a model that genuinely
+    answered with nothing. That ambiguity is what made the agent retry loops spin:
+    they treated "" as "try again", and an API error produced "" on every attempt.
+    """
+
+
 @dataclass
 class TokenTracker:
     """Per-instance token accounting, scoped to whatever owns it (typically one GPTChat)."""
@@ -103,8 +112,9 @@ class GPTChat(LLM):
 
         messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
-        max_retries = 5  
-        wait_time = 1 
+        max_retries = 5
+        wait_time = 1
+        last_error: Optional[BaseException] = None
 
         for attempt in range(max_retries):
             try:
@@ -125,19 +135,26 @@ class GPTChat(LLM):
                 )
 
                 if answer is None:
-                    print("Error: LLM returned None")
+                    print("Error: LLM returned None", file=sys.stderr)
                     continue
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 print(f"==== LLM RESPONSE ====\nTIME: {current_time}\n{answer}\n==== END LLM RESPONSE ====\n", file=sys.stderr)
                 return answer  
 
             except Exception as e:
+                last_error = e
                 error_message = str(e)
                 if "rate limit" in error_message.lower() or "429" in error_message:
+                    print(f"Rate limited, waiting {wait_time}s before retry {attempt + 2}/{max_retries}", file=sys.stderr)
                     time.sleep(wait_time)
+                    # The wait was fixed at 1s for every retry, so five attempts
+                    # took five seconds and gave a throttled endpoint no room.
+                    wait_time *= 2
                 else:
-                    print(f"Error during API call: {error_message}")
-                    break 
+                    print(f"Error during API call: {error_message}", file=sys.stderr)
+                    break
 
-        return ""
+        raise LLMCallFailed(
+            f'{self.model_name} returned no answer after {max_retries} attempts'
+        ) from last_error
 
