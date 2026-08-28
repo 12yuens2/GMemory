@@ -97,7 +97,7 @@ class DyLAN(MetaMAS):
                     reasoning_module=reasoning,
                     memory_module=None
                 )
-                neuron = LLMNeuron(agent)
+                neuron = LLMNeuron(agent, embedding_func=mas_memory.embedding_func)
                 self.hire([agent])
                 self._neurons.add_neuron(neuron, w, h)
                 self._neurons.get(w, h).importance /= self._height  
@@ -120,7 +120,7 @@ class DyLAN(MetaMAS):
             reasoning_module=reasoning,
             memory_module=None
         )
-        self._decision_neuron = LLMNeuron(decision_agent)
+        self._decision_neuron = LLMNeuron(decision_agent, embedding_func=mas_memory.embedding_func)
  
         self._ranking_llm = Agent(
             name='ranker',

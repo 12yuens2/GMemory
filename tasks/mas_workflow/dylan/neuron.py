@@ -6,7 +6,7 @@ from mas.reasoning import ReasoningConfig
 from mas.utils import EmbeddingFunc
 
 class LLMNeuron:
-    def __init__(self, agent: Agent):
+    def __init__(self, agent: Agent, embedding_func: EmbeddingFunc):
         self._id = agent.name
         self._agent = agent
         self.importance = 1
@@ -18,7 +18,9 @@ class LLMNeuron:
         self._is_activate: bool = True
 
         self.reasoning_config = ReasoningConfig(temperature=0, stop_strs=['\n'])
-        self.embedding_func = EmbeddingFunc()
+        # Injected rather than constructed: EmbeddingFunc() here took the default
+        # model, so --mas_type dylan silently ignored configs.yaml's embedding_model.
+        self.embedding_func = embedding_func
 
     def execute(self, user_prompt: str, use_critic: bool) -> str:
 
