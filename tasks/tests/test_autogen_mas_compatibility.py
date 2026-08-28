@@ -196,10 +196,7 @@ def test_schedule_compatible_with_task_and_memory(task, memory_key, tmp_path):
 
         result = ag.schedule(TASK_CONFIGS[task])
 
-    # The contract is set by the caller, tasks/run.py, which unpacks three values:
-    #     reward, done, trials = task_manager.mas.schedule(task_config)
-    # Asserting two here (as this test previously did) encoded the DyLAN/MacNet
-    # defect as expected behaviour rather than catching it.
+    # run.py unpacks three: reward, done, trials.
     assert isinstance(result, tuple) and len(result) == 3, (
         f"[{task}/{memory_key}] schedule() returned {result!r}, expected (reward, done, trials)"
     )

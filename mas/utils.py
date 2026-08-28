@@ -59,10 +59,8 @@ class EmbeddingFunc:
     model_type: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     def __post_init__(self):
-        # sentence_transformers pulls in torch, and on Linux torch pulls the whole
-        # nvidia CUDA wheel set. Importing it here rather than at module scope keeps
-        # `import mas` usable - and the offline test suite installable - without that
-        # stack. Any code that actually embeds still needs it present.
+        # Imported here, not at module scope: sentence_transformers pulls torch,
+        # which on Linux pulls the whole CUDA stack.
         from sentence_transformers import SentenceTransformer
 
         if self.model_type not in _EMBEDDING_MODEL_CACHE:

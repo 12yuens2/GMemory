@@ -43,9 +43,7 @@ _has_real_credentials = (
     and os.getenv("OPENAI_API_KEY") not in (None, _PLACEHOLDER_KEY)
 )
 
-# `network` keeps these out of the default run entirely (see addopts in
-# pyproject.toml); the skipif is the second gate for when they are asked for
-# explicitly but no credentials are present.
+# `network` keeps these out of the default run; the skipif is the second gate.
 pytestmark = [
     pytest.mark.network,
     pytest.mark.skipif(

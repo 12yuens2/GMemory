@@ -23,21 +23,14 @@ jobs:
         with:
           enable-cache: true
 
-      # Only the dev group. The project's main dependency set pins torch and the
-      # full nvidia CUDA wheel set, none of which the offline suite touches -
-      # this env is ~75MB and installs in seconds.
+      # Dev group only - the main dependency set pins torch and CUDA.
       - name: Install dev dependencies
         run: uv sync --only-group dev
 
       - name: Lint
         run: uv run --only-group dev ruff check .
 
-      # Excludes the `network` marker by default (see addopts in pyproject.toml),
-      # so no LLM credentials are needed.
-      #
-      # NOTE: this currently takes ~7.5 minutes for 115 fully-mocked tests.
-      # Almost all of it is the two hardcoded `time.sleep(5)` calls in
-      # autogen_mas.py (~9s x 48 parametrised cases). Removing them is Phase 4;
-      # doing it earlier would bring this job under a minute.
+      # Network tests are excluded by default, so no credentials are needed.
+      # Takes ~7.5min, almost entirely the two time.sleep(5) calls in autogen_mas.py.
       - name: Test
         run: uv run --only-group dev pytest
