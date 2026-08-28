@@ -480,10 +480,7 @@ class InsightsManager:
         self.persist_file: str = os.path.join(self.working_dir,f'{self.namespace}.json')
         self.insights_memory: list[dict] = load_json(self.persist_file) or []
 
-        # log path is unique per experiment (working_dir is seed-scoped), so using
-        # it as the logger name guarantees a fresh logger per experiment instead of
-        # relying on logging.basicConfig, which only configures the root logger
-        # once per process and silently no-ops on every later call
+        # use unique log path per experiment as the logger name
         log_path = os.path.join(self.working_dir, 'insights.log')
         self.logger = get_file_logger(
             log_path,

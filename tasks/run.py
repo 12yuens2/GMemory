@@ -30,7 +30,6 @@ from utils import get_model_type
 with open('tasks/configs.yaml') as reader:
     CONFIG: dict = yaml.safe_load(reader)
 
-WORKING_DIR: str = None
 DEFAULT_DB_DIR: str = './.db'
 
 @dataclass
@@ -47,13 +46,13 @@ class TaskManager:
     token_tracker: TokenTracker = None   # token accounting for this experiment's LLM calls
 
 
-def build_task(task: str, mas_type: str, memory_type: str, max_steps: int, seed: int) -> TaskManager:
+def build_task(task: str, mas_type: str, memory_type: str, max_steps: int, seed: int, working_dir: str) -> TaskManager:
 
     with open(CONFIG.get(task).get('env_config_path')) as reader:
         config = yaml.safe_load(reader)
 
     env: BaseEnv = get_env(task, config, max_steps)
-    recorder: BaseRecorder = get_recorder(task, working_dir=WORKING_DIR, namespace=f'total_task-seed_{seed}')
+    recorder: BaseRecorder = get_recorder(task, working_dir=working_dir, namespace=f'total_task-seed_{seed}')
     tasks: list[dict] = get_task(task)
     mas_workflow: MetaMAS = get_mas(mas_type)
     mas_config: dict = CONFIG.get(mas_type, {})
@@ -107,13 +106,14 @@ def append_local_result(output_path: str, result_string: str, output_lock=None) 
 def run_task(
     task_manager: TaskManager,
     seed: int,
+    working_dir: str,
     model_type: str = None,
     task_name: str = None,
     mas_memory_type: str = None,
     output_lock=None,
 ) -> None:
     task_manager.recorder.dataset_begin()
-    result_path = os.path.join(WORKING_DIR, f"{task_manager.task_name}-{task_manager.memory_type}-results.csv")
+    result_path = os.path.join(working_dir, f"{task_manager.task_name}-{task_manager.memory_type}-results.csv")
 
     for task_id, task_config in tqdm(enumerate(task_manager.tasks), total=len(task_manager.tasks), desc="Running Tasks"):
         task_manager.recorder.task_begin(task_id, task_config)
@@ -199,14 +199,13 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     db_dir = experiment_config['db_dir']
 
     # set save dirs
-    global WORKING_DIR
-    WORKING_DIR = os.path.join(db_dir, get_model_type(model_type), task_name, mas_type, f'{mas_memory_type}')
-    os.makedirs(WORKING_DIR, exist_ok=True)
+    working_dir = os.path.join(db_dir, get_model_type(model_type), task_name, mas_type, f'{mas_memory_type}')
+    os.makedirs(working_dir, exist_ok=True)
 
     try:
         random.seed(seed)
 
-        task_configs: TaskManager = build_task(task_name, mas_type, mas_memory_type, max_trials, seed)
+        task_configs: TaskManager = build_task(task_name, mas_type, mas_memory_type, max_trials, seed, working_dir)
         task_configs.mas_config['successful_topk'] = successful_topk
         task_configs.mas_config['failed_topk'] = failed_topk
         task_configs.mas_config['insights_topk'] = insights_topk
@@ -215,7 +214,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
 
         # each seed gets its own memory persistence dir so concurrent seeds of the same
         # experiment config never read/write the same graph/vector-store/insights files
-        memory_dir = os.path.join(WORKING_DIR, f'seed_{seed}')
+        memory_dir = os.path.join(working_dir, f'seed_{seed}')
         task_configs.mem_config.update(
             working_dir=memory_dir,
             hop=hop
@@ -225,6 +224,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         run_task(
             task_configs,
             seed,
+            working_dir,
             model_type=model_type,
             task_name=task_name,
             mas_memory_type=mas_memory_type,
@@ -235,14 +235,14 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         completion_tokens, prompt_tokens = tracker.completion_tokens, tracker.prompt_tokens
         intrinsic_completion_tokens = tracker.intrinsic_completion_tokens
         intrinsic_prompt_tokens = tracker.intrinsic_prompt_tokens
-        task_configs.recorder.log(f'completion_tokens:{completion_tokens}, prompt_tokens:{prompt_tokens}, price={completion_tokens*15/1000000+prompt_tokens*5/1000000}')
+        task_configs.recorder.log(f'completion_tokens:{completion_tokens}, prompt_tokens:{prompt_tokens}')
         task_configs.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}')
 
         results, dones, trials = task_configs.recorder.average_results()
         result_string = f"{model_type},{task_name},{mas_memory_type},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
         print(result_string)
 
-        append_local_result(os.path.join(WORKING_DIR, 'results.csv'), result_string, output_lock=output_lock)
+        append_local_result(os.path.join(working_dir, 'results.csv'), result_string, output_lock=output_lock)
         _write_overall_result(experiment_config, result_string, db_dir, output_lock=output_lock)
 
         return {
