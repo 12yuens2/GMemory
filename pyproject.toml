@@ -201,6 +201,7 @@ dev = [
     "openai",
     "networkx",
     "numpy",
+    "jsonlines",
 ]
 
 [tool.pytest.ini_options]

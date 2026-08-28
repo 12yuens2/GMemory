@@ -25,11 +25,19 @@ def _stub_module(name: str):
         sys.modules[name] = MagicMock()
 
 
+# The task environments import their simulators at module scope, so importing the
+# env/recorder registry offline needs these stubbed. nltk in particular downloads a
+# tokeniser at import time, which a test run must not depend on.
 for _mod in (
     "langchain_chroma",
     "langchain_core",
     "langchain_core.documents",
     "finch",
+    "nltk",
+    "pddlgym",
+    "pddlgym.structs",
+    "scienceworld",
+    "wikipedia",
 ):
     _stub_module(_mod)
 
