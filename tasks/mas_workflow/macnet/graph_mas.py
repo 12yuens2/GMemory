@@ -4,7 +4,7 @@ from collections import deque
 
 from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage
-from mas.mas import MetaMAS
+from mas.mas import EpisodeResult, MetaMAS
 from mas.reasoning import ReasoningBase, ReasoningConfig
 from mas.memory import MASMemoryBase, GMemory
 from mas.agents import Env
@@ -62,7 +62,7 @@ class MacNet(MetaMAS):
         self.set_env(env)
         self.meta_memory = mas_memory
     
-    def schedule(self, task_config: dict) -> tuple[float, bool]:
+    def schedule(self, task_config: dict) -> EpisodeResult:
         """
         Schedules and executes a task based on the given task configuration.
 
@@ -118,11 +118,13 @@ class MacNet(MetaMAS):
             few_shots=few_shots, 
             memory_few_shots=successful_shots,
             insights=raw_rules,
-            task_description=self.meta_memory.summarize(upstream_agent_ids=None)
+            task_description=self.meta_memory.summarize()
         )
         self.notify_observers(user_prompt)
         
         # Main loop for task execution
+        trials = 0
+
         for i in range(env.max_trials):
 
             upstream_node_ids: dict[str, str] = {}   
@@ -138,7 +140,7 @@ class MacNet(MetaMAS):
                     few_shots=few_shots, 
                     memory_few_shots=successful_shots,
                     insights=roles_rules.get(curr_node._agent.profile, raw_rules),
-                    task_description=self.meta_memory.summarize(upstream_agent_ids=None)
+                    task_description=self.meta_memory.summarize()
                 )
                 user_message: Message = Message('user', user_prompt)
 
@@ -187,6 +189,7 @@ class MacNet(MetaMAS):
 
             self.meta_memory.move_memory_state(action, observation, reward=reward) 
 
+            trials = i + 1
             if done:
                 break
 
@@ -196,13 +199,7 @@ class MacNet(MetaMAS):
         self.meta_memory.save_task_context(label=final_done, feedback=final_feedback) 
         self.meta_memory.backward(final_done)    
 
-        return final_reward, final_done    
-    def add_observer(self, observer):
-        self.observers.append(observer)
-
-    def notify_observers(self, message: str):
-        for observer in self.observers:
-            observer.log(message)
+        return EpisodeResult(reward=final_reward, done=final_done, trials=trials)
     
     def _update_memory(self) -> None:
         for node in self._agent_nodes.values():

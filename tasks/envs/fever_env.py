@@ -2,6 +2,8 @@ from typing import Any, Literal
 import re
 from dataclasses import dataclass
 
+from mas.mas import EpisodeResult
+
 from .base_env import BaseEnv, BaseRecorder
 from .utils import LangChainWiki, match_exactly
 
@@ -18,7 +20,7 @@ class FeverEnv(BaseEnv):
         
         self.reset()
         
-    def set_env(self, configs: dict) -> None:
+    def set_env(self, configs: dict) -> tuple[str, str]:
         if configs.get('answer') is None:
             raise ValueError('Please provide the answer for the question.')
         if configs.get('task') is None:
@@ -124,27 +126,19 @@ class FeverRecorder(BaseRecorder):
     def __post_init__(self):
         super().__post_init__()
         self.task = 'hotpotqa'
-        self.counts = 0
-        self.dones = 0
-        self.rewards = 0
-    
+
     def task_begin(self, task_id: int, task_config: dict):
         super().task_begin(task_id, task_config)
         
         message: str = f'---------- Task: {task_id} ----------'
         self.log(message)
     
-    def task_end(self, reward: float, done: bool, trials):
-        super().task_end(reward, done, trials)
-        
-        self.rewards += reward
-        self.dones += done
-        self.counts += 1
+    def task_end(self, episode: EpisodeResult):
+        super().task_end(episode)
 
-        message = f'reward: {reward}, ave reward: {self.rewards / self.counts}.\ndone: {done}, ave done: {self.dones / self.counts}'
-        self.log(message)
+        averages = self.average_results()
+        self.log(
+            f'reward: {episode.reward}, ave reward: {averages.mean_reward}.\n'
+            f'done: {episode.done}, ave done: {averages.mean_done}'
+        )
 
-    #def average_results(self):
-        #average_rewards = self.rewards / self.counts
-        #average_dones = self.dones / self.counts
-        #return average_rewards, average_dones

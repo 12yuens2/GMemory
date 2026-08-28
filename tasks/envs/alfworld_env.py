@@ -4,7 +4,9 @@ from typing import Union, Any
 import re
 
 #from alfworld.agents.environment import get_environment
-from .base_env import BaseEnv, BaseRecorder
+from mas.mas import EpisodeResult
+
+from .base_env import BaseEnv, BaseRecorder, aggregate
 
 prefixes = {  # tasks: task_type
     'pick_and_place': 'put',
@@ -102,8 +104,11 @@ class AlfworldRecorder(BaseRecorder):
         
         super().__post_init__()
         self.task = 'alfworld'
-        self.counts = [0] * 6
-        self.results = [0] * 6
+        # Episodes grouped by ALFWorld task type, for the per-type breakdown in
+        # the log. The overall aggregate comes from BaseRecorder.
+        self.episodes_by_task_type: dict[str, list[EpisodeResult]] = {
+            name: [] for name in prefixes
+        }
 
     def task_begin(self, task_id, task_config):
         super().task_begin(task_id, task_config)
@@ -111,23 +116,17 @@ class AlfworldRecorder(BaseRecorder):
         message: str = f'---------- Task: {task_id} ----------'
         self.log(message)
     
-    def task_end(self, reward: float, done: bool):
+    def task_end(self, episode: EpisodeResult):
+        super().task_end(episode)
+
         gamefile: str = self.current_task_config['env_kwargs']['gamefile']
         env_name = get_env_name_from_gamefile(gamefile)
         if env_name is None:
             raise ValueError('Format of the task config is wrong.')
 
-        for i, (k, v) in enumerate(prefixes.items()):
-            if env_name == k:
-                self.results[i] += done
-                self.counts[i] += 1
-                break
+        self.episodes_by_task_type[env_name].append(episode)
 
-        message = f'done: {done}, ave done: {sum(self.results) / sum(self.counts)}'
-        self.log(message)
-        self.log("rs: " + str(self.results))
-        self.log("cnts: " + str(self.counts))
-
-    def average_results(self):
-        average_results = sum(self.results) / sum(self.counts)
-        return average_results, average_results
+        self.log(f'done: {episode.done}, ave done: {self.average_results().mean_done}')
+        for name, episodes in self.episodes_by_task_type.items():
+            if episodes:
+                self.log(f'  {prefixes[name]}: {aggregate(episodes)}')

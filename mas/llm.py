@@ -1,4 +1,3 @@
-import os
 import sys
 
 from typing import (
@@ -11,21 +10,17 @@ from openai import OpenAI
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
-from .utils import load_config
+from .settings import LLMSettings, default_llm_settings
 from datetime import datetime
 
 
-# model configs
-CONFIG: dict = load_config("configs/configs.yaml")
-LLM_CONFIG: dict = CONFIG.get("llm_config", {})
-MAX_TOKEN = LLM_CONFIG.get("max_token", 512)  
-TEMPERATURE = LLM_CONFIG.get("temperature", 0.1)
-NUM_COMPS = LLM_CONFIG.get("num_comps", 1)
+class LLMCallFailed(RuntimeError):
+    """Every retry of an LLM call was exhausted without a usable answer.
 
-URL = os.environ["OPENAI_API_BASE"]
-KEY = os.environ["OPENAI_API_KEY"]
-#print('# api url: ', URL)
-#print('# api key: ', KEY)
+    Distinct from a model that answered with an empty string, which is returned
+    as the answer it is. Callers need to tell the two apart to decide whether
+    retrying could help.
+    """
 
 
 @dataclass
@@ -50,15 +45,15 @@ class Message:
     role: Literal["system", "user", "assistant"]
     content: str
 
+# None on any of these means "whatever the settings say".
 class LLMCallable(Protocol):
 
     def __call__(
         self,
         messages: List[Message],
-        temperature: float = TEMPERATURE,
-        max_tokens: int = MAX_TOKEN,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         stop_strs: Optional[List[str]] = None,
-        num_comps: int = NUM_COMPS,
         intrinsic: bool = False # pass intrinsic flag to count tokens used by intrinsic memory
     ) -> str:
         pass
@@ -72,39 +67,47 @@ class LLM(ABC):
     def __call__(
         self,
         messages: List[Message],
-        temperature: float = TEMPERATURE,
-        max_tokens: int = MAX_TOKEN,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         stop_strs: Optional[List[str]] = None,
-        num_comps: int = NUM_COMPS,
         intrinsic: bool = False
     ) -> str:
         pass
 
 class GPTChat(LLM):
 
-    def __init__(self, model_name: str, tracker: Optional["TokenTracker"] = None):
+    def __init__(
+        self,
+        model_name: str,
+        tracker: Optional["TokenTracker"] = None,
+        settings: Optional[LLMSettings] = None,
+    ):
         super().__init__(model_name=model_name)
+        self.settings: LLMSettings = settings if settings is not None else default_llm_settings()
         self.client = OpenAI(
-            base_url=URL,
-            api_key=KEY
+            base_url=self.settings.api_base,
+            api_key=self.settings.api_key
         )
         self.tracker: TokenTracker = tracker if tracker is not None else TokenTracker()
 
     def __call__(
         self,
         messages: List[Message],
-        temperature: float = TEMPERATURE,
-        max_tokens: int = MAX_TOKEN,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         stop_strs: Optional[List[str]] = None,
-        num_comps: int = NUM_COMPS,
         intrinsic: bool = False,
     ) -> str:
         import time
 
+        if max_tokens is None:
+            max_tokens = self.settings.max_tokens
+
         messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
-        max_retries = 5  
-        wait_time = 1 
+        max_retries = 5
+        wait_time = 1
+        last_error: Optional[BaseException] = None
 
         for attempt in range(max_retries):
             try:
@@ -113,7 +116,6 @@ class GPTChat(LLM):
                     messages=messages,
                     max_completion_tokens=max_tokens,
                     #temperature=temperature,
-                    n=num_comps,
                     stop=stop_strs
                 )
 
@@ -125,19 +127,24 @@ class GPTChat(LLM):
                 )
 
                 if answer is None:
-                    print("Error: LLM returned None")
+                    print("Error: LLM returned None", file=sys.stderr)
                     continue
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 print(f"==== LLM RESPONSE ====\nTIME: {current_time}\n{answer}\n==== END LLM RESPONSE ====\n", file=sys.stderr)
                 return answer  
 
             except Exception as e:
+                last_error = e
                 error_message = str(e)
                 if "rate limit" in error_message.lower() or "429" in error_message:
+                    print(f"Rate limited, waiting {wait_time}s before retry {attempt + 2}/{max_retries}", file=sys.stderr)
                     time.sleep(wait_time)
+                    wait_time *= 2
                 else:
-                    print(f"Error during API call: {error_message}")
-                    break 
+                    print(f"Error during API call: {error_message}", file=sys.stderr)
+                    break
 
-        return ""
+        raise LLMCallFailed(
+            f'{self.model_name} returned no answer after {max_retries} attempts'
+        ) from last_error
 

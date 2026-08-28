@@ -30,7 +30,7 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
         self.memory_system_prompt = INTRINSICMEMORYLLMTEMPLATE.memory_system_prompt
 
 
-    def summarize(self, solver_message="") -> str:
+    def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:
         mas_message: MASMessage = self.current_task_context
         if not self.memory_template_flag:
             # Generate initial memory template if this is the first time running summarize
@@ -49,5 +49,7 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
             print(f"[DEBUG] memory_template is empty: {not bool(self.memory_template)}", file=sys.stderr)
             self.memory_template_flag = True
 
-        return super().summarize(solver_message, template_instructions=self.memory_template)
+        return super().summarize(
+            solver_message=solver_message, template_instructions=self.memory_template
+        )
 

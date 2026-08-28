@@ -3,7 +3,7 @@ from difflib import SequenceMatcher
 
 from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage
-from mas.mas import MetaMAS
+from mas.mas import AgentCallFailed, EpisodeResult, MetaMAS
 from mas.reasoning import ReasoningBase, ReasoningConfig
 from mas.memory import MASMemoryBase, GMemory
 from mas.agents import Env
@@ -70,14 +70,8 @@ class AutoGen(MetaMAS):
         self.set_env(env_executor)
         self.meta_memory = mas_memory
         
-    def add_observer(self, observer):
-        self.observers.append(observer)
-
-    def notify_observers(self, message: str):
-        for observer in self.observers:
-            observer.log(message)
     
-    def schedule(self, task_config: dict) -> tuple[float, bool]:
+    def schedule(self, task_config: dict) -> EpisodeResult:
         """
         Schedules and executes a task according to the given task configuration.
         This function initializes the task context based on the configuration, retrieves relevant memories and insights,
@@ -87,7 +81,7 @@ class AutoGen(MetaMAS):
         - task_config (dict): A dictionary containing the task configuration, including the main task and description.
         
         Returns:
-        - tuple[float, bool]: Returns the final reward and whether the task was successfully completed.
+        - EpisodeResult: the final reward, whether the task was completed, and the trial it ended on.
         """
         if task_config.get('task_main') is None:
             raise ValueError("Missing required keys `task_main` in task_config")
@@ -144,20 +138,20 @@ class AutoGen(MetaMAS):
                 insights=roles_rules.get(solver.profile, raw_rules),
                 task_description=self.meta_memory.summarize(solver_message=solver.total_system_instruction)
             )
-            tries = 0
-
             print(f"\n==== SOLVER AGENT PROMPT ====\n{user_prompt}\n==== END SOLVER AGENT PROMPT ====\n", file=sys.stderr)
-            
-            while tries < 3:
-                try:  
-                    action: str = solver.response(user_prompt, self.reasoning_config)
-                    if action == '':
-                        continue
-                    action = env.process_action(action)
-                    break
-                except Exception as e:
-                    print(f'Error during execution of solver agent: {e}')
-                tries += 1
+
+            try:
+                action: str = self._call_agent_with_retries(
+                    lambda: env.process_action(solver.response(user_prompt, self.reasoning_config)),
+                    description='solver agent',
+                )
+            except AgentCallFailed as failure:
+                # Ends this episode only; feedback() below still scores it. The
+                # trial count goes unreported: the episode was cut short, so how
+                # many turns the task needed was never established.
+                self.notify_observers(f'Ending episode at trial {i + 1}: {failure}')
+                trials = None
+                break
 
             name: str = solver.name
             system_instruction = solver.system_instruction
@@ -172,17 +166,15 @@ class AutoGen(MetaMAS):
 
                 print(f'==== GROUND TRUTH AGENT PROMPT ==== \n{user_prompt}\n====END GROUNDTRUTH AGENT PROMPT ====\n', file=sys.stderr)
 
-                tries = 0
-                while tries < 3:
-                    try: 
-                        action: str = ground_truth.response(user_prompt, self.reasoning_config)
-                        if action == '':
-                            continue
-                        action = env.process_action(action)
-                        break
-                    except Exception as e:
-                        print(f'Error during execution of ground truth agent: {e}')
-                    tries += 1
+                try:
+                    action: str = self._call_agent_with_retries(
+                        lambda: env.process_action(ground_truth.response(user_prompt, self.reasoning_config)),
+                        description='ground truth agent',
+                    )
+                except AgentCallFailed as failure:
+                    self.notify_observers(f'Ending episode at trial {i + 1}: {failure}')
+                    trials = None
+                    break
                 name: str = ground_truth.name
                 system_instruction = ground_truth.system_instruction
             
@@ -201,7 +193,7 @@ class AutoGen(MetaMAS):
             self.notify_observers(step_message)
 
             self.meta_memory.move_memory_state(action, observation, reward=reward)   
-            trials = i
+            trials = i + 1
             if done:  
                 break
 
@@ -211,7 +203,7 @@ class AutoGen(MetaMAS):
         self.meta_memory.save_task_context(label=final_done, feedback=final_feedback)  
         self.meta_memory.backward(final_done)    
 
-        return final_reward, final_done, trials
+        return EpisodeResult(reward=final_reward, done=final_done, trials=trials)
     
     def _solver_stuck(self, current_action: str, action_history: list[str]) -> bool:
         """

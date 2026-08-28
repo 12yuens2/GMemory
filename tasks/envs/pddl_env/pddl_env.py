@@ -4,14 +4,35 @@ import nltk
 import json
 import sys
 import os
-nltk.download('punkt_tab')
 sys.path.append(os.path.join(os.getcwd(), 'tasks', 'envs', 'pddl_env')) 
 sys.path.append(os.path.join(os.getcwd(), 'envs', 'pddl_env')) 
 
 import pddlgym
 from pddlgym.structs import Literal, Predicate
 
-from ..base_env import BaseEnv, BaseRecorder
+from mas.mas import EpisodeResult
+
+from ..base_env import BaseEnv, BaseRecorder, aggregate
+
+_PUNKT_READY = False
+
+
+def ensure_punkt_tokeniser() -> None:
+    """Fetch the punkt tokenisers nltk.word_tokenize needs, at most once.
+
+    Called when a PDDL environment is built rather than at import, so importing
+    the env registry never touches the network.
+    """
+    global _PUNKT_READY
+    if _PUNKT_READY:
+        return
+    for resource in ('punkt', 'punkt_tab'):
+        try:
+            nltk.data.find(f'tokenizers/{resource}')
+        except LookupError:
+            nltk.download(resource)
+    _PUNKT_READY = True
+
 
 def get_all_environment_configs(game_names: list[str], label_path: str):
     def load_annotation(path):
@@ -59,8 +80,8 @@ class PDDLEnv(BaseEnv):
         self.last_obs = None
 
     def set_env(self, configs: dict) -> tuple[str, str]: 
-        nltk.download('punkt')
-        
+        ensure_punkt_tokeniser()
+
         self.game_name: str = configs.get('game_name')
         problem_index: int = configs.get('problem_index')
         if self.game_name is None or problem_index is None:
@@ -94,7 +115,7 @@ class PDDLEnv(BaseEnv):
         self.done = False
         self.won = False
     
-    def step(self, action: str):
+    def step(self, action: str) -> tuple[str, float, bool]:
 
         if 'think' in action:
             return 'Ok. But you should not think too much!', -1, self.done
@@ -116,7 +137,6 @@ class PDDLEnv(BaseEnv):
         
         if action_literal is not None:
             obs_temp, reward, done, infos = self.env.step(action_literal)
-            print(reward)
             reward = max(self.reward, self._constraint_satisfaction_metric(obs_temp.literals, self.goal_literals))
             
             if obs_temp == self.last_obs: 
@@ -299,63 +319,46 @@ class PDDLRecorder(BaseRecorder):
         super().__post_init__()
 
         self.task = 'pddl'
-        self.cnts: dict[str, int] = {
-            "barman": 0, 
-            "blockworld": 0,
-            "gripper": 0, 
-            "tyreworld": 0
+        # Episodes grouped by PDDL domain, for the per-domain breakdown in the
+        # log. The overall aggregate comes from BaseRecorder: summing per domain
+        # and dividing by the total count gives the same means as averaging over
+        # every episode, so there is nothing for an override to add.
+        self.episodes_by_game: dict[str, list[EpisodeResult]] = {
+            "barman": [],
+            "blockworld": [],
+            "gripper": [],
+            "tyreworld": [],
         }
-        self.dones: dict[str, int] = {
-            "barman": 0, 
-            "blockworld": 0,
-            "gripper": 0, 
-            "tyreworld": 0
-        }
-        self.rewards: dict[str, int] = {
-            "barman": 0, 
-            "blockworld": 0,
-            "gripper": 0, 
-            "tyreworld": 0
-        }
-        self.trials = []
     
     def task_begin(self, task_id, task_config):
         super().task_begin(task_id, task_config)
 
-        game_name: str = self.current_task_config.get('game_name') 
-        if game_name is None:
-            raise ValueError('The task should have an attribute: `game`.')
-            
+        self._current_game_name()
+
         message: str = f'---------- Task: {task_id} ----------'
         self.log(message)
     
-    def task_end(self, reward: float, done: bool, trials):
-        game_name: str = self.current_task_config.get('game_name') 
+    def task_end(self, episode: EpisodeResult):
+        super().task_end(episode)
+
+        self.episodes_by_game[self._current_game_name()].append(episode)
+
+        averages = self.average_results()
+        self.log(
+            f'reward: {episode.reward}, done: {episode.done}.\n'
+            f'ave reward: {averages.mean_reward}, ave done: {averages.mean_done}'
+        )
+        for game_name, episodes in self.episodes_by_game.items():
+            if episodes:
+                self.log(f'  {game_name}: {aggregate(episodes)}')
+
+    def _current_game_name(self) -> str:
+        game_name: str = self.current_task_config.get('game_name')
         if game_name is None:
             raise ValueError('The task should have an attribute: `game`.')
-        
-        self.cnts[game_name] += 1
-        self.rewards[game_name] += reward
-        self.dones[game_name] += done
-        self.trials.append(trials)
+        return game_name
 
-        message = f'reward: {reward}, done: {done}.\nave reward: {self._get_average_reward()}, ave done: {self._get_average_done()}'
-        self.log(message)
 
-    
-    def _get_average_reward(self) -> float:
-        return sum(self.rewards.values()) / sum(self.cnts.values())
-
-    def _get_average_done(self) -> float:
-        return sum(self.dones.values()) / sum(self.cnts.values())
-
-    def _get_average_trials(self):
-        return sum(self.trials) / len(self.trials)
-
-    def average_results(self):
-        return self._get_average_reward(), self._get_average_done(), self._get_average_trials()
-    
-        
 # Define the mapping of predicate names to their natural language formats  
 predicate_map = {  
     # Blocks

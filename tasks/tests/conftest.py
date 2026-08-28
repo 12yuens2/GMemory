@@ -1,9 +1,8 @@
 """
 conftest.py — executed before test collection.
 
-Stubs heavy optional dependencies (langchain_chroma, langchain_core) that are
-imported transitively by mas/memory/mas_memory/__init__.py but are not needed
-for the unit tests in this directory.
+Stubs the heavy or unavailable dependencies that mas and tasks.envs import at
+module scope, so the whole package can be imported offline.
 
 Also tees all stdout/stderr output to a timestamped .txt file in tasks/tests/logs/
 so that a full record of every run (including -s print output) is preserved.
@@ -15,9 +14,9 @@ from pathlib import Path
 from datetime import datetime
 from unittest.mock import MagicMock
 
-# Set required env vars before importing mas (mas/__init__.py reads them).
-os.environ.setdefault("OPENAI_API_BASE", "http://localhost:9999")
-os.environ.setdefault("OPENAI_API_KEY", "test-key")
+# An endpoint no test will reach, so a developer's .env cannot leak into a run.
+os.environ["OPENAI_API_BASE"] = "http://localhost:9999"
+os.environ["OPENAI_API_KEY"] = "test-key"
 
 
 def _stub_module(name: str):
@@ -25,11 +24,18 @@ def _stub_module(name: str):
         sys.modules[name] = MagicMock()
 
 
+# The task environments import their simulators at module scope, so the env and
+# recorder registries need these stubbed to be importable offline.
 for _mod in (
     "langchain_chroma",
     "langchain_core",
     "langchain_core.documents",
     "finch",
+    "nltk",
+    "pddlgym",
+    "pddlgym.structs",
+    "scienceworld",
+    "wikipedia",
 ):
     _stub_module(_mod)
 

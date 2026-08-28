@@ -23,7 +23,7 @@ class IntrinsicMASMemory(MASMemoryBase):
         self.counter: int = 0
         self.agent_intrinsic_memory: str = ""
 
-    def summarize(self, **kargs) -> str:
+    def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:
         
         """UPDATE AGENT MEMORY STEP"""
 

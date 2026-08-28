@@ -79,9 +79,13 @@ class MASMemoryBase(StorageNameSpace, ABC):
 
         return self.current_task_context
 
-    def summarize(self, **kargs) -> str:
+    def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:
+        """Render the task context a workflow puts in front of its agents.
+
+        Keyword-only and explicit, so one signature describes what every memory
+        module accepts. Subclasses that ignore an argument still declare it.
+        """
         summarisation = self.current_task_context.task_description + self.current_task_context.task_trajectory
-        #print(f'SUMMARIZATION: {summarisation}')
         return summarisation
     
 

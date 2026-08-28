@@ -27,7 +27,7 @@ class IntrinsicMASMemory(MASMemoryBase):
         self.memory_update_prompt = INTRINSICMEMORYDEFAULT.memory_update_prompt
         self.memory_system_prompt = ""
 
-    def summarize(self, solver_message="", template_instructions="") -> str:
+    def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:
 
         """UPDATE AGENT MEMORY STEP"""
 

@@ -16,6 +16,7 @@ from mas.module_map import module_map
 from mas.reasoning import ReasoningBase
 from mas.memory import MASMemoryBase
 from mas.llm import LLMCallable, GPTChat, TokenTracker
+from mas.settings import LLMSettings, default_llm_settings
 from mas.mas import MetaMAS
 from mas.utils import EmbeddingFunc
 
@@ -27,7 +28,6 @@ from utils import get_model_type
 with open('tasks/configs.yaml') as reader:
     CONFIG: dict = yaml.safe_load(reader)
 
-DEFAULT_DB_DIR: str = './.db'
 
 @dataclass
 class TaskManager:
@@ -112,24 +112,39 @@ def run_task(
     task_manager.recorder.dataset_begin()
     result_path = os.path.join(working_dir, f"{task_manager.task_name}-{task_manager.memory_type}-results.csv")
 
+    failed_tasks: list[dict] = []
+
     for task_id, task_config in tqdm(enumerate(task_manager.tasks), total=len(task_manager.tasks), desc="Running Tasks"):
-        task_manager.recorder.task_begin(task_id, task_config)
+        try:
+            task_manager.recorder.task_begin(task_id, task_config)
 
-        task_main, task_description = task_manager.mas.env.set_env(task_config)
-        few_shots: list[str] = get_task_few_shots(
-            dataset=task_manager.task_name,
-            task_config=task_config,
-            few_shots_num=CONFIG.get(task_manager.task_name).get('few_shots_num', 0)
-        )
-        task_config.update(task_main=task_main, task_description=task_description, few_shots=few_shots)
+            task_main, task_description = task_manager.mas.env.set_env(task_config)
+            few_shots: list[str] = get_task_few_shots(
+                dataset=task_manager.task_name,
+                task_config=task_config,
+                few_shots_num=CONFIG.get(task_manager.task_name).get('few_shots_num', 0)
+            )
+            task_config.update(task_main=task_main, task_description=task_description, few_shots=few_shots)
 
-        task_instruction: str = get_dataset_system_prompt(task_manager.task_name, task_config=task_config)
-        for agent in task_manager.mas.agents_team.values():
-            task_manager.recorder.log(f'------------ MAS Agent: {agent.name} ------------')
-            task_manager.recorder.log(agent.add_task_instruction(task_instruction))
+            task_instruction: str = get_dataset_system_prompt(task_manager.task_name, task_config=task_config)
+            for agent in task_manager.mas.agents_team.values():
+                task_manager.recorder.log(f'------------ MAS Agent: {agent.name} ------------')
+                task_manager.recorder.log(agent.add_task_instruction(task_instruction))
 
-        reward, done, trials = task_manager.mas.schedule(task_config) # Schedule method from the mas_workflow (e.g. autogen)
-        task_manager.recorder.task_end(reward, done, trials)
+            episode = task_manager.mas.schedule(task_config) # Schedule method from the mas_workflow (e.g. autogen)
+            task_manager.recorder.task_end(episode)
+        except Exception as error:
+            failed_tasks.append({'task_id': task_id, 'error': error})
+            task_manager.recorder.log(
+                f'TASK FAILED task_id={task_id}: {type(error).__name__}: {error}\n'
+                f'{traceback.format_exc()}'
+            )
+            print(
+                f'Task failed, continuing: task={task_manager.task_name} task_id={task_id} '
+                f'{type(error).__name__}: {error}',
+                file=sys.stderr,
+            )
+            continue
 
         tracker = task_manager.token_tracker
         completion_tokens, prompt_tokens = tracker.completion_tokens, tracker.prompt_tokens
@@ -140,13 +155,54 @@ def run_task(
         task_manager.recorder.log(f'seed: {seed}\n')
 
         # output results as each task completes
-        results, dones, trials = task_manager.recorder.average_results()
-        result_string = f"{model_type},{task_name},{mas_memory_type},{seed},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens}\n"
+        averages = task_manager.recorder.average_results()
+        result_string = f"{model_type},{task_name},{mas_memory_type},{seed},{averages.mean_reward},{averages.mean_done},{averages.mean_trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens}\n"
         print(result_string)
 
         append_local_result(result_path, result_string, output_lock=output_lock)
 
+    if failed_tasks:
+        # On both streams: results.csv does not record how many tasks are behind
+        # its averages, so an exclusion has to be visible somewhere.
+        summary = (
+            f'{len(failed_tasks)}/{len(task_manager.tasks)} tasks failed and are excluded '
+            f'from the averages above'
+        )
+        task_manager.recorder.log(summary)
+        print(summary, file=sys.stderr)
+        _write_failed_tasks(task_manager, seed, failed_tasks, working_dir, output_lock=output_lock)
+
     task_manager.recorder.dataset_end()
+
+
+def _write_failed_tasks(
+    task_manager: TaskManager,
+    seed: int,
+    failed_tasks: list[dict],
+    working_dir: str,
+    output_lock=None,
+    filename: str = 'failed_tasks.csv',
+) -> None:
+    """One row per task that could not be run, alongside the experiment's results."""
+    headers = ['task', 'mas_type', 'mas_memory', 'seed', 'task_id', 'error_type', 'error_message']
+    path = os.path.join(working_dir, filename)
+
+    for failure in failed_tasks:
+        error = failure['error']
+        _append_csv_row(
+            path,
+            headers,
+            [
+                task_manager.task_name,
+                task_manager.mas_type,
+                task_manager.memory_type,
+                str(seed),
+                str(failure['task_id']),
+                type(error).__name__,
+                str(error).replace('\n', ' ').replace(',', ';'),
+            ],
+            output_lock=output_lock,
+        )
 
 
 def build_experiment_configs(args) -> list[dict]:
@@ -235,8 +291,8 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         task_configs.recorder.log(f'completion_tokens:{completion_tokens}, prompt_tokens:{prompt_tokens}')
         task_configs.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}')
 
-        results, dones, trials = task_configs.recorder.average_results()
-        result_string = f"{model_type},{task_name},{mas_memory_type},{results},{dones},{trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
+        averages = task_configs.recorder.average_results()
+        result_string = f"{model_type},{task_name},{mas_memory_type},{averages.mean_reward},{averages.mean_done},{averages.mean_trials},{completion_tokens},{prompt_tokens},{intrinsic_completion_tokens},{intrinsic_prompt_tokens},{seed}\n"
         print(result_string)
 
         append_local_result(os.path.join(working_dir, 'results.csv'), result_string, output_lock=output_lock)
@@ -252,7 +308,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         }
     except Exception as e:
         print(f"Experiment failed: task={task_name} mas_memory={mas_memory_type} seed={seed}\n{traceback.format_exc()}", file=sys.stderr)
-        _write_failed_experiment(experiment_config, e, db_dir, output_lock=output_lock)
+        failed_path = _write_failed_experiment(experiment_config, e, db_dir, output_lock=output_lock)
         return {
             'task': task_name,
             'mas_type': mas_type,
@@ -260,6 +316,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
             'seed': seed,
             'status': 'failed',
             'error': f'{type(e).__name__}: {e}',
+            'failed_path': failed_path,
         }
 
 
@@ -278,7 +335,13 @@ def _append_csv_row(path: str, headers: list[str], row_values: list[str], output
         _write()
 
 
-def _write_overall_result(experiment_config: dict, result_string: str, db_dir: str, output_lock=None) -> None:
+def _write_overall_result(
+    experiment_config: dict,
+    result_string: str,
+    db_dir: str,
+    output_lock=None,
+    filename: str = 'overall_results.csv',
+) -> None:
     headers = [
         'task',
         'mas_type',
@@ -312,11 +375,17 @@ def _write_overall_result(experiment_config: dict, result_string: str, db_dir: s
     else:
         summary_fields = result_fields[3:]
 
-    overall_results_path = os.path.join(db_dir, 'overall_results.csv')
+    overall_results_path = os.path.join(db_dir, filename)
     _append_csv_row(overall_results_path, headers, basic_values + summary_fields, output_lock=output_lock)
 
 
-def _write_failed_experiment(experiment_config: dict, error: Exception, db_dir: str, output_lock=None) -> None:
+def _write_failed_experiment(
+    experiment_config: dict,
+    error: Exception,
+    db_dir: str,
+    output_lock=None,
+    filename: str = 'failed_experiments.csv',
+) -> str:
     headers = ['task', 'mas_type', 'mas_memory', 'model', 'seed', 'error_type', 'error_message']
     values = [
         str(experiment_config.get('task', '')),
@@ -328,8 +397,9 @@ def _write_failed_experiment(experiment_config: dict, error: Exception, db_dir: 
         str(error).replace('\n', ' ').replace(',', ';'),
     ]
 
-    failed_path = os.path.join(db_dir, 'failed_experiments.csv')
+    failed_path = os.path.join(db_dir, filename)
     _append_csv_row(failed_path, headers, values, output_lock=output_lock)
+    return failed_path
 
 
 if __name__ == '__main__':
@@ -351,9 +421,14 @@ if __name__ == '__main__':
     parser.add_argument('--hop', type=int, default=1, help='hop for traj similarity.')
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')
     parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')
-    parser.add_argument('--db_dir', type=str, default=DEFAULT_DB_DIR, help='Directory to store results, logs, and memory persistence for this run.')
+    parser.add_argument('--db_dir', type=str, default='./.db', help='Directory to store results, logs, and memory persistence for this run.')
 
     args = parser.parse_args()
+
+    # Resolved before any worker is spawned, so missing credentials are reported
+    # once, here, rather than inside each worker's traceback.
+    settings: LLMSettings = default_llm_settings()
+    print(f'LLM endpoint: {settings.api_base}, max_tokens: {settings.max_tokens}')
 
     experiments = build_experiment_configs(args)
     if len(experiments) == 1 or args.num_workers <= 1:
@@ -368,7 +443,8 @@ if __name__ == '__main__':
 
     failed = [r for r in results if r.get('status') == 'failed']
     if failed:
-        failed_path = os.path.join(args.db_dir, 'failed_experiments.csv')
+        # Reported by whichever worker wrote it, rather than reconstructed here
+        failed_path = failed[0]['failed_path']
         print(f"\n{len(failed)}/{len(results)} experiments failed. See {failed_path} for details.")
         for r in failed:
             print(f"  FAILED: task={r['task']} mas_memory={r['mas_memory']} seed={r['seed']} — {r['error']}")

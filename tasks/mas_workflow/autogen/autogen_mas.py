@@ -3,7 +3,7 @@ from difflib import SequenceMatcher
 
 from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage
-from mas.mas import MetaMAS
+from mas.mas import AgentCallFailed, EpisodeResult, MetaMAS, RetryAgentCall
 from mas.reasoning import ReasoningBase, ReasoningConfig
 from mas.memory import MASMemoryBase, GMemory
 from mas.agents import Env
@@ -87,14 +87,8 @@ class AutoGen(MetaMAS):
             embedding_func=mas_memory.embedding_func,
         )
         
-    def add_observer(self, observer):
-        self.observers.append(observer)
-
-    def notify_observers(self, message: str):
-        for observer in self.observers:
-            observer.log(message)
     
-    def schedule(self, task_config: dict) -> tuple[float, bool]:
+    def schedule(self, task_config: dict) -> EpisodeResult:
         """
         Schedules and executes a task according to the given task configuration.
         This function initializes the task context based on the configuration, retrieves relevant memories and insights,
@@ -104,7 +98,7 @@ class AutoGen(MetaMAS):
         - task_config (dict): A dictionary containing the task configuration, including the main task and description.
         
         Returns:
-        - tuple[float, bool]: Returns the final reward and whether the task was successfully completed.
+        - EpisodeResult: the final reward, whether the task was completed, and the trial it ended on.
         """
         if task_config.get('task_main') is None:
             raise ValueError("Missing required keys `task_main` in task_config")
@@ -159,7 +153,7 @@ class AutoGen(MetaMAS):
         action_history: list = [] 
         trials = 0
         
-        for i in range(env.max_trials):    # What is actually max trials? And what is the difference between trials and tries below?
+        for i in range(env.max_trials):
             
             user_prompt: str = format_task_prompt_with_insights(
                 few_shots=few_shots, 
@@ -167,56 +161,73 @@ class AutoGen(MetaMAS):
                 insights=roles_rules.get(solver.profile, raw_rules),
                 task_description=self.meta_memory_solver.summarize(solver_message=solver.total_system_instruction) # total_system_instruction is just the agent's system instruction at definition time.
             )
-            tries = 0
-            
+
             #print(f"\n==== FEW SHOTS ====\n{few_shots[:]}\n==== END FEW SHOTS ====\n", file=sys.stderr)
             print(f"\n==== SOLVER AGENT PROMPT ====\n{user_prompt}\n==== END SOLVER AGENT PROMPT ====\n", file=sys.stderr)
 
             solver_instruction = ""
-            while tries < 3:
-                try:  
-                    action: str = solver.response(f"{solver_instruction}{user_prompt}", self.reasoning_config)
-                    if action == '':
-                        continue
-                    # Pass action to solver for evaluation
-                    ## Build validator prompt
-                    validator_prompt: str = f"""
-                    Solver's latest response: \n
-                    {action} \n 
-                    Task description: \n
-                    {task_config.get('task_description')} \n
-                    Format that solver agent's actions must follow: \n
-                    {"\n".join(few_shots)}
+
+            def solve_and_validate() -> str:
+                """One solver attempt, accepted only if the validator does not reject it.
+
+                A rejection raises RetryAgentCall, so re-prompting the solver
+                spends a try from the shared budget.
+                """
+                nonlocal solver_instruction
+
+                action: str = solver.response(f"{solver_instruction}{user_prompt}", self.reasoning_config)
+                if not action:
+                    return action
+
+                # Pass action to solver for evaluation
+                ## Build validator prompt
+                validator_prompt: str = f"""
+                Solver's latest response: \n
+                {action} \n 
+                Task description: \n
+                {task_config.get('task_description')} \n
+                Format that solver agent's actions must follow: \n
+                {"\n".join(few_shots)}
+                """
+                ## Evaluate
+                print(f'==== VALIDATOR PROMPT ====\n{validator_prompt}\n==== END VALIDATOR PROMPT ====\n', file=sys.stderr)
+
+                evaluation: str = validator.response(validator_prompt, self.reasoning_config)
+
+                print(f'==== VALIDATOR EVALUATION ====\n{evaluation}\n==== END VALIDATOR EVALUATION ====\n', file=sys.stderr)
+
+                # Update validator memory
+                self.meta_memory_validator.summarize(solver_message=f"## Your latest evaluation: \n {evaluation}")
+
+                if "INVALID" in evaluation:
+                    solver_instruction = f"""Your response does not follow the expected format. \n 
+                    Modify your response according to the Validator's feedback. \n 
+                    Your original response: \n
+                    {action} \n
+                    Validator's feedback: \n 
+                    {evaluation} \n 
+                    Original instructions: \n
                     """
-                    ## Evaluate
-                    print(f'==== VALIDATOR PROMPT ====\n{validator_prompt}\n==== END VALIDATOR PROMPT ====\n', file=sys.stderr)
+                    print(f'==== SOLVER INSTRUCTION FOR REVISION ====\n{solver_instruction}\n==== END SOLVER INSTRUCTION FOR REVISION ====\n', file=sys.stderr)
+                    raise RetryAgentCall(
+                        'validator returned INVALID',
+                        fallback=lambda rejected=action: env.process_action(rejected),
+                    )
 
-                    evaluation: str = validator.response(validator_prompt, self.reasoning_config)
+                return env.process_action(action)
 
-                    print(f'==== VALIDATOR EVALUATION ====\n{evaluation}\n==== END VALIDATOR EVALUATION ====\n', file=sys.stderr)
-
-                    # Update validator memory
-                    self.meta_memory_validator.summarize(solver_message=f"## Your latest evaluation: \n {evaluation}")
-                    
-                    if "INVALID" in evaluation:
-                        solver_instruction = f"""Your response does not follow the expected format. \n 
-                        Modify your response according to the Validator's feedback. \n 
-                        Your original response: \n
-                        {action} \n
-                        Validator's feedback: \n 
-                        {evaluation} \n 
-                        Original instructions: \n
-                        """
-                        print(f'==== SOLVER INSTRUCTION FOR REVISION ====\n{solver_instruction}\n==== END SOLVER INSTRUCTION FOR REVISION ====\n', file=sys.stderr)
-                        tries += 1
-                        continue
-                    
-                    action = env.process_action(action)
-                    break
-
-                except Exception as e:
-                    print(f'Error during execution of solver agent: {e}')
-                tries += 1
+            try:
+                action: str = self._call_agent_with_retries(
+                    solve_and_validate,
+                    description='solver agent',
+                )
+            except AgentCallFailed as failure:
+                # Ends this episode only; feedback() below still scores it. The
+                # trial count goes unreported: the episode was cut short, so how
+                # many turns the task needed was never established.
+                self.notify_observers(f'Ending episode at trial {i + 1}: {failure}')
+                trials = None
+                break
 
             name: str = solver.name
             system_instruction = solver.system_instruction
@@ -231,17 +242,15 @@ class AutoGen(MetaMAS):
 
                 print(f'==== GROUND TRUTH AGENT PROMPT ==== \n{user_prompt}\n====END GROUNDTRUTH AGENT PROMPT ====\n', file=sys.stderr)
 
-                tries = 0
-                while tries < 3:
-                    try: 
-                        action: str = ground_truth.response(user_prompt, self.reasoning_config)
-                        if action == '':
-                            continue
-                        action = env.process_action(action)
-                        break
-                    except Exception as e:
-                        print(f'Error during execution of ground truth agent: {e}')
-                    tries += 1
+                try:
+                    action: str = self._call_agent_with_retries(
+                        lambda: env.process_action(ground_truth.response(user_prompt, self.reasoning_config)),
+                        description='ground truth agent',
+                    )
+                except AgentCallFailed as failure:
+                    self.notify_observers(f'Ending episode at trial {i + 1}: {failure}')
+                    trials = None
+                    break
                 name: str = ground_truth.name
                 system_instruction = ground_truth.system_instruction
             
@@ -263,7 +272,7 @@ class AutoGen(MetaMAS):
             # Add latest action and observation to task_trajectory
             self.meta_memory_solver.move_memory_state(action, observation, reward=reward)   # I think we should only move the memory state for the solver
             
-            trials = i
+            trials = i + 1
             if done:  
                 break
 
@@ -274,7 +283,7 @@ class AutoGen(MetaMAS):
         self.meta_memory_validator.save_task_context(label=final_done, feedback=final_feedback)
         self.meta_memory_solver.backward(final_done)    # Does nothing
 
-        return final_reward, final_done, trials
+        return EpisodeResult(reward=final_reward, done=final_done, trials=trials)
     
     def _solver_stuck(self, current_action: str, action_history: list[str]) -> bool:
         """
