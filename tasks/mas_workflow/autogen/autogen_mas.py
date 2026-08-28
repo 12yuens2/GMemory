@@ -3,7 +3,7 @@ from difflib import SequenceMatcher
 
 from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage
-from mas.mas import MetaMAS
+from mas.mas import EpisodeResult, MetaMAS
 from mas.reasoning import ReasoningBase, ReasoningConfig
 from mas.memory import MASMemoryBase, GMemory
 from mas.agents import Env
@@ -94,7 +94,7 @@ class AutoGen(MetaMAS):
         for observer in self.observers:
             observer.log(message)
     
-    def schedule(self, task_config: dict) -> tuple[float, bool]:
+    def schedule(self, task_config: dict) -> EpisodeResult:
         """
         Schedules and executes a task according to the given task configuration.
         This function initializes the task context based on the configuration, retrieves relevant memories and insights,
@@ -104,7 +104,7 @@ class AutoGen(MetaMAS):
         - task_config (dict): A dictionary containing the task configuration, including the main task and description.
         
         Returns:
-        - tuple[float, bool]: Returns the final reward and whether the task was successfully completed.
+        - EpisodeResult: the final reward, whether the task was completed, and the trial it ended on.
         """
         if task_config.get('task_main') is None:
             raise ValueError("Missing required keys `task_main` in task_config")
@@ -274,7 +274,7 @@ class AutoGen(MetaMAS):
         self.meta_memory_validator.save_task_context(label=final_done, feedback=final_feedback)
         self.meta_memory_solver.backward(final_done)    # Does nothing
 
-        return final_reward, final_done, trials
+        return EpisodeResult(reward=final_reward, done=final_done, trials=trials)
     
     def _solver_stuck(self, current_action: str, action_history: list[str]) -> bool:
         """

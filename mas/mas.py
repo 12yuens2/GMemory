@@ -1,10 +1,29 @@
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Iterable, Optional, Dict, Any
+from typing import Iterable, NamedTuple, Optional, Dict, Any
 
 from .agents import Agent, Env
 from .reasoning import ReasoningBase
 from .memory import MASMemoryBase
+
+
+class EpisodeResult(NamedTuple):
+    """What every workflow's `schedule` returns for one task.
+
+    A NamedTuple rather than a plain dataclass so `reward, done, trials = ...`
+    keeps working at call sites outside this repo (analysis notebooks, Slurm
+    wrappers) while the fields finally have names.
+
+    `trials` counts the loop index the episode ended on, so an episode solved on
+    the first step reports 0. That is the convention the AutoGen workflows
+    already used; it is recorded here rather than changed, because the mean
+    trials column of every existing result CSV was produced under it.
+    """
+
+    reward: float
+    done: bool
+    trials: int
+
 
 @dataclass
 class MetaMAS:
@@ -32,5 +51,5 @@ class MetaMAS:
         pass
     
     @abstractmethod
-    def schedule(self, **args) -> Any:
+    def schedule(self, task_config: dict) -> EpisodeResult:
         pass

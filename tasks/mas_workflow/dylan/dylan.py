@@ -4,7 +4,7 @@ import math
 
 from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage
-from mas.mas import MetaMAS
+from mas.mas import EpisodeResult, MetaMAS
 from mas.reasoning import ReasoningBase, ReasoningConfig
 from mas.memory import MASMemoryBase, GMemory
 from mas.agents import Env
@@ -133,7 +133,7 @@ class DyLAN(MetaMAS):
         self.set_env(env)
         self.meta_memory = mas_memory
 
-    def schedule(self, task_config: dict):
+    def schedule(self, task_config: dict) -> EpisodeResult:
         """
         Schedules and executes a task based on the given task configuration.
 
@@ -199,6 +199,8 @@ class DyLAN(MetaMAS):
         self.notify_observers(user_prompt)
         
         # Main loop for task execution
+        trials = 0
+
         for i in range(env.max_trials):
 
             self._reset_state()
@@ -253,6 +255,7 @@ class DyLAN(MetaMAS):
             self.notify_observers(step_message)
             self.meta_memory.move_memory_state(final_action, observation, reward=reward) 
 
+            trials = i
             if done:
                 break
 
@@ -261,7 +264,7 @@ class DyLAN(MetaMAS):
         self.notify_observers(final_feedback)
         self.meta_memory.save_task_context(label=final_done, feedback=final_feedback)  
         
-        return final_reward, final_done    
+        return EpisodeResult(reward=final_reward, done=final_done, trials=trials)
 
     def add_observer(self, observer):
         self.observers.append(observer)

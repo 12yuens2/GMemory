@@ -4,7 +4,7 @@ from collections import deque
 
 from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage
-from mas.mas import MetaMAS
+from mas.mas import EpisodeResult, MetaMAS
 from mas.reasoning import ReasoningBase, ReasoningConfig
 from mas.memory import MASMemoryBase, GMemory
 from mas.agents import Env
@@ -62,7 +62,7 @@ class MacNet(MetaMAS):
         self.set_env(env)
         self.meta_memory = mas_memory
     
-    def schedule(self, task_config: dict) -> tuple[float, bool]:
+    def schedule(self, task_config: dict) -> EpisodeResult:
         """
         Schedules and executes a task based on the given task configuration.
 
@@ -123,6 +123,8 @@ class MacNet(MetaMAS):
         self.notify_observers(user_prompt)
         
         # Main loop for task execution
+        trials = 0
+
         for i in range(env.max_trials):
 
             upstream_node_ids: dict[str, str] = {}   
@@ -187,6 +189,7 @@ class MacNet(MetaMAS):
 
             self.meta_memory.move_memory_state(action, observation, reward=reward) 
 
+            trials = i
             if done:
                 break
 
@@ -196,7 +199,7 @@ class MacNet(MetaMAS):
         self.meta_memory.save_task_context(label=final_done, feedback=final_feedback) 
         self.meta_memory.backward(final_done)    
 
-        return final_reward, final_done    
+        return EpisodeResult(reward=final_reward, done=final_done, trials=trials)
     def add_observer(self, observer):
         self.observers.append(observer)
 
