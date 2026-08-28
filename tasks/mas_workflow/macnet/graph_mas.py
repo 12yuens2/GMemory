@@ -118,7 +118,7 @@ class MacNet(MetaMAS):
             few_shots=few_shots, 
             memory_few_shots=successful_shots,
             insights=raw_rules,
-            task_description=self.meta_memory.summarize(upstream_agent_ids=None)
+            task_description=self.meta_memory.summarize()
         )
         self.notify_observers(user_prompt)
         
@@ -140,7 +140,7 @@ class MacNet(MetaMAS):
                     few_shots=few_shots, 
                     memory_few_shots=successful_shots,
                     insights=roles_rules.get(curr_node._agent.profile, raw_rules),
-                    task_description=self.meta_memory.summarize(upstream_agent_ids=None)
+                    task_description=self.meta_memory.summarize()
                 )
                 user_message: Message = Message('user', user_prompt)
 

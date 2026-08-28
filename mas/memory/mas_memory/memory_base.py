@@ -79,9 +79,21 @@ class MASMemoryBase(StorageNameSpace, ABC):
 
         return self.current_task_context
 
-    def summarize(self, **kargs) -> str:
+    def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:
+        """Render the task context a workflow puts in front of its agents.
+
+        The signature is explicit, and keyword-only, because it was `**kargs`:
+        that swallowed anything a caller passed, so every keyword looked valid at
+        every call site. MacNet passed `upstream_agent_ids=None` here for as long
+        as the base accepted it, and IntrinsicMASMemory - which declares real
+        parameters - raised TypeError for all six intrinsic modules under
+        --mas_type macnet. It also hid that nothing ever passed
+        template_instructions.
+
+        Subclasses that ignore these arguments still declare them, so a caller
+        can read one signature and know what any memory module accepts.
+        """
         summarisation = self.current_task_context.task_description + self.current_task_context.task_trajectory
-        #print(f'SUMMARIZATION: {summarisation}')
         return summarisation
     
 

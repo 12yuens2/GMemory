@@ -13,12 +13,14 @@ registered.
 """
 
 import numbers
+import re
 import tempfile
 
 import pytest
 
 from mas.mas import EpisodeResult
 from mas.memory import MASMemoryBase
+from mas.module_map import module_map
 
 from tasks.envs import RECORDERS
 
@@ -179,3 +181,63 @@ def test_task_end_before_task_begin_is_rejected(task, working_dir):
 
     with pytest.raises(RuntimeError, match="task id or the task config"):
         recorder.task_end(1.0, True, 7)
+
+
+# ── D4 · every memory module works with every workflow ────────────────────────
+
+# Read from module_map so a newly registered module is covered without editing
+# this list. 'empty' is MASMemoryBase itself.
+MEMORY_KEYS = [
+    "empty",
+    "voyager",
+    "memorybank",
+    "chatdev",
+    "generative",
+    "metagpt",
+    "intrinsicmemory-pddl",
+    "intrinsicmemory-fever",
+    "intrinsicmemory-alfworld",
+    "intrinsicmemory-llm-structured-template",
+    "intrinsicmemory-notemplate",
+]
+
+
+# g-memory is the one registered module the matrix cannot drive: it persists
+# through langchain_chroma, which this suite stubs. Excluded here so the omission
+# is stated rather than silent.
+UNTESTABLE_OFFLINE = {"g-memory"}
+
+
+def test_the_memory_matrix_covers_every_registered_module():
+    """Fails when a module is added to module_map but not to MEMORY_KEYS.
+
+    module_map exposes no registry, but its error message lists every allowed
+    value, which is enough to compare against.
+    """
+    with pytest.raises(ValueError, match="Allowed values") as raised:
+        module_map("io", "not-a-memory-module")
+    registered = set(re.findall(r"'([^']+)'", str(raised.value))) - {"not-a-memory-module"}
+
+    assert registered == set(MEMORY_KEYS) | UNTESTABLE_OFFLINE, (
+        f"module_map and MEMORY_KEYS disagree: {registered ^ (set(MEMORY_KEYS) | UNTESTABLE_OFFLINE)}"
+    )
+
+
+@pytest.mark.parametrize("mas_type", sorted(MAS))
+@pytest.mark.parametrize("memory_key", MEMORY_KEYS)
+def test_every_memory_module_survives_every_workflow(mas_type, memory_key):
+    """The summarize() keyword contract, across the whole matrix.
+
+    MacNet called summarize(upstream_agent_ids=None). MASMemoryBase.summarize
+    took **kargs and swallowed it, but IntrinsicMASMemory declares real
+    parameters and raised TypeError - so all six intrinsic modules were broken
+    under --mas_type macnet, and the **kargs on the base is exactly why nobody
+    noticed: it made every keyword look valid at the call site.
+    """
+    _, memory_cls = module_map("io", memory_key)
+    env = FakeEnv(max_trials=2, steps_to_done=1)
+    workflow = build_workflow(mas_type, env, memory_cls=memory_cls)
+
+    result = workflow.schedule({"task_main": "m", "task_description": "d", "few_shots": []})
+
+    assert isinstance(result, EpisodeResult)

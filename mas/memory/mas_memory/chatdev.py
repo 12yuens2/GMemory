@@ -13,7 +13,7 @@ class ChatDevMASMemory(MASMemoryBase):
         os.makedirs(self.persist_dir, exist_ok=True)
         self.counter: int = 0
 
-    def summarize(self, **kargs) -> str:   
+    def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:   
         self.counter += 1
         if self.counter % 10 != 0:
             return super().summarize()

@@ -68,7 +68,7 @@ class MemoryBankMASMemory(MASMemoryBase):
         self.memory_forgetter.add_traj_time_pair(agent_message, self.current_time_stemp)
         self.current_time_stemp += 1
     
-    def summarize(self, **kargs) -> str:
+    def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:
         trajectory_time_pairs: list[tuple[AgentMessage, int]] = self.memory_forgetter.manage_memory()
         agent_messages: list[AgentMessage] = [pair[0] for pair in trajectory_time_pairs]
         return self.current_task_context.task_description + MemoryForgetter.format_task_trajectory(agent_messages)
