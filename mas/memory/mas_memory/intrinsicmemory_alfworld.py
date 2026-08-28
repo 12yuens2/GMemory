@@ -1,12 +1,8 @@
 from dataclasses import dataclass
 import os
-import sys
 
-from .memory_base import MASMemoryBase
 from .prompt import INTRINSICMEMORYALFWORLD
 from .intrinsicmemory import IntrinsicMASMemory
-from ..common import MASMessage,AgentMessage # a MASMessage, which is a specific type of message used in MAS
-from mas.llm import Message, GPTChat # a "normal" message, not a MASMessage?
 
 @dataclass
 class IntrinsicMASMemoryALFWORLD(IntrinsicMASMemory):

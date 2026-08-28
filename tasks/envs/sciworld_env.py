@@ -33,7 +33,7 @@ class SciworldEnv(BaseEnv):
         if task_name is None or var is None or simplification_str is None or modified_goal is None or difficulty is None:
             raise ValueError('Wrong configs given to sciworld.')
         
-        env = self.env.load(taskName=task_name, variationIdx=var, simplificationStr=simplification_str)
+        self.env.load(taskName=task_name, variationIdx=var, simplificationStr=simplification_str)
         self.cur_task: dict = configs
         self.selected_obs = subgoals    
         self.modified_goal = modified_goal

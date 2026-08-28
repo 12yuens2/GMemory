@@ -29,7 +29,6 @@ Run:
 """
 
 import os
-import sys
 import pytest
 from unittest.mock import MagicMock
 

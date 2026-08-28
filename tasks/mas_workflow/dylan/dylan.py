@@ -72,7 +72,7 @@ class DyLAN(MetaMAS):
         if len(self._roles) == 0:
             self._roles.append('solver')
         
-        self.notify_observers(f"Configuration Loaded:")
+        self.notify_observers("Configuration Loaded:")
         self.notify_observers(f"Node Number       : {self._height}")
         self.notify_observers(f"Round Number      : {self._width}")
         self.notify_observers(f"Learning Rate     : {self._learning_rate}")

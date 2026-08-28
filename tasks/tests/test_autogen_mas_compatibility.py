@@ -23,14 +23,12 @@ Derived from run.py's argparse choices:
                intrinsicmemory-notemplate
 """
 
-import os
-import sys
 import pytest
 from unittest.mock import MagicMock, patch
 
 
 from mas.module_map import module_map
-from mas.reasoning import ReasoningBase, ReasoningConfig
+from mas.reasoning import ReasoningBase
 from tasks.mas_workflow.autogen.autogen_mas import AutoGen
 
 # ── constants ─────────────────────────────────────────────────────────────────

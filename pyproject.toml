@@ -240,3 +240,48 @@ extend-exclude = ["tasks/envs/pddl_env/pddlgym"]
 # level errors. Widening this (isort, pyupgrade, bugbear) is worth doing, but as
 # its own change - each new rule family rewrites many files at once.
 select = ["E4", "E7", "E9", "F"]
+
+# Every entry below is a KNOWN issue with a named owner, not a rule we disagree
+# with. Each names the phase that removes both the problem and the ignore. Do not
+# add to this list without the same.
+[tool.ruff.lint.per-file-ignores]
+
+# E712 (`label == True or label == False`) is deliberate here, not sloppy.
+# MASMessage.label is Optional[bool]: the comparison distinguishes a labelled
+# trajectory from an unlabelled one, which `if label:` would collapse. Applying
+# ruff's suggested fix (or --unsafe-fixes) stops failed trajectories being
+# admitted to memory at all. Phase 5 should replace the tri-state bool with an
+# explicit enum; until then these stay as they are.
+"mas/memory/mas_memory/GMemory.py" = ["E712", "E722"]
+"mas/memory/mas_memory/generative.py" = ["E712"]
+"mas/memory/mas_memory/memorybank.py" = ["E712"]
+"mas/memory/mas_memory/metagpt.py" = ["E712"]
+"mas/memory/mas_memory/voyager.py" = ["E712"]
+"tasks/envs/alfworld_env.py" = ["E712"]
+# ^ E722: the bare except at GMemory.py:349. Phase 3 narrows it.
+
+# F403/F405: star imports. mas/{agents,memory,reasoning}/__init__.py are
+# re-export shims; module_map.py and graph_mas.py consume them. Phase 5 splits
+# these modules and gives them explicit imports and __all__.
+"mas/agents/__init__.py" = ["F403"]
+"mas/memory/__init__.py" = ["F403"]
+"mas/reasoning/__init__.py" = ["F403"]
+"mas/module_map.py" = ["F403", "F405"]
+"tasks/mas_workflow/macnet/graph_mas.py" = ["F403", "F405"]
+
+# F601: predicate_map holds 80 keys but only 75 unique - five predicate names are
+# reused across PDDL domains, and the last definition wins. Live effect on the
+# active TASK_NAMES: tyreworld's `free` renders with gripper's wording, and
+# blockworld's `clear` with hanoi's. Phase 3 splits this per domain; suppressing
+# it here only stops it blocking CI.
+"tasks/envs/pddl_env/pddl_env.py" = ["F601", "E402"]
+
+# E402: imports deliberately placed after the credentials skip guard so the
+# module can be collected without the dependencies its tests need.
+"tasks/tests/test_autogen_mas_integration.py" = ["E402"]
+
+# Both files are unreferenced dead code carrying broken bodies - autogen_hotpot
+# builds three agents it never uses and reads an undefined `solver`. Phase 4
+# deletes both files and these ignores with them.
+"tasks/mas_workflow/autogen/autogen_hotpot.py" = ["F821", "F841"]
+"mas/memory/mas_memory/intrinsicmemory_deprecated.py" = ["F841"]

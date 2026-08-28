@@ -48,7 +48,7 @@ class FeverEnv(BaseEnv):
                 return observation, 1, True
 
             else: 
-                observation = f'Answer is INCORRECT'
+                observation = 'Answer is INCORRECT'
                 return observation, 0, True
 
         elif action_type == 'Search':
@@ -59,13 +59,13 @@ class FeverEnv(BaseEnv):
                     break
                 except Exception as e:
                     print(e)
-                    observation = f'Cannot find corresponding pages.'
+                    observation = 'Cannot find corresponding pages.'
                     break
         elif action_type == 'Lookup':
             try:
                 observation = self.explorer.lookup(argument).strip('\n').strip()
             except ValueError:
-                observation = f'The last page Searched was not found, so you cannot Lookup a keyword in it. Please try one of the similar pages given.'
+                observation = 'The last page Searched was not found, so you cannot Lookup a keyword in it. Please try one of the similar pages given.'
         else:
             observation = 'Invalid Action. Valid Actions are Lookup[<topic>] Search[<topic>] and Finish[<answer>].'
         

@@ -2,7 +2,6 @@ import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-import shutil
 import multiprocessing
 import traceback
 import yaml
@@ -13,8 +12,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from itertools import product
 from tqdm import tqdm
 
-import mas
-from mas.agents import Agent
 from mas.module_map import module_map
 from mas.reasoning import ReasoningBase
 from mas.memory import MASMemoryBase

@@ -38,7 +38,7 @@ class MacNet(MetaMAS):
         self._threshold: float = config.get('threshold', 0)
         self._use_projector: bool = config.get('use_projector', False)
 
-        self.notify_observers(f"Configuration Loaded:")
+        self.notify_observers("Configuration Loaded:")
         self.notify_observers(f"Node Number       : {node_num}")
         self.notify_observers(f"Graph Type        : {graph_type}")
         self.notify_observers(f"Use Critic        : {self._use_critic}")

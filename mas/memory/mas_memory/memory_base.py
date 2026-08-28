@@ -69,7 +69,7 @@ class MASMemoryBase(StorageNameSpace, ABC):
         self.current_task_context.move_state(action, observation, **kargs)
     
     def save_task_context(self, label: bool, feedback: str = None) -> MASMessage:
-        if self.current_task_context == None:
+        if self.current_task_context is None:
             raise RuntimeError('The current inside-trial memory is empty.')
         
         self.current_task_context.label = label
