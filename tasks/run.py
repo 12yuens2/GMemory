@@ -17,7 +17,7 @@ from mas.agents import Agent
 from mas.module_map import module_map
 from mas.reasoning import ReasoningBase
 from mas.memory import MASMemoryBase
-from mas.llm import LLMCallable, GPTChat, get_price, get_intrinsic_price
+from mas.llm import LLMCallable, GPTChat, TokenTracker
 from mas.mas import MetaMAS
 from mas.utils import EmbeddingFunc
 
@@ -44,6 +44,7 @@ class TaskManager:
     mas: MetaMAS                # multi-agent system
     mas_config: dict = field(default_factory=dict)   # mas configs
     mem_config: dict = field(default_factory=dict)   # memory configs
+    token_tracker: TokenTracker = None   # token accounting for this experiment's LLM calls
 
 
 def build_task(task: str, mas_type: str, memory_type: str, max_steps: int, seed: int) -> TaskManager:
@@ -79,6 +80,7 @@ def build_mas(
     reasoning_module_type, mas_memory_module_type = module_map(reasoning, mas_memory)
 
     llm_model: LLMCallable = GPTChat(model_name=llm_type)
+    task_manager.token_tracker = llm_model.tracker
     reasoning_module: ReasoningBase = reasoning_module_type(llm_model=llm_model)
     mas_memory_module: MASMemoryBase = mas_memory_module_type(
         namespace=mas_memory,
@@ -132,8 +134,10 @@ def run_task(
         reward, done, trials = task_manager.mas.schedule(task_config) # Schedule method from the mas_workflow (e.g. autogen)
         task_manager.recorder.task_end(reward, done, trials)
 
-        completion_tokens, prompt_tokens, _ = get_price()
-        intrinsic_completion_tokens, intrinsic_prompt_tokens = get_intrinsic_price()
+        tracker = task_manager.token_tracker
+        completion_tokens, prompt_tokens = tracker.completion_tokens, tracker.prompt_tokens
+        intrinsic_completion_tokens = tracker.intrinsic_completion_tokens
+        intrinsic_prompt_tokens = tracker.intrinsic_prompt_tokens
         task_manager.recorder.log(f'completion_tokens:{completion_tokens}, prompt_tokens:{prompt_tokens}\n')
         task_manager.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}\n')
         task_manager.recorder.log(f'seed: {seed}\n')
@@ -225,8 +229,10 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         output_lock=output_lock,
     )
 
-    completion_tokens, prompt_tokens, _ = get_price()
-    intrinsic_completion_tokens, intrinsic_prompt_tokens = get_intrinsic_price()
+    tracker = task_configs.token_tracker
+    completion_tokens, prompt_tokens = tracker.completion_tokens, tracker.prompt_tokens
+    intrinsic_completion_tokens = tracker.intrinsic_completion_tokens
+    intrinsic_prompt_tokens = tracker.intrinsic_prompt_tokens
     task_configs.recorder.log(f'completion_tokens:{completion_tokens}, prompt_tokens:{prompt_tokens}, price={completion_tokens*15/1000000+prompt_tokens*5/1000000}')
     task_configs.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}')
 
