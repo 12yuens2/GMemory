@@ -4,22 +4,24 @@ Everything outstanding from the repo-wide review, in the form it would take as
 GitHub issues — one section per issue, so it can be split up when Issues is
 enabled on the repo (Settings → General → Features → Issues).
 
-Phases 1 and 2 are merged (PR #4, PR #5 — tip `9a296a9`, 331 tests). This file
-covers Phases 3–6 plus the findings that turned up during them and do not belong
-to a phase.
+Phases 1 and 2 are merged (PR #4, PR #5). Phase 3 is on `refactor-p3` with six
+of its ten items landed and four deferred. This file covers Phases 3–6 plus the
+findings that turned up during them and do not belong to a phase.
 
 **Full review with evidence:** https://claude.ai/code/artifact/2ba66572-add3-4642-8b92-2d5cb6c4057e
 
 | | | |
 |---|---|---|
-| [Phase 3](#phase-3-close-the-silent-degradation-gaps) | silent degradation | **current** · results-affecting |
+| [Phase 3](#phase-3-close-the-silent-degradation-gaps) | silent degradation | 6 of 10 landed |
 | [Phase 4](#phase-4-collapse-the-duplication) | ~700 lines of copy-paste | behaviour-preserving |
 | [Phase 5](#phase-5-split-the-oversized-modules) | module splits, CSV schema | mostly moves |
 | [Phase 6](#phase-6-make-the-operational-surface-reproducible) | container, deploy, logging | low risk |
 | [`--task alfworld` cannot run](#--task-alfworld-cannot-run-the-environment-is-commented-out) | bug | **needs a decision** |
 | [DyLAN/MacNet retry loops](#dylan-and-macnet-retry-loops-are-still-unbounded) | bug | deferred |
 | [Intrinsic token accounting](#intrinsic-token-accounting-is-always-zero) | bug | silent |
-| [Per-task trial budget](#per-task-max_steps-never-reaches-the-environment) | bug | silent |
+| [G-Memory clustering](#g-memorys-clustering-does-not-run) | bug | **deferred** |
+| [PDDL `predicate_map`](#predicate_map-collisions-between-pddl-domains) | bug | **deferred** |
+| [~~Per-task trial budget~~](#per-task-max_steps-never-reaches-the-environment--closed) | bug | closed |
 | [`g-memory` offline](#g-memory-cannot-be-exercised-by-the-offline-test-suite) | test coverage | |
 | [`max_trials` naming](#max_trials-names-two-different-budgets-in-dylan) | tech debt | |
 | [Dependency pins](#single-source-the-dependency-pins) | tech debt | **needs a decision** |
@@ -30,193 +32,74 @@ to a phase.
 
 ## Phase 3: close the silent-degradation gaps
 
-`silent-failure` · **results-affecting by design**
+`silent-failure` · **results-affecting by design** · branch `refactor-p3`
 
 The most expensive class of defect in a research codebase: the sweep completes,
 the CSV fills in, and the number is not measuring what the flag says it measures.
-Every published figure touched by one of these was produced under it.
 
-**Flag these to whoever owns the current numbers before merging anything here.**
-
-Ten items in four stages, ordered so that nothing is fixed before it can be
-observed. Full write-up with evidence per item, and what has to be recomputed:
+Planned as ten items in four stages. **Six landed; four moved**, three of them by
+direction and one because it turned out to belong with the work it was a
+prerequisite for. Full write-up with evidence per item:
 https://claude.ai/code/artifact/2ba66572-add3-4642-8b92-2d5cb6c4057e#phase-3
 
-### What has to be recomputed
+### Landed
 
-| Item | Rows affected | What the old number measured |
+| | Item | Commit |
 |---|---|---|
-| 1 · FINCH clustering | every `g-memory` row | a task layer collapsed into one cluster |
-| 6 · `max_steps` ignored | every FEVER row | a 30-trial budget where the config says 12 |
-| 7 · template never used | every `…-llm-structured-template` row | an empty template |
-| 8 · `predicate_map` collisions | PDDL `blockworld`, `tyreworld` | observations worded by another domain |
-| 5 · `temperature` dropped | everything, *if* it is passed | the backend default sampler |
-| 4 · `--use_projector` inert | `--use_projector` runs only | the same as the flag-off runs |
-| 9 · duplicated sweep entry | `g-memory` aggregates | possibly a double-counted mean |
+| 1a | `from finch import Finch` named something the package does not export | `08453f6` |
+| 4 | `--use_projector` decided by capability, not by naming `GMemory` | `01ee10e` |
+| 5 | `temperature` sent, and dropped only if the endpoint refuses it | `379ff59` |
+| 6 | each task's trial budget read from its own config entry | `96de17b` |
+| 7 | the LLM-structured-template arm given its template | `364ac8a` |
+| 9 | `g-memory` no longer requested twice per sweep | `e93687a` |
+| 10 | dead `memory_folder` key deleted; MAS-block lookup written on the file | `e93687a` |
 
-### Stage 0 — make `g-memory` observable (prerequisite)
+Tests: 115 → **407**. Every fix was run against the pre-fix code first.
 
-Three of the items below are corrections to code that has never once executed
-successfully. Rewriting a clustering call while nothing can import the module is
-guesswork.
+**What changed about existing results.** Only two of these move a number:
+`temperature` now reaches the sampler, so every arm changes; and the
+`intrinsicmemory-llm-structured-template` arm now measures what it claims to,
+having previously measured the no-template arm plus one wasted call per task.
+`--use_projector` runs need re-running only if any were done — the flag was inert
+under both workflows in use. FEVER's budget was raised to the 30 already in
+effect, so no FEVER number moves.
 
-- [ ] **Add `chromadb` to the dev group.** `g-memory` persists through
-  `langchain_chroma`, which `conftest.py` stubs with a `MagicMock` — far enough to
-  import, not far enough to run. `chromadb` does not pull torch or the CUDA stack,
-  and that is the only constraint the dev environment has: it is 26 packages and
-  89MB precisely because nothing drags in nvidia wheels. The exclusion is already
-  named rather than silent — `test_contracts.py` declares
-  `UNTESTABLE_OFFLINE = {"g-memory"}` and fails if a module is added to
-  `module_map` without being covered or listed — so this closes a declared gap.
-- [ ] Fallback if `chromadb` proves too heavy: put an interface in front of the
-  vector store and use an in-memory implementation in tests. More work, but it is
-  the DIP fix `GMemory` wants anyway, and Phase 5 splits that file regardless.
-- [ ] **Acceptance:** `g-memory` leaves `UNTESTABLE_OFFLINE`; the memory ×
-  workflow matrix goes from 11 × 4 to 12 × 4.
+### What the finch fix did and did not do
 
-### Stage 1 — `g-memory` does not import, let alone cluster
+Fixing the import unblocks the CLI, which could not start for *any* value of
+`--mas_memory`. It does not make `g-memory` work, and the clustering fix is
+deferred by direction. Worth knowing what the deferral leaves: `cluster_tasks`
+now reaches its call, `FINCH` returns `(c, num_clust, req_c)`, and `req_c` is
+`None`, so the `zip` on the next line raises `TypeError` outside the `try`. So
+`--mas_memory g-memory` fails loudly, per task, recorded in `failed_tasks.csv` by
+`5e04c0a`. It does not resume producing single-cluster results, and the other
+eleven memory modules work again.
 
-- [ ] **Fix the import: `Finch` → `FINCH`.** `finch-clust`'s `__init__.py` is one
-  line, `from .finch import FINCH`; there is no `Finch`. The import is at module
-  scope in `GMemory.py:12`, `mas/memory/mas_memory/__init__.py` imports `GMemory`
-  eagerly, and `mas/module_map.py` reaches it through `from .memory import *`. So
-  **`tasks/run.py` cannot start for any value of `--mas_memory`**, not just
-  `g-memory`.
+### Two things the plan had wrong
 
-  This is an escalation, not a new defect. While the pin was the wrong package —
-  `finch-api`, an HR/payroll SDK that does export a `Finch` — the import succeeded
-  and only the call failed, into the bare `except` below. Phase 1 corrected the pin
-  (`baabfa0`) and thereby turned a silent single-cluster fallback into an
-  `ImportError`. The offline suite does not see it because `conftest.py` stubs
-  `finch`. The test for it is an import test, not a `g-memory` test: assert
-  `mas.module_map` imports with the real package present.
-- [ ] **Bind `labels` to something that exists.** `FINCH` returns
-  `(c, num_clust, req_c)`, where `c` is `(n_samples × n_partitions)` — one label
-  vector per partition level — and `req_c` is `None` unless `req_clust` is passed.
-  `_, _, labels = Finch(X, distance='cosine')` binds `labels` to `req_c`, so it is
-  `None` and `zip(valid_nodes, None)` on the next line raises `TypeError` *outside*
-  the `try`. Even with the name fixed, `cluster_tasks` cannot complete.
+Both found by writing the test before the fix.
 
-  Choosing between them is a research decision: FINCH is hierarchical and returns
-  every level, so a level has to be picked. Either take the finest partition,
-  `labels = c[:, 0]`, which is the algorithm's own first-order answer and needs no
-  target count; or pass `req_clust=k` and read `req_c`, fixing the cluster count by
-  hand. Prefer `c[:, 0]` absent a reason to want a specific `k`, and write the
-  choice down at the call site — the number of task clusters is what the task layer
-  is.
-- [ ] **Narrow the `except` at `GMemory.py:449-453`.** It catches `Exception`,
-  prints to stdout, and falls back to `labels = np.zeros(...)` — a
-  legitimate-looking clustering with one cluster containing everything. That
-  fallback is why this went unnoticed for the life of the fork. Log through the
-  recorder at warning level, catch only what can be recovered from, and let the
-  rest raise: a memory module that cannot cluster should fail the experiment,
-  which `run.py` now records per task (`5e04c0a`), not quietly answer 0.
-- [ ] **While in this function:** `self.task_storage._embedding_function` reaches
-  into Chroma's private attribute. `TaskLayer` should hold the embedding function
-  it was given — the same fix `7fcbf1d` applied to DyLAN's neurons.
+- The template fix was recorded as one line — assign the generated template to
+  `memory_template`. It is two: the module's own `memory_update_prompt` was
+  commented out, so it inherited the base prompt, which has no
+  `{template_instructions}` slot. The template would have been formatted into
+  nothing. Neither change works without the other.
+- The projector was recorded as a renamed-field bug in `autogen_mas`. It is
+  wider: `autogen`'s guard is reachable but admits only `GMemory`, whose
+  clustering has never run, so the projector has effectively never projected
+  under either workflow. Pointing `autogen_mas` at the right field would have
+  fixed the symptom and left the mechanism.
 
-### Stage 2 — flags that are accepted and ignored
+### Moved out of this phase
 
-- [ ] **Fix the `autogen_mas` projector.** `_project_insights` guards on
-  `isinstance(self.meta_memory, GMemory)`, but `build_system` in that class assigns
-  `meta_memory_solver` and `meta_memory_validator` and never `meta_memory`, which
-  stays at the `MetaMAS` default of `None`. The flag reaches `mas_config` correctly
-  (`run.py:266` → `self._use_projector = True`) and is discarded one line later.
-  **`--use_projector` is accepted and silently ignored.** It is a verbatim copy
-  from `autogen.py`, where `meta_memory` *is* assigned.
-
-  Two changes, in this order: point the guard at `meta_memory_solver` so the branch
-  is live, then replace the `isinstance` test with a `SupportsProjection` protocol,
-  which is what keeps it fixed when Phase 4 merges the two workflows. Write test
-  **B1** red first.
-- [ ] **Decide on `temperature`.** `#temperature=temperature` at `mas/llm.py:118`
-  is commented out, so `llm_config.temperature: 0.1` and all seven
-  `ReasoningConfig(temperature=0)` constructions are inert — runs execute at the
-  backend default, and determinism claims tied to `--seed` do not hold for the
-  sampler. Phase 2 made this sharper: the value now resolves from `LLMSettings` and
-  is threaded all the way to the call, where that one line drops it.
-
-  A second problem to settle at the same time: the two configured values disagree.
-  `configs/configs.yaml` says `0.1`; every workflow constructs `temperature=0`,
-  i.e. greedy. Uncommenting makes the workflows' `0` win for task calls and leaves
-  `0.1` applying only to calls that bypass `ReasoningIO` — the memory updates.
-  That may be what was wanted, but it should be a stated choice.
-
-  Either pass it — uncomment, and default `None` to `self.settings.temperature` in
-  `GPTChat.__call__` — or delete it from `configs.yaml`, `LLMSettings`,
-  `ReasoningConfig` and all seven call sites. `num_comps` went the second way in
-  `737a8e5`, on the reasoning that it reached the API and could only cost money.
-  `temperature` is the harder call because it is the one that changes results.
-  **One line from working, one line from honest.** Land **E2** either way. The
-  served model, `openai/gpt-oss-120b` behind vLLM, accepts `temperature`.
-- [ ] **Read `max_steps` per task.** See the standalone entry below; it lands here.
-
-### Stage 3 — content that measures the wrong thing
-
-- [ ] **Repair `intrinsicmemory-llm-structured-template`.** `summarize` generates a
-  template, assigns it to `agent_intrinsic_memory`, then passes
-  `template_instructions=self.memory_template` — a field initialised to `""` and
-  never assigned. The module's own debug line prints that it is empty, on every
-  call. So the arm measures an empty template *and* seeds `agent_intrinsic_memory`
-  with template text where the base class expects accumulated memory.
-
-  The fix is one line: assign the result to `self.memory_template`. The class
-  docstring is the evidence for which of the two was meant. Phase 2 made the
-  missing parameter visible by giving `summarize` a real signature (`2cc0d3c`) and
-  deliberately did not change what the arm measures. Land test **A5**. Note this
-  arm has never tested its own hypothesis, so there is no before-and-after to
-  compare against — only a before.
-- [ ] **Split `predicate_map` per PDDL domain.** `pddl_env.py:363-458` is one flat
-  dict, 80 keys and 75 unique, already sectioned by domain in comments — and later
-  sections silently overwrite earlier ones. Against the four active domains in
-  `TASK_NAMES`:
-
-  | predicate | wins | loses | live effect |
-  |---|---|---|---|
-  | `clear` | hanoi `"The {} is clear."` | blockworld `"{} is clear."` | blockworld reads "The a is clear." |
-  | `free` | gripper `"{} is free. "` | tyreworld `"Hub {} is free."` | `(free ?x - hub)` loses "Hub" |
-  | `holding` | barman | blocks | trailing space only |
-  | `on` | tyreworld | blocks | none — identical strings |
-  | `move` | gripper | hanoi | none — hanoi is not in `TASK_NAMES` |
-
-  So two of the five collisions change the observation text the agent is prompted
-  with, in two of the four active domains. Fix: `PREDICATE_MAPS: dict[str, dict[str,
-  str]]` keyed on `game_name`, following the comment sections already in the file,
-  with `_literal_to_text` selecting on `self.game_name` and keeping the existing
-  bare-predicate fallback. Then remove the `F601` per-file ignore from
-  `pyproject.toml` — that is the standing guard against a reintroduction. Land
-  **E1**.
-
-### Stage 4 — sweep configuration
-
-- [ ] **Deduplicate `g-memory` in the Slurm sweeps.** It appears twice in the
-  `--mas_memory` list in `fever_experiment.sh`, `pddl_experiment.sh`,
-  `sciworld_experiment.sh` and `single_node_serve.sh`. At ten seeds that is twenty
-  redundant experiments per submission and two rows per configuration in
-  `overall_results.csv`, which a naive group-by averages together. Check whether
-  any published aggregate double-counted it.
-- [ ] **Delete the dead config keys, record the misnamed one.**
-  `tasks/configs.yaml` names the MacNet block `graph:` while `build_task` looks up
-  `CONFIG.get(mas_type, {})`, so MacNet always falls back to in-code defaults — and
-  they disagree with the file: `use_critic` defaults to `True` at
-  `graph_mas.py:34` where the YAML says `False`. `autogen_mas` has no block at all
-  and silently takes every default. MacNet is deferred by direction, being out of
-  use, so record it on the file rather than leaving the trap. Do now: delete the
-  unused global `memory_folder` key, superseded by `--db_dir`, and resolve the
-  `max_steps` keys through the Stage 2 item rather than deleting them.
-
-### Suggested order
-
-Stage 0 first and on its own: test-only, unblocks Stage 1, reviewable without a
-results conversation attached. Then Stage 1 as its own branch, because it is the
-one change to code that has never executed and deserves review in isolation.
-Stages 2-4 are independent of each other and of Stage 1. The `temperature`
-decision is the only item that should not merge before someone with a stake in the
-numbers has answered it.
-
-Items 4 and 10 anticipate Phase 4: fix the projector guard now because it is a
-live false-negative, but write the `SupportsProjection` protocol here and let
-Phase 4 delete the second copy.
+- **G-Memory's clustering** — see the standalone entry below. Deferred by
+  direction. Takes stage 0 (`chromadb` into the dev group) with it, since that
+  existed to make the clustering work observable.
+- **`predicate_map` per PDDL domain** — see the standalone entry below. Deferred:
+  the collision behaviour needs to be understood before it is changed.
+- **The other three copies of `_project_insights`** — DyLAN, MacNet and the dead
+  `autogen_hotpot` still decide projection by naming `GMemory`. Phase 4 deletes
+  the duplication rather than migrating five copies.
 
 ### Done ahead of this phase
 
@@ -246,7 +129,7 @@ context. Bodies confirmed byte-identical by hashing whitespace-stripped source.
 - [ ] **Merge `autogen_mas` into `autogen`** behind a `use_validator` config flag.
   They are a near-verbatim fork, 336 vs 270 lines, and *both define a class called
   `AutoGen`*, aliased at import in the registry. Keep the existing tests green as
-  the acceptance criterion — there are now 331 of them.
+  the acceptance criterion — there are now 407 of them.
 - [ ] **Turn the intrinsic-memory subclasses into data:** one
   `IntrinsicMASMemory` taking a prompt bundle, plus a `{name: bundle}` registry.
   Four files that differ by exactly one prompt constant become one, and a new task
@@ -492,39 +375,108 @@ confirms `intrinsic=True` works when someone passes it.
 
 ---
 
-## Per-task `max_steps` never reaches the environment
+## ~~Per-task `max_steps` never reaches the environment~~ — closed
 
-`bug` `silent-failure` · found while planning Phase 3
+`bug` `silent-failure` · found while planning Phase 3 · **closed in `96de17b`**
 
-`tasks/configs.yaml` gives each task a trial budget — `fever: 12`, the other three
-`30`. Nothing reads it.
+`tasks/configs.yaml` gave every task a `max_steps` and nothing read it:
+`build_task` took its budget from `--max_trials`, whose default was 30, and no
+Slurm script passes the flag. FEVER, configured for 12 trials, ran with 30 — every
+FEVER figure to date was produced at 2.5× the configured horizon.
 
-```python
-# tasks/run.py:261
-task_configs = build_task(task_name, mas_type, mas_memory_type, max_trials, ...)
-#                                                               ^ --max_trials,
-#                                                                 argparse default 30
+Structural rather than a typo: `--task` is `nargs='+'` and `--max_trials` is one
+scalar, so a sweep over two tasks could never have expressed two budgets. The
+config is now the source, `--max_trials` an explicit override, and a task with no
+configured budget raises rather than silently becoming 30.
+
+FEVER's configured budget was raised to 30 by direction, so no existing number
+moves — the 30 already in effect is now the one the config asks for, and a future
+change to that value will take effect.
+
+---
+
+## G-Memory's clustering does not run
+
+`bug` `silent-failure` · deferred out of Phase 3 by direction
+
+Two defects behind the import that `08453f6` fixed. `cluster_tasks` at
+`mas/memory/mas_memory/GMemory.py:425` cannot complete, so `--mas_memory g-memory`
+fails every task that reaches `merge_insights`.
+
+**1. `labels` is bound to `None`.** `FINCH` returns three values:
+
+```
+c          (n_samples × n_partitions) — one label vector per partition level
+num_clust  the cluster count at each level
+req_c      labels for req_clust, or None when req_clust is not passed
 ```
 
-`build_task` names the parameter `max_steps` and hands it straight to
-`get_env(task, config, max_steps)`, so the environment's trial budget comes from
-the CLI and never from the per-task config. No Slurm script passes
-`--max_trials`.
+`_, _, labels = FINCH(X, distance='cosine')` binds `labels` to `req_c`, and
+`req_clust` is never passed — so `labels` is `None` and
+`zip(valid_nodes, labels)` on the next line raises `TypeError`, outside the
+`try`.
 
-**Consequence: every FEVER run to date used a 30-trial budget where the config
-says 12** — 2.5× the intended horizon, which lifts the success rate, the token
-spend and the mean-trials figure together. Note the direction: unlike the rest of
-Phase 3, the FEVER numbers are *better* than the configured budget would have
-produced, so fixing this will lower them.
+Choosing a fix is a research decision, not a mechanical one: FINCH is
+hierarchical and returns every level, so a level has to be picked. Either take
+the finest partition, `labels = c[:, 0]`, which is the algorithm's own
+first-order answer and needs no target count; or pass `req_clust=k` and read
+`req_c`, fixing the cluster count by hand. `c[:, 0]` is the better default absent
+a reason to want a specific `k`. Whichever is chosen, write the choice at the call
+site — the number of task clusters is what the task layer *is*.
 
-**Why it is shaped this way.** One CLI scalar has to serve `--task`'s
-`nargs='+'`: a sweep over `fever pddl` cannot express two budgets even in
-principle, so the per-task keys could never have worked as written.
+**2. The bare `except` is why nobody noticed.** `GMemory.py:449-453` catches
+`Exception`, prints to stdout, and falls back to `labels = np.zeros(...)` — a
+legitimate-looking clustering with one cluster containing everything. **Every
+`--mas_memory g-memory` result predating `08453f6` was produced with the task
+layer collapsed into a single cluster.** Narrow it, log through the recorder at
+warning level, and let the rest raise: a memory module that cannot cluster should
+fail the experiment, which `run.py` records per task (`5e04c0a`).
 
-**The fix.** Read `max_steps` per task from `CONFIG[task]`, and make
-`--max_trials` an explicit override — applied to every task when given, or
-rejected when more than one task is requested. Test: build each task and assert
-`env.max_trials` equals its configured `max_steps`. Lands in Phase 3, stage 2.
+**Also in this function:** `self.task_storage._embedding_function` reaches into
+Chroma's private attribute to embed each node. `TaskLayer` should hold the
+embedding function it was given — the same fix `7fcbf1d` applied to DyLAN's
+neurons.
+
+**Do the offline-test entry below first.** This is a correctness change to code
+that has never once executed successfully; writing it blind is guesswork. That
+entry was Phase 3's stage 0 and moved here with this work.
+
+---
+
+## `predicate_map` collisions between PDDL domains
+
+`bug` `silent-failure` · deferred out of Phase 3 — behaviour to be understood first
+
+`predicate_map` at `tasks/envs/pddl_env/pddl_env.py:363-458` is one flat dict, 80
+keys and 75 unique, already sectioned by domain in comments — and later sections
+silently overwrite earlier ones. Against the four active domains in `TASK_NAMES`
+(`barman`, `blockworld`, `gripper`, `tyreworld`):
+
+| predicate | wins | loses | live effect |
+|---|---|---|---|
+| `clear` | hanoi `"The {} is clear."` | blockworld `"{} is clear."` | blockworld state text reads "The a is clear." |
+| `free` | gripper `"{} is free. "` | tyreworld `"Hub {} is free."` | `(free ?x - hub)` loses the word "Hub" |
+| `holding` | barman | blocks | trailing space only |
+| `on` | tyreworld | blocks | none — the strings are identical |
+| `move` | gripper | hanoi | none — hanoi is not in `TASK_NAMES` |
+
+So two of the five collisions change the observation text the agent is prompted
+with, in two of the four active domains. `predicate_map` is consulted from
+`_literal_to_text`, which renders both the goal and the state for every step, so
+the effect is on the prompt rather than on scoring — which is why fixing it means
+re-running PDDL `blockworld` and `tyreworld` rather than re-tabulating them.
+
+**The fix, when it is wanted:** `PREDICATE_MAPS: dict[str, dict[str, str]]` keyed
+on `game_name`, following the comment sections already in the file, with
+`_literal_to_text` selecting on `self.game_name` and keeping the existing
+bare-predicate fallback for a predicate the domain does not list. The `F601`
+per-file ignore comes out of `pyproject.toml` with it, which is the standing guard
+against a reintroduction. Test **E1**.
+
+**Why it is deferred:** whether a domain should inherit another's wording at all
+is a question about the experiment, not about the code. Nothing here is urgent —
+the wording has been stable for the life of the fork, so no result is
+inconsistent with another.
 
 ---
 
@@ -546,6 +498,9 @@ The exclusion is named rather than silent — `test_contracts.py` declares
 to `module_map` without either being covered or listed there. So this cannot
 quietly get worse.
 
+This was Phase 3's stage 0 and moved out with the clustering work it existed to
+make observable.
+
 **Options.**
 
 1. **Add `chromadb` to the dev group.** It does not pull torch or the CUDA stack,
@@ -556,7 +511,7 @@ quietly get worse.
    implementation in tests. More work, but it is the DIP fix `GMemory` wants
    anyway, and Phase 5 splits that file regardless.
 
-**This is now Phase 3's stage 0, not an option.** Phase 3 rewrites its FINCH
+**Do this before the clustering entry above.** Phase 3 rewrites its FINCH
 clustering call and narrows its bare `except`; Phase 5 splits the file into three.
 Both are much safer with the module under test, and the FINCH work in particular
 is a correctness change to code that has never once executed successfully.
@@ -667,8 +622,8 @@ Phase 5's CSV schema so the columns have somewhere honest to go.
 
 `tests`
 
-Phases 1–2 took the suite from **115 tests** — reaching one workflow file and one
-memory module — to **331**, reaching every workflow, recorder and environment and
+Phases 1–3 took the suite from **115 tests** — reaching one workflow file and one
+memory module — to **407**, reaching every workflow, recorder and environment and
 eleven of twelve memory modules. Group D, the cross-registry contract tests, was
 Phase 2's acceptance criterion and is done.
 
@@ -698,8 +653,8 @@ asserts they do not raise. Since the five subclasses differ by exactly one strin
   `-> MASMessage`, returns `None`, and never calls `super()` — so the context is
   never persisted. **Write this as a failing test first**: it is a defect
   specification.
-- [ ] **A5 — the LLM-structured template reaches the prompt.** See Phase 3; that
-  arm currently measures an empty template.
+- [x] ~~A5 — the LLM-structured template reaches the prompt~~ —
+  `test_intrinsic_template.py`, three of eight red against the pre-fix code.
 - [ ] **A6 — memory does not leak between tasks.** Run two tasks against one
   memory instance and assert `agent_intrinsic_memory` is empty at the second
   task's start. The current reset works by rebuilding `GPTChat`, which is a side
@@ -711,10 +666,8 @@ asserts they do not raise. Since the five subclasses differ by exactly one strin
 tests assert shape, not behaviour, which is how the projector bug lived directly
 underneath them.
 
-- [ ] **B1 — the projector actually projects.** With `use_projector=True` and a
-  memory implementing projection, assert `project_insights` is called and per-role
-  insight lists differ. Catches the dead branch; **write it failing** and fix it in
-  Phase 3.
+- [x] ~~B1 — the projector actually projects~~ — `test_projector.py`, six of
+  fourteen red against the pre-fix code, including for `autogen`.
 - [ ] **B4 — validator memory is written and read.** It is summarised and saved,
   but never retrieved into any prompt. Either assert it feeds something, or record
   that it is write-only. Right now the code does not say which was intended.
@@ -757,15 +710,14 @@ recorders, D2 workflows, D3 environments, D4 memory × workflow.
 
 ### E · Data rendering and the LLM layer
 
-- [ ] **E1 — `predicate_map` has no colliding keys.**
+- [ ] **E1 — `predicate_map` has no colliding keys.** Deferred with its fix.
   `assert len(keys) == len(set(keys))`, then per active domain that its predicates
   render with its own template — tyreworld's `free` as `"Hub {} is free."`. One
   line for the first half, and the `F601` ruff ignore comes out with it. Land with
   Phase 3.
-- [ ] **E2 — sampling parameters reach the API.** Assert the temperature a caller
-  sets arrives in the `chat.completions.create` kwargs — or delete the parameter
-  everywhere. Either resolution is fine; silently dropping it is not. Land with
-  Phase 3.
+- [x] ~~E2 — sampling parameters reach the API~~ — `test_llm_temperature.py`,
+  nine of eleven red against the pre-fix code. Also covers an endpoint that
+  refuses the parameter.
 - [ ] **E4 — per-experiment loggers do not cross-contaminate.**
   `mas/logging_utils.py` was added specifically to stop a handler leak between
   experiments on a reused worker. Assert two loggers built in one process write
@@ -777,4 +729,5 @@ recorders, D2 workflows, D3 environments, D4 memory × workflow.
 ### Suggested order
 
 **A1 and C1–C2 next**, before Phase 4 touches the intrinsic modules or the sweep.
-A2 and E1–E2 alongside their Phase 3 fixes. A4 and B1 written red, deliberately.
+A2 with the intrinsic-token work; E1 with the `predicate_map` fix whenever that is
+taken up. A4 written red, deliberately.
