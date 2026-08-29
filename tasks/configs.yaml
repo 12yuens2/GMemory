@@ -1,5 +1,4 @@
 # global configs
-memory_folder: ./.db
 embedding_model: sentence-transformers/all-MiniLM-L6-v2
 
 # env configs
@@ -24,6 +23,12 @@ pddl:
   few_shots_num: 1
 
 # MAS configs
+#
+# build_task looks these blocks up by --mas_type, so a block only takes effect if
+# its name is one of that flag's choices. `graph` is MacNet's and is not read -
+# MacNet's mas_type is `macnet`, and its in-code defaults disagree with the values
+# here. autogen_mas has no block and takes every default. Both are tracked in
+# docs/BACKLOG.md; MacNet and DyLAN are out of use.
 autogen:
   autogen:  True
 
