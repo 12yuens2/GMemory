@@ -14,6 +14,18 @@ from .settings import LLMSettings, default_llm_settings
 from datetime import datetime
 
 
+def _refuses_temperature(error: BaseException) -> bool:
+    """Whether an endpoint error is a complaint about the temperature parameter.
+
+    Matched on the message rather than a status code, because OpenAI-compatible
+    servers do not agree on one - the parameter comes back as unsupported,
+    unrecognised or merely invalid depending on the implementation. A false
+    positive is cheap: the retry is the same request minus one argument, so it
+    either succeeds or fails again for the real reason.
+    """
+    return "temperature" in str(error).lower()
+
+
 class LLMCallFailed(RuntimeError):
     """Every retry of an LLM call was exhausted without a usable answer.
 
@@ -89,6 +101,43 @@ class GPTChat(LLM):
             api_key=self.settings.api_key
         )
         self.tracker: TokenTracker = tracker if tracker is not None else TokenTracker()
+        self._sends_temperature: bool = True
+
+    def _create(
+        self,
+        messages: List[dict],
+        temperature: float,
+        max_tokens: int,
+        stop_strs: Optional[List[str]],
+    ):
+        """One request to the endpoint, dropping the temperature if it is refused.
+
+        Not every OpenAI-compatible backend accepts the parameter; some reject the
+        request outright rather than ignoring it. A refusal is remembered, so such
+        an endpoint costs one extra request per client rather than one per call,
+        and it is absorbed here rather than spending one of the caller's retries.
+        """
+        request = dict(
+            model=self.model_name,
+            messages=messages,
+            max_completion_tokens=max_tokens,
+            stop=stop_strs,
+        )
+
+        if self._sends_temperature:
+            try:
+                return self.client.chat.completions.create(temperature=temperature, **request)
+            except Exception as error:
+                if not _refuses_temperature(error):
+                    raise
+                self._sends_temperature = False
+                print(
+                    f"{self.model_name} refused temperature={temperature} ({error}); "
+                    f"sending subsequent calls without it",
+                    file=sys.stderr,
+                )
+
+        return self.client.chat.completions.create(**request)
 
     def __call__(
         self,
@@ -102,6 +151,8 @@ class GPTChat(LLM):
 
         if max_tokens is None:
             max_tokens = self.settings.max_tokens
+        if temperature is None:
+            temperature = self.settings.temperature
 
         messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
@@ -111,12 +162,11 @@ class GPTChat(LLM):
 
         for attempt in range(max_retries):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,  
+                response = self._create(
                     messages=messages,
-                    max_completion_tokens=max_tokens,
-                    #temperature=temperature,
-                    stop=stop_strs
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stop_strs=stop_strs,
                 )
 
                 answer = response.choices[0].message.content

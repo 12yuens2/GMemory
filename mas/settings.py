@@ -34,8 +34,10 @@ class LLMSettings:
         api_key: Credential for that endpoint.
         max_tokens: Ceiling on the tokens generated per response, sent as
             `max_completion_tokens`. A truncated answer is still returned.
-        temperature: Sampling temperature. **Currently not sent to the API** -
-            see the `temperature` item in docs/BACKLOG.md.
+        temperature: Sampling temperature, used for any call that does not set
+            its own. The workflows ask for 0 explicitly, so in practice this
+            applies to the memory modules' own LLM calls. Dropped from the
+            request for endpoints that refuse the parameter.
     """
 
     api_base: str
