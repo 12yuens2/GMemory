@@ -1,4 +1,4 @@
-from .memory_base import MASMemoryBase
+from .memory_base import MASMemoryBase, SupportsProjection
 from .chatdev import ChatDevMASMemory
 from .generative import GenerativeMASMemory
 from .metagpt import MetaGPTMASMemory
@@ -14,6 +14,7 @@ from .intrinsicmemory import IntrinsicMASMemory
 
 __all__ = [
     'MASMemoryBase', 
+    'SupportsProjection',
     'ChatDevMASMemory',
     'GenerativeMASMemory',
     'MetaGPTMASMemory',

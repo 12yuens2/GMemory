@@ -5,7 +5,7 @@ from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage
 from mas.mas import AgentCallFailed, EpisodeResult, MetaMAS, RetryAgentCall
 from mas.reasoning import ReasoningBase, ReasoningConfig
-from mas.memory import MASMemoryBase, GMemory
+from mas.memory import MASMemoryBase, SupportsProjection
 from mas.agents import Env
 
 from .autogen_prompt import AUTOGEN_PROMPT 
@@ -327,12 +327,13 @@ class AutoGen(MetaMAS):
         roles_rules: dict[str, list[str]] = {}
         roles = set([agent.profile for agent in self.agents_team.values()])
 
-        if not self._use_projector or not isinstance(self.meta_memory, GMemory):
+        memory = self.meta_memory_solver
+        if not self._use_projector or not isinstance(memory, SupportsProjection):
             for role in roles:
                 roles_rules[role] = insights
         else:
             for role in roles:
-                roles_rules[role] = self.meta_memory.project_insights(insights, role)
+                roles_rules[role] = memory.project_insights(insights, role)
         
         # Limit the number of insights per role to self._insights_topk
         for role, insights in roles_rules.items():
