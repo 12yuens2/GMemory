@@ -275,7 +275,10 @@ result someone else can reproduce.
   `"Add your description here"` and names the project `gmemory`.
 - [ ] **Update the README** once Phases 3–5 land: the flag table, the
   memory-module list and the `--mas_type` matrix all describe behaviour that will
-  have changed.
+  have changed. Already stale as of Phase 3 — the flag table gives `--mas_memory` a
+  default of `none` and `--max_trials` a default of `30`; both are now
+  required-or-absent, `--mas_type` too. `README.md` carries uncommitted local
+  edits, so Phase 3 did not touch it.
 
 ---
 
@@ -398,12 +401,26 @@ Not results-affecting: no published number can have come from a run that produce
 none. What it does mean is that a bare `python tasks/run.py --mas_type autogen`
 has never worked — the other default, `--task alfworld`, cannot start either.
 
-Default is now `['empty']`, and argparse validates against
-`MAS_MEMORY_MODULES` so an unregistered value is rejected at parse time rather
-than one experiment at a time. Found only because the CLI's choices were changed
+`--mas_memory` is now **required with no default** (`eb6fd06`), because selecting
+no memory module is not a meaningful experiment and so there is nothing to fall
+back to. `--mas_type` was made required at the same time: it had the same defect in
+a worse form — no default *and* not required, so omitting it resolved to `None`,
+`build_experiment_configs` expanded that into one experiment, and `get_mas(None)`
+raised inside the same per-experiment `try`. Both are validated against their
+registries, so an unregistered value is rejected at parse time.
+
+`--task` keeps `default=['alfworld']`. `alfworld` is registered, so it is a valid
+selection; that it cannot be constructed is the separate open decision above, and
+making the flag required would quietly resolve half of that decision. Found only because the CLI's choices were changed
 to read the registries instead of repeating them, which is the general lesson: the
 task list was written out four times, and the copies disagreed with each other in
 ways nothing checked.
+
+The guard is generalised rather than specific:
+`test_cli.py::test_a_selector_never_defaults_to_something_unregistered` walks
+every flag that names an implementation and checks its default against the
+corresponding registry, so the class of defect is covered rather than the one
+instance of it.
 
 ---
 
