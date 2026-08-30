@@ -56,7 +56,7 @@ https://claude.ai/code/artifact/2ba66572-add3-4642-8b92-2d5cb6c4057e#phase-3
 | 9 | `g-memory` no longer requested twice per sweep | `e93687a` |
 | 10 | dead `memory_folder` key deleted; MAS-block lookup written on the file | `e93687a` |
 
-Tests: 115 → **407**. Every fix was run against the pre-fix code first.
+Tests: 115 → **395**. Every fix was run against the pre-fix code first.
 
 **What changed about existing results.** Only two of these move a number:
 `temperature` now reaches the sampler, so every arm changes; and the
@@ -171,7 +171,7 @@ context. Bodies confirmed byte-identical by hashing whitespace-stripped source.
   `autogen_mas` has no config block and silently takes every default. Keep the
   registry key, so existing scripts and result CSVs keep meaning what they said.
 
-  Keep the existing tests green as the acceptance criterion — there are now 407 of
+  Keep the existing tests green as the acceptance criterion — there are now 395 of
   them, and `test_autogen_mas*.py` covers the validator path specifically.
 - [ ] **Turn the intrinsic-memory subclasses into data:** one
   `IntrinsicMASMemory` taking a prompt bundle, plus a `{name: bundle}` registry.
@@ -416,11 +416,10 @@ to read the registries instead of repeating them, which is the general lesson: t
 task list was written out four times, and the copies disagreed with each other in
 ways nothing checked.
 
-The guard is generalised rather than specific:
-`test_cli.py::test_a_selector_never_defaults_to_something_unregistered` walks
-every flag that names an implementation and checks its default against the
-corresponding registry, so the class of defect is covered rather than the one
-instance of it.
+No test guards this. Once `choices` reads from a registry, argparse itself
+rejects an unregistered value, so the defect is structurally impossible rather
+than watched for — which is the better of the two, and why the CLI tests written
+for it were deleted again on review.
 
 ---
 
@@ -782,7 +781,7 @@ Phase 5's CSV schema so the columns have somewhere honest to go.
 `tests`
 
 Phases 1–3 took the suite from **115 tests** — reaching one workflow file and one
-memory module — to **407**, reaching every workflow, recorder and environment and
+memory module — to **395**, reaching every workflow, recorder and environment and
 eleven of twelve memory modules. Group D, the cross-registry contract tests, was
 Phase 2's acceptance criterion and is done.
 
