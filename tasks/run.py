@@ -12,7 +12,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from itertools import product
 from tqdm import tqdm
 
-from mas.module_map import module_map
+from mas.module_map import MAS_MEMORY_MODULES, module_map
 from mas.reasoning import ReasoningBase
 from mas.memory import MASMemoryBase
 from mas.llm import LLMCallable, GPTChat, TokenTracker
@@ -20,8 +20,8 @@ from mas.settings import LLMSettings, default_llm_settings
 from mas.mas import MetaMAS
 from mas.utils import EmbeddingFunc
 
-from envs import BaseEnv, BaseRecorder, get_env, get_recorder, get_task
-from mas_workflow import get_mas
+from envs import ENVS, BaseEnv, BaseRecorder, get_env, get_recorder, get_task
+from mas_workflow import MAS, get_mas
 from prompts import get_dataset_system_prompt, get_task_few_shots
 from utils import get_model_type
 
@@ -433,9 +433,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     num_cpus = max(1, os.cpu_count() - 32)
 
     parser = argparse.ArgumentParser(description='Run tasks with specified modules.')
-    parser.add_argument('--task', type=str, nargs='+', choices=['alfworld', 'fever', 'pddl', 'sciworld'], default=['alfworld'], help='One or more tasks to run')
-    parser.add_argument('--mas_type', type=str, choices=['autogen','autogen_mas', 'macnet', 'dylan'])
-    parser.add_argument('--mas_memory', type=str, nargs='+', default=['none'], help='One or more mas memory modules to run')
+    # Choices come from the registries, so a newly registered task, workflow or
+    # memory module is selectable without editing the CLI.
+    parser.add_argument('--task', type=str, nargs='+', choices=sorted(ENVS), default=['alfworld'], help='One or more tasks to run')
+    parser.add_argument('--mas_type', type=str, choices=sorted(MAS))
+    parser.add_argument('--mas_memory', type=str, nargs='+', choices=sorted(MAS_MEMORY_MODULES), default=['empty'], help='One or more mas memory modules to run')
     parser.add_argument('--reasoning', type=str, default='io', help='Specify reasoning module')
     parser.add_argument('--model', type=str, default='gpt-3.5-turbo-0125', help='Specify the LLM model type')
     parser.add_argument('--max_trials', type=int, default=None,

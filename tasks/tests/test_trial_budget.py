@@ -11,12 +11,15 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tasks.envs import ENVS
 from tasks.tests.fakes import FakeEnv
 
 with open("tasks/configs.yaml") as reader:
     TASK_SETTINGS: dict = yaml.safe_load(reader)
 
-TASKS = ["alfworld", "fever", "pddl", "sciworld"]
+# The env registry is the list of tasks that exist; a task registered without a
+# budget in tasks/configs.yaml is what test_every_task_declares_a_budget catches.
+TASKS = sorted(ENVS)
 
 
 @pytest.fixture
@@ -47,6 +50,9 @@ def run_module(monkeypatch):
 
 @pytest.mark.parametrize("task", TASKS)
 def test_every_task_declares_a_budget(task):
+    assert task in TASK_SETTINGS, (
+        f"{task} is a registered environment with no entry in tasks/configs.yaml"
+    )
     assert "max_steps" in TASK_SETTINGS[task], (
         f"{task} has no max_steps, so nothing can resolve its episode budget"
     )
@@ -94,6 +100,17 @@ def test_the_override_is_absent_unless_asked_for(run_module):
     )
 
 
+def test_the_cli_offers_exactly_the_registered_tasks(run_module):
+    """--task's choices are read from the registry, not listed a fourth time."""
+    action = next(
+        a for a in run_module.build_arg_parser()._actions if a.dest == "task"
+    )
+
+    assert sorted(action.choices) == TASKS, (
+        f"--task offers {sorted(action.choices)}; the registry has {TASKS}"
+    )
+
+
 @pytest.mark.parametrize("task", TASKS)
 def test_an_explicit_override_wins_for_every_task(run_module, task):
     assert run_module.trial_budget(task, 5) == 5
@@ -113,3 +130,31 @@ def test_a_task_with_no_configured_budget_says_so(run_module, monkeypatch):
 
     with pytest.raises(KeyError, match="max_steps"):
         run_module.trial_budget("fever")
+
+
+def test_the_cli_offers_exactly_the_registered_memory_modules(run_module):
+    """`none` was the default and is not a registered module.
+
+    The registered name for no memory is `empty`, so the default invocation
+    resolved to nothing and was recorded as a failed experiment.
+    """
+    from mas.module_map import MAS_MEMORY_MODULES
+
+    parser = run_module.build_arg_parser()
+    action = next(a for a in parser._actions if a.dest == "mas_memory")
+
+    assert sorted(action.choices) == sorted(MAS_MEMORY_MODULES)
+    for name in parser.parse_args(["--mas_type", "autogen"]).mas_memory:
+        assert name in MAS_MEMORY_MODULES, (
+            f"--mas_memory defaults to {name!r}, which module_map does not accept"
+        )
+
+
+def test_the_cli_offers_exactly_the_registered_workflows(run_module):
+    from tasks.mas_workflow import MAS
+
+    action = next(
+        a for a in run_module.build_arg_parser()._actions if a.dest == "mas_type"
+    )
+
+    assert sorted(action.choices) == sorted(MAS)
