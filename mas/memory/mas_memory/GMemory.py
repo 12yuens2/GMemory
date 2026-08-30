@@ -429,6 +429,7 @@ class TaskLayer:
         This method extracts all nodes from the graph, computes embeddings for each node using the
         task storage's embedding function, and applies the FINCH clustering algorithm with cosine similarity.
         """
+        # TODO: broken - labels is None unless req_clust is passed to FINCH.
         nodes = list(self.graph.nodes)
 
         embeddings = []
