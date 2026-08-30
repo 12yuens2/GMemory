@@ -19,6 +19,7 @@ findings that turned up during them and do not belong to a phase.
 | [`--task alfworld` cannot run](#--task-alfworld-cannot-run-the-environment-is-commented-out) | bug | **needs a decision** |
 | [DyLAN/MacNet retry loops](#dylan-and-macnet-retry-loops-are-still-unbounded) | bug | deferred |
 | [Structured output vs a validator agent](#guarantee-the-action-format-instead-of-checking-it-with-a-second-agent) | research | **needs a decision** |
+| [~~`--mas_memory` default~~](#--mas_memory-defaulted-to-a-value-the-registry-does-not-have--closed) | bug | closed |
 | [Intrinsic token accounting](#intrinsic-token-accounting-is-always-zero) | bug | silent |
 | [G-Memory clustering](#g-memorys-clustering-does-not-run) | bug | **deferred** |
 | [PDDL `predicate_map`](#predicate_map-collisions-between-pddl-domains) | bug | **deferred** |
@@ -315,7 +316,11 @@ Either is fine. What is not fine is the current state, where a reader following
 the README gets an `AttributeError` with no explanation and the commit that caused
 it says *"for now"*.
 
-**Reproduce:** `uv run python tasks/run.py --mas_type autogen --mas_memory none`
+**Reproduce:** `uv run python tasks/run.py --mas_type autogen --mas_memory empty`
+
+This line used to read `--mas_memory none`, which was itself invalid — see the
+entry below. So the documented smallest invocation was failing for two
+independent reasons, and only one of them was ALFWorld.
 
 ---
 
@@ -370,6 +375,35 @@ task); inherit `add_observer`/`notify_observers` from `MetaMAS`; share the
 all six intrinsic memory modules); share the `trials` convention (`2ead4a3`); and
 are covered by the contract and smoke matrices. DyLAN also stopped ignoring the
 configured embedding model (`7fcbf1d`).
+
+---
+
+## ~~`--mas_memory` defaulted to a value the registry does not have~~ — closed
+
+`bug` · found while making the CLI read the registries · **closed in `8b62d40`**
+
+`--mas_memory` defaulted to `['none']`, and `none` is not a registered module —
+the registered name for no memory is `empty`:
+
+```
+python tasks/run.py --mas_type autogen
+→ ValueError: Invalid MAS memory type 'none'. Allowed values: ['empty', ...]
+```
+
+The error is raised inside `build_mas`, which `run_experiment` catches per
+experiment, so the default invocation **recorded a failed experiment, produced no
+result rows, and exited cleanly**.
+
+Not results-affecting: no published number can have come from a run that produced
+none. What it does mean is that a bare `python tasks/run.py --mas_type autogen`
+has never worked — the other default, `--task alfworld`, cannot start either.
+
+Default is now `['empty']`, and argparse validates against
+`MAS_MEMORY_MODULES` so an unregistered value is rejected at parse time rather
+than one experiment at a time. Found only because the CLI's choices were changed
+to read the registries instead of repeating them, which is the general lesson: the
+task list was written out four times, and the copies disagreed with each other in
+ways nothing checked.
 
 ---
 
