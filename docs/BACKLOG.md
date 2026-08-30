@@ -18,6 +18,7 @@ findings that turned up during them and do not belong to a phase.
 | [Phase 6](#phase-6-make-the-operational-surface-reproducible) | container, deploy, logging | low risk |
 | [`--task alfworld` cannot run](#--task-alfworld-cannot-run-the-environment-is-commented-out) | bug | **needs a decision** |
 | [DyLAN/MacNet retry loops](#dylan-and-macnet-retry-loops-are-still-unbounded) | bug | deferred |
+| [Structured output vs a validator agent](#guarantee-the-action-format-instead-of-checking-it-with-a-second-agent) | research | **needs a decision** |
 | [Intrinsic token accounting](#intrinsic-token-accounting-is-always-zero) | bug | silent |
 | [G-Memory clustering](#g-memorys-clustering-does-not-run) | bug | **deferred** |
 | [PDDL `predicate_map`](#predicate_map-collisions-between-pddl-domains) | bug | **deferred** |
@@ -123,13 +124,54 @@ context. Bodies confirmed byte-identical by hashing whitespace-stripped source.
   `autogen_mas` and `autogen_hotpot`, with a second identical variant in `dylan`
   and `graph_mas` — reconcile the two variants first. `_solver_stuck` is identical
   in `autogen` and `autogen_mas` (2 × 28 lines).
-- [ ] **Replace the `GMemory` isinstance checks with a `SupportsProjection`
-  protocol,** so the projector works for any memory implementing it rather than
-  one concrete class. This is what makes the Phase 3 projector fix stay fixed.
+- [ ] **Finish the `SupportsProjection` migration.** `autogen` and `autogen_mas`
+  use the protocol as of `01ee10e`; `autogen_hotpot`, `dylan` and `graph_mas` still
+  name `GMemory` directly. Deleting the duplication removes them rather than
+  migrating three more copies.
+
+  **Keeping the projector was considered and decided against removing it**, for
+  now. The case for removal is strong — it is upstream's (`1c5e04f`, May 2025), it
+  has never run, and only `GMemory.retrieve_memory` ever returns a non-empty
+  insights list, so it can affect exactly one arm and that arm's clustering is
+  deferred. The argument for keeping it is baseline integrity: if the upstream
+  paper reports G-Memory with the projector on and those figures are the
+  comparison, deleting a G-Memory component means the baseline is no longer
+  G-Memory. Every figure produced in this fork was projector-off, so removal
+  changes no comparison already made. **If that upstream question comes back
+  "off", delete it in this phase instead of lifting it — deleting is less work than
+  the collapse.**
 - [ ] **Merge `autogen_mas` into `autogen`** behind a `use_validator` config flag.
-  They are a near-verbatim fork, 336 vs 270 lines, and *both define a class called
-  `AutoGen`*, aliased at import in the registry. Keep the existing tests green as
-  the acceptance criterion — there are now 407 of them.
+  They are a near-verbatim fork, 343 vs 263 lines, and *both define a class called
+  `AutoGen`*, aliased at import in the registry.
+
+  Diffed line by line, so the merge is fully specified. The entire difference is
+  **one validator agent**:
+
+  1. a third `Agent` named `validator`, carrying
+     `AUTOGEN_PROMPT.validator_system_prompt`;
+  2. two memory instances instead of one — `meta_memory_solver` (the memory that
+     was passed in) and `meta_memory_validator` (a fresh instance of the same class
+     with `namespace + "_validator"`). Both get `init_task_context` and
+     `save_task_context`; only the solver gets `move_memory_state`,
+     `add_agent_node` and `backward`;
+  3. one `solve_and_validate()` closure passed to `_call_agent_with_retries`: the
+     solver proposes, the validator judges the format, and on `INVALID` the solver
+     is re-prompted with the validator's feedback prepended, raising
+     `RetryAgentCall` so the retry spends a try from the shared budget with the
+     rejected action as fallback.
+
+  `_solver_stuck`, `_project_insights`, the trial loop, the prompt assembly and the
+  ground-truth agent are identical.
+
+  **Resolve the flag through the existing config machinery** rather than a new
+  mechanism: `build_task` already does `CONFIG.get(mas_type, {})`, so an
+  `autogen_mas:` block carrying `use_validator: True`, and `use_validator: False`
+  under `autogen:`, is the whole wiring — which also closes the finding that
+  `autogen_mas` has no config block and silently takes every default. Keep the
+  registry key, so existing scripts and result CSVs keep meaning what they said.
+
+  Keep the existing tests green as the acceptance criterion — there are now 407 of
+  them, and `test_autogen_mas*.py` covers the validator path specifically.
 - [ ] **Turn the intrinsic-memory subclasses into data:** one
   `IntrinsicMASMemory` taking a prompt bundle, plus a `{name: bundle}` registry.
   Four files that differ by exactly one prompt constant become one, and a new task
@@ -328,6 +370,72 @@ task); inherit `add_observer`/`notify_observers` from `MetaMAS`; share the
 all six intrinsic memory modules); share the `trials` convention (`2ead4a3`); and
 are covered by the contract and smoke matrices. DyLAN also stopped ignoring the
 configured embedding model (`7fcbf1d`).
+
+---
+
+## Guarantee the action format instead of checking it with a second agent
+
+`needs-decision` · found while diffing `autogen` against `autogen_mas`
+
+The validator agent exists to solve a problem the serving stack can solve for
+free — and solving it that way turns a confounded comparison into a clean one.
+
+**What the validator actually does.** Its system prompt is explicit:
+
+```
+ONLY EVALUATE THE FORMAT, NOT THE FACTUAL CORRECTNESS OF THE SOLUTION.
+```
+
+It answers `VALID`, or `INVALID: <brief explanation>`. So it is an output-format
+checker implemented as an LLM call — one that can itself be wrong, which is
+exactly why `_call_agent_with_retries` needed a fallback thunk (`afbf5f3`):
+without it, a persistently mistaken validator would stall the episode rather than
+let a disputed but well-formed action through.
+
+**Structured output makes the format true by construction.** The endpoint is
+`openai/gpt-oss-120b` behind vLLM, which supports guided decoding —
+`guided_json`, `guided_regex`, `guided_choice`, `guided_grammar` — as well as
+`response_format` with a JSON schema. A malformed action stops being possible
+rather than being detected after the fact. Feature-detect support the way
+`temperature` now is: send it, and on a refusal fall back and remember. That
+pattern already exists in `GPTChat._create` (`379ff59`).
+
+**What it removes.**
+
+- The validator response and the validator-memory update — roughly half the LLM
+  calls per trial in `autogen_mas`, which currently does four where `autogen` does
+  two.
+- The second memory instance.
+- The `INVALID` re-prompt path and its fallback thunk.
+- The write-only validator memory. This also answers test-backlog **B4**: it *is*
+  write-only. `meta_memory_validator` is constructed, given `init_task_context`,
+  summarised on every attempt and saved at the end — and the `summarize` return
+  value is discarded at the call site. Nothing calls `retrieve_memory` on it.
+
+**The schema is a different shape per task,** and PDDL is the interesting case.
+
+- **FEVER** is a clean grammar — `Search[x]`, `Lookup[x]`,
+  `Finish[SUPPORTS|REFUTES|NOT ENOUGH INFO]` — so a regex covers it.
+- **PDDL** already fuzzy-matches generated text against
+  `env.action_space.all_ground_literals` in `_text_to_action`, so
+  `guided_choice` over those literals would do more than fix formatting: it would
+  make an invalid action impossible.
+- **ALFWorld and ScienceWorld** are constrained vocabularies rather than grammars
+  and need more thought.
+
+**Why this is a decision and not an optimisation.** The two are not
+interchangeable — the validator is a research condition, structured output is
+infrastructure. As things stand, if `autogen_mas` beats `autogen` you cannot tell
+whether a validator agent is useful or whether format errors were simply being
+repaired.
+
+Which is the argument for doing it: make guaranteed-valid output the baseline for
+every arm, so format failures stop being a confound, and let the validator arm
+test whether an LLM critic adds anything *beyond* a well-formed action. That is a
+sharper question than the one currently being asked.
+
+**Depends on** Phase 4's `use_validator` merge, so there is one code path to
+change rather than two.
 
 ---
 
@@ -668,9 +776,13 @@ underneath them.
 
 - [x] ~~B1 — the projector actually projects~~ — `test_projector.py`, six of
   fourteen red against the pre-fix code, including for `autogen`.
-- [ ] **B4 — validator memory is written and read.** It is summarised and saved,
-  but never retrieved into any prompt. Either assert it feeds something, or record
-  that it is write-only. Right now the code does not say which was intended.
+- [ ] **B4 — validator memory is written and read.** **Answered: it is
+  write-only.** `meta_memory_validator` is constructed, given
+  `init_task_context`, summarised on every attempt and saved at the end — and the
+  `summarize` return value is discarded at the call site. Nothing calls
+  `retrieve_memory` on it. So the test to write is the one that records that, and
+  the item to act on is the structured-output entry above, which removes the call
+  rather than finding it a reader.
 - [x] ~~B2 — an always-empty LLM response terminates~~ — `test_agent_retries.py`,
   verified to fail in 1.3s against the pre-fix loop.
 - [x] ~~B3 — a persistently INVALID verdict is bounded~~ —
