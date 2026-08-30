@@ -8,14 +8,13 @@ lists, so a new implementation is covered the moment it is registered.
 """
 
 import numbers
-import re
 import tempfile
 
 import pytest
 
 from mas.mas import EpisodeResult
 from mas.memory import MASMemoryBase
-from mas.module_map import module_map
+from mas.module_map import MAS_MEMORY_MODULES, module_map
 
 from tasks.envs import RECORDERS
 from tasks.envs.base_env import AggregateResults, aggregate
@@ -165,41 +164,21 @@ def test_task_end_before_task_begin_is_rejected(task, working_dir):
 
 # ── D4 · every memory module works with every workflow ────────────────────────
 
-# Read from module_map so a newly registered module is covered without editing
-# this list. 'empty' is MASMemoryBase itself.
-MEMORY_KEYS = [
-    "empty",
-    "voyager",
-    "memorybank",
-    "chatdev",
-    "generative",
-    "metagpt",
-    "intrinsicmemory-pddl",
-    "intrinsicmemory-fever",
-    "intrinsicmemory-alfworld",
-    "intrinsicmemory-llm-structured-template",
-    "intrinsicmemory-notemplate",
-]
-
-
-# g-memory persists through langchain_chroma, which this suite stubs, so it cannot
-# be driven offline. Named here so the omission is explicit.
+# `g-memory` persists through langchain_chroma, which conftest stubs with a
+# MagicMock - far enough to import, not far enough to drive an episode. Tracked in
+# docs/BACKLOG.md; every other registered module is exercised below.
 UNTESTABLE_OFFLINE = {"g-memory"}
 
+# Read from the registry, so a newly registered module is covered without editing
+# this file - it either runs here or has to be named in UNTESTABLE_OFFLINE.
+MEMORY_KEYS = sorted(set(MAS_MEMORY_MODULES) - UNTESTABLE_OFFLINE)
 
-def test_the_memory_matrix_covers_every_registered_module():
-    """Fails when a module is added to module_map but not to MEMORY_KEYS.
 
-    module_map exposes no registry, but its error message lists every allowed
-    value.
-    """
-    with pytest.raises(ValueError, match="Allowed values") as raised:
-        module_map("io", "not-a-memory-module")
-    registered = set(re.findall(r"'([^']+)'", str(raised.value))) - {"not-a-memory-module"}
+def test_the_offline_exclusions_all_still_exist():
+    """A module removed from the registry must not stay on the exclusion list."""
+    stale = UNTESTABLE_OFFLINE - set(MAS_MEMORY_MODULES)
 
-    assert registered == set(MEMORY_KEYS) | UNTESTABLE_OFFLINE, (
-        f"module_map and MEMORY_KEYS disagree: {registered ^ (set(MEMORY_KEYS) | UNTESTABLE_OFFLINE)}"
-    )
+    assert not stale, f"UNTESTABLE_OFFLINE names {sorted(stale)}, which is not registered"
 
 
 @pytest.mark.parametrize("mas_type", sorted(MAS))
