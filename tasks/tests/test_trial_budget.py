@@ -90,26 +90,7 @@ def test_two_tasks_in_one_sweep_get_their_own_budgets(run_module, tmp_path, monk
 
 
 # ── --max_trials is an override, not the source ───────────────────────────────
-
-def test_the_override_is_absent_unless_asked_for(run_module):
-    """A CLI default is what silently replaced every task's configured budget."""
-    args = run_module.build_arg_parser().parse_args(["--mas_type", "autogen"])
-
-    assert args.max_trials is None, (
-        f"--max_trials defaults to {args.max_trials}, which overrides every configured budget"
-    )
-
-
-def test_the_cli_offers_exactly_the_registered_tasks(run_module):
-    """--task's choices are read from the registry, not listed a fourth time."""
-    action = next(
-        a for a in run_module.build_arg_parser()._actions if a.dest == "task"
-    )
-
-    assert sorted(action.choices) == TASKS, (
-        f"--task offers {sorted(action.choices)}; the registry has {TASKS}"
-    )
-
+# The CLI surface itself is covered in test_cli.py.
 
 @pytest.mark.parametrize("task", TASKS)
 def test_an_explicit_override_wins_for_every_task(run_module, task):
@@ -130,31 +111,3 @@ def test_a_task_with_no_configured_budget_says_so(run_module, monkeypatch):
 
     with pytest.raises(KeyError, match="max_steps"):
         run_module.trial_budget("fever")
-
-
-def test_the_cli_offers_exactly_the_registered_memory_modules(run_module):
-    """`none` was the default and is not a registered module.
-
-    The registered name for no memory is `empty`, so the default invocation
-    resolved to nothing and was recorded as a failed experiment.
-    """
-    from mas.module_map import MAS_MEMORY_MODULES
-
-    parser = run_module.build_arg_parser()
-    action = next(a for a in parser._actions if a.dest == "mas_memory")
-
-    assert sorted(action.choices) == sorted(MAS_MEMORY_MODULES)
-    for name in parser.parse_args(["--mas_type", "autogen"]).mas_memory:
-        assert name in MAS_MEMORY_MODULES, (
-            f"--mas_memory defaults to {name!r}, which module_map does not accept"
-        )
-
-
-def test_the_cli_offers_exactly_the_registered_workflows(run_module):
-    from tasks.mas_workflow import MAS
-
-    action = next(
-        a for a in run_module.build_arg_parser()._actions if a.dest == "mas_type"
-    )
-
-    assert sorted(action.choices) == sorted(MAS)

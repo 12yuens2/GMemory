@@ -436,8 +436,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # Choices come from the registries, so a newly registered task, workflow or
     # memory module is selectable without editing the CLI.
     parser.add_argument('--task', type=str, nargs='+', choices=sorted(ENVS), default=['alfworld'], help='One or more tasks to run')
-    parser.add_argument('--mas_type', type=str, choices=sorted(MAS))
-    parser.add_argument('--mas_memory', type=str, nargs='+', choices=sorted(MAS_MEMORY_MODULES), default=['empty'], help='One or more mas memory modules to run')
+    # Required rather than defaulted: running no workflow, or with no memory
+    # module, is not a meaningful experiment, so there is nothing to fall back to.
+    parser.add_argument('--mas_type', type=str, choices=sorted(MAS), required=True, help='Multi-agent workflow to run')
+    parser.add_argument('--mas_memory', type=str, nargs='+', choices=sorted(MAS_MEMORY_MODULES), required=True, help='One or more mas memory modules to run')
     parser.add_argument('--reasoning', type=str, default='io', help='Specify reasoning module')
     parser.add_argument('--model', type=str, default='gpt-3.5-turbo-0125', help='Specify the LLM model type')
     parser.add_argument('--max_trials', type=int, default=None,
