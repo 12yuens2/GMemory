@@ -1,9 +1,7 @@
 """Each task's episode budget comes from its own entry in tasks/configs.yaml.
 
-`max_steps` is the number of trials one episode gets, and every task declares its
-own. Because `--task` accepts several tasks and `--max_trials` is a single scalar,
-the config file is the only place a per-task budget can be expressed - so a sweep
-over two tasks has to read two budgets.
+`--max_trials` is an override applying to every task in the sweep, so the config
+is the only place a per-task budget can be expressed.
 """
 
 from pathlib import Path
@@ -74,7 +72,6 @@ def test_the_environment_is_built_with_the_declared_budget(run_module, task, tmp
 
 
 def test_two_tasks_in_one_sweep_get_their_own_budgets(run_module, tmp_path, monkeypatch):
-    """The reason the budget cannot live on the CLI: one scalar, several tasks."""
     monkeypatch.setattr(run_module, "CONFIG", {
         "fever": {"max_steps": 7, "env_config_path": "tasks/env_configs/fever_config.yaml"},
         "pddl": {"max_steps": 19, "env_config_path": "tasks/env_configs/pddl_config.yaml"},
@@ -90,7 +87,6 @@ def test_two_tasks_in_one_sweep_get_their_own_budgets(run_module, tmp_path, monk
 
 
 # ── --max_trials is an override, not the source ───────────────────────────────
-# The CLI surface itself is covered in test_cli.py.
 
 @pytest.mark.parametrize("task", TASKS)
 def test_an_explicit_override_wins_for_every_task(run_module, task):

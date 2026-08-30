@@ -1,11 +1,8 @@
 """The third-party names the code imports are names those packages export.
 
-conftest stubs the heavy dependencies so the package imports without a GPU, a
-simulator or a network. A `MagicMock` answers to any attribute, so a stub that
-permissive hides exactly the class of defect it ought to catch: `from finch import
-Finch` named something `finch-clust` does not have, and the offline suite passed
-anyway. Stubs whose export list is small enough to state now state it, and these
-tests depend on that.
+conftest stubs the heavy dependencies, and a `MagicMock` answers to any
+attribute - so stubs whose export list is small enough to state state it, and
+these tests depend on that.
 """
 
 import importlib
@@ -27,7 +24,6 @@ def test_the_finch_stub_carries_the_packages_real_surface():
 
 
 def test_gmemory_binds_the_clustering_function_the_package_provides():
-    """`from finch import Finch` is an ImportError against the pinned package."""
     gmemory = importlib.import_module("mas.memory.mas_memory.GMemory")
 
     assert hasattr(gmemory, "FINCH"), (
@@ -39,12 +35,8 @@ def test_gmemory_binds_the_clustering_function_the_package_provides():
 def test_every_registered_memory_module_resolves(memory_key):
     """A module-scope import error in one memory module takes out all of them.
 
-    `mas/memory/mas_memory/__init__.py` imports every module eagerly and
-    `mas/module_map.py` reaches it through `from .memory import *`, so a bad
-    import anywhere in the family stops `--mas_memory` accepting any value at all.
-
-    Parametrised over the registry, so a newly registered module is covered without
-    editing this file.
+    The family is imported eagerly, so a bad import anywhere in it stops
+    `--mas_memory` accepting any value.
     """
     from mas.module_map import module_map
 

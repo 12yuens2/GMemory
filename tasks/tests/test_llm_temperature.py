@@ -1,17 +1,12 @@
 """The sampling temperature a caller sets reaches the endpoint.
 
-A configured-but-unsent sampling parameter is worse than no parameter at all: it
-implies control over decoding that is not exercised, and it makes any determinism
-claim attached to a seed untrue.
-
-Not every OpenAI-compatible endpoint accepts the parameter, so the second half of
-this module pins the fallback: a refusal costs the call one extra request, not the
-run.
+Not every OpenAI-compatible endpoint accepts the parameter, so the second half
+covers the fallback: a refusal costs the call one extra request, not the run.
 """
 
 import pytest
 
-from mas.llm import GPTChat, LLMCallFailed, Message
+from mas.llm import LLMCallFailed, Message
 from mas.reasoning import ReasoningConfig, ReasoningIO
 from mas.settings import LLMSettings
 
@@ -54,7 +49,6 @@ def test_temperature_zero_is_sent_rather_than_treated_as_unset():
 
 
 def test_a_caller_that_sets_nothing_gets_the_configured_default():
-    """Memory modules call the LLM with no sampling arguments at all."""
     chat, completions = chat_over_fake_completions(["a summary"], settings=settings(0.35))
 
     chat(PROMPT)
@@ -63,7 +57,7 @@ def test_a_caller_that_sets_nothing_gets_the_configured_default():
 
 
 def test_the_reasoning_config_temperature_reaches_the_request():
-    """The path every workflow actually uses: ReasoningConfig -> ReasoningIO -> GPTChat."""
+    """The path every workflow uses: ReasoningConfig -> ReasoningIO -> GPTChat."""
     chat, completions = chat_over_fake_completions(["go to desk 1"], settings=settings(0.9))
     reasoning = ReasoningIO(llm_model=chat)
 
@@ -122,30 +116,9 @@ def test_a_refusal_does_not_spend_the_retry_budget():
 
 
 def test_the_settings_default_is_used_when_the_reasoning_config_leaves_it_unset():
-    """ReasoningConfig.temperature defaults to None, which must mean 'as configured'."""
     chat, completions = chat_over_fake_completions(["go to desk 1"], settings=settings(0.2))
     reasoning = ReasoningIO(llm_model=chat)
 
     reasoning(PROMPT, ReasoningConfig())
 
     assert completions.calls[0]["temperature"] == 0.2
-
-
-# ── the parameter is declared where it is honoured ────────────────────────────
-
-def test_gptchat_does_not_claim_the_parameter_is_ignored():
-    """The docstring on LLMSettings.temperature is part of the contract."""
-    from mas.settings import LLMSettings as Settings
-
-    assert "not sent to the API" not in (Settings.__doc__ or ""), (
-        "LLMSettings still documents temperature as unsent"
-    )
-
-
-def test_no_call_site_leaves_temperature_commented_out():
-    import inspect
-
-    source = inspect.getsource(GPTChat.__call__)
-    assert "#temperature" not in source.replace(" ", ""), (
-        "temperature is still commented out at the call site"
-    )

@@ -17,11 +17,8 @@ from datetime import datetime
 def _refuses_temperature(error: BaseException) -> bool:
     """Whether an endpoint error is a complaint about the temperature parameter.
 
-    Matched on the message rather than a status code, because OpenAI-compatible
-    servers do not agree on one - the parameter comes back as unsupported,
-    unrecognised or merely invalid depending on the implementation. A false
-    positive is cheap: the retry is the same request minus one argument, so it
-    either succeeds or fails again for the real reason.
+    Matched on the message, not a status code: OpenAI-compatible servers do not
+    agree on one for an unsupported parameter.
     """
     return "temperature" in str(error).lower()
 
@@ -110,12 +107,10 @@ class GPTChat(LLM):
         max_tokens: int,
         stop_strs: Optional[List[str]],
     ):
-        """One request to the endpoint, dropping the temperature if it is refused.
+        """One request, dropping the temperature if the endpoint refuses it.
 
-        Not every OpenAI-compatible backend accepts the parameter; some reject the
-        request outright rather than ignoring it. A refusal is remembered, so such
-        an endpoint costs one extra request per client rather than one per call,
-        and it is absorbed here rather than spending one of the caller's retries.
+        A refusal is remembered, and absorbed here rather than spending one of the
+        caller's retries.
         """
         request = dict(
             model=self.model_name,

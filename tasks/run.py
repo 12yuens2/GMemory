@@ -44,13 +44,7 @@ class TaskManager:
 
 
 def trial_budget(task: str, override: int = None) -> int:
-    """How many trials one episode of `task` gets.
-
-    Each task declares its own budget as `max_steps` in tasks/configs.yaml.
-    `override` is the `--max_trials` flag, which applies to every task in the
-    sweep: because `--task` accepts several tasks and the flag is one scalar, the
-    config file is the only place a per-task budget can be expressed.
-    """
+    """Trials one episode of `task` gets: its `max_steps`, or `override`."""
     if override is not None:
         return override
 
@@ -429,15 +423,10 @@ def _write_failed_experiment(
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    """The command-line surface, as its own function so it can be inspected."""
     num_cpus = max(1, os.cpu_count() - 32)
 
     parser = argparse.ArgumentParser(description='Run tasks with specified modules.')
-    # Choices come from the registries, so a newly registered task, workflow or
-    # memory module is selectable without editing the CLI.
     parser.add_argument('--task', type=str, nargs='+', choices=sorted(ENVS), default=['alfworld'], help='One or more tasks to run')
-    # Required rather than defaulted: running no workflow, or with no memory
-    # module, is not a meaningful experiment, so there is nothing to fall back to.
     parser.add_argument('--mas_type', type=str, choices=sorted(MAS), required=True, help='Multi-agent workflow to run')
     parser.add_argument('--mas_memory', type=str, nargs='+', choices=sorted(MAS_MEMORY_MODULES), required=True, help='One or more mas memory modules to run')
     parser.add_argument('--reasoning', type=str, default='io', help='Specify reasoning module')

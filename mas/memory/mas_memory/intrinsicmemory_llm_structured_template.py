@@ -33,8 +33,7 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
     def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:
         """Update the agent's memory, generating the template on the first call.
 
-        `template_instructions` from the caller is ignored: this module's whole
-        purpose is to use the template it generated for the task.
+        A caller's `template_instructions` is ignored in favour of the generated one.
         """
         mas_message: MASMessage = self.current_task_context
         if not self.memory_template_flag:

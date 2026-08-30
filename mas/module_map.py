@@ -3,9 +3,6 @@ from typing import Type
 from .reasoning import ReasoningBase, ReasoningIO
 from .memory import *
 
-# The registries, at module scope so callers can read them rather than hard-coding
-# the same lists or parsing them back out of an error message. module_map stays the
-# way to resolve one name, and validates against these.
 REASONING_MODULES: dict[str, Type[ReasoningBase]] = {
     'io': ReasoningIO,
 }

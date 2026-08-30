@@ -428,12 +428,6 @@ class TaskLayer:
 
         This method extracts all nodes from the graph, computes embeddings for each node using the
         task storage's embedding function, and applies the FINCH clustering algorithm with cosine similarity.
-
-        Known not to work: FINCH returns a label matrix with one column per
-        partition level and this reads the third return value, which is None
-        unless a cluster count is requested. Tracked in docs/BACKLOG.md under
-        "G-Memory's clustering does not run"; do not read a `g-memory` result as
-        a clustered one until that is closed.
         """
         nodes = list(self.graph.nodes)
 

@@ -1,13 +1,7 @@
-"""`--use_projector` actually projects.
-
-The flag reaches `mas_config` and sets `_use_projector` correctly; what these pin
-is whether anything downstream reads it. Under `autogen_mas` nothing did: the
-guard tested `self.meta_memory`, a field that class never assigns, so the flag was
-accepted and discarded one line later.
+"""`--use_projector` reaches the memory, and each role gets its own insights.
 
 Parametrised over the workflows in use. DyLAN, MacNet and the dead
-`autogen_hotpot` hold their own copies of this method and are excluded by
-direction - see docs/BACKLOG.md.
+`autogen_hotpot` hold their own copies of this method and are out of scope.
 """
 
 import inspect
@@ -65,7 +59,6 @@ def test_a_memory_without_projection_does_not():
 
 @pytest.mark.parametrize("mas_type", WORKFLOWS)
 def test_the_projector_does_not_test_for_a_concrete_memory_class(mas_type):
-    """Naming GMemory is what let the fork rename a field and silently opt out."""
     source = inspect.getsource(MAS[mas_type]._project_insights)
 
     assert "GMemory" not in source, (

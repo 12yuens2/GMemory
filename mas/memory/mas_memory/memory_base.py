@@ -13,13 +13,7 @@ from mas.llm import LLMCallable
 
 @runtime_checkable
 class SupportsProjection(Protocol):
-    """A memory that can tailor a shared set of insights to one agent's role.
-
-    A protocol rather than a base class, so the role projector works for any
-    memory offering it and a workflow does not have to name a concrete memory
-    class to decide whether projection is available. Naming one is how a renamed
-    field silently turned the projector off.
-    """
+    """A memory that can tailor a shared set of insights to one agent's role."""
 
     def project_insights(
         self,

@@ -26,12 +26,7 @@ def _stub_module(name: str):
 
 
 def _stub_module_exporting(name: str, *exports: str):
-    """Stub a module with a fixed public surface rather than a bare MagicMock.
-
-    A MagicMock answers to any attribute name, so it hides an import of a name the
-    real package does not have. Use this where the set of exports is small enough
-    to state, so a wrong name fails here as it would in production.
-    """
+    """Stub a module exposing only `exports`, so a wrong import name still fails."""
     if name in sys.modules:
         return
     module = ModuleType(name)

@@ -1,12 +1,8 @@
-"""A5 - the LLM-generated memory template reaches the memory-update prompt.
+"""The LLM-generated memory template reaches the memory-update prompt.
 
 `intrinsicmemory-llm-structured-template` asks the model to write a memory
-template for the task, then runs every later memory update against that template.
-The point of the arm is the template, so an update prompt without it measures the
-same thing as the no-template arm while costing one extra LLM call.
-
-The other intrinsic modules carry a fixed template or none, and must not start
-receiving one.
+template for the task, then runs every later update against it. The other
+intrinsic modules carry a fixed template or none, and must not receive one.
 """
 
 import tempfile
@@ -87,8 +83,8 @@ def test_the_generated_template_is_kept_where_the_update_reads_it():
 
 
 def test_the_update_prompt_is_the_module_prompt_with_the_template_filled_in():
-    """Exact render, because the template also appears if it has merely displaced
-    the accumulated memory - which is what it did."""
+    """Exact render: the template also appears if it has merely displaced the
+    accumulated memory, so only its position distinguishes the two."""
     memory, llm = build_memory()
 
     memory.summarize()

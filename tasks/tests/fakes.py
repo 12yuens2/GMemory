@@ -141,10 +141,7 @@ class FakeCompletions:
 class TemperatureRejectingCompletions(FakeCompletions):
     """An endpoint that refuses the `temperature` parameter.
 
-    Some OpenAI-compatible servers, and the reasoning-model endpoints, reject the
-    parameter outright rather than ignoring it. Every attempt is appended to
-    `calls`, refused ones included, so a test can assert both that the parameter
-    was offered and that a later attempt dropped it.
+    Every attempt is appended to `calls`, refused ones included.
     """
 
     def __init__(self, script, message=None, status_code: int = 400):
@@ -168,11 +165,7 @@ class TemperatureRejectingCompletions(FakeCompletions):
 def chat_over_fake_completions(
     script, tracker=None, model_name="fake-model", settings=None, completions=None
 ):
-    """A real GPTChat with a scripted client, for testing its request behaviour.
-
-    `completions` overrides the default FakeCompletions, for endpoints that
-    reject a parameter rather than answering.
-    """
+    """A real GPTChat with a scripted client, for testing its request behaviour."""
     chat = GPTChat(model_name=model_name, tracker=tracker, settings=settings)
     completions = completions if completions is not None else FakeCompletions(script)
     chat.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
