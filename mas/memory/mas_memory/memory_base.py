@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from abc import ABC
+from typing import Optional, Protocol, runtime_checkable
 
 from ...utils import EmbeddingFunc
 from ..common import (
@@ -9,6 +10,19 @@ from ..common import (
     StorageNameSpace
 )
 from mas.llm import LLMCallable
+
+@runtime_checkable
+class SupportsProjection(Protocol):
+    """A memory that can tailor a shared set of insights to one agent's role."""
+
+    def project_insights(
+        self,
+        raw_insights: list[str],
+        role: Optional[str] = None,
+        task_traj: Optional[str] = None,
+    ) -> list[str]:
+        ...
+
 
 @dataclass
 class MASMemoryBase(StorageNameSpace, ABC):

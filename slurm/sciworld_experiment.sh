@@ -65,7 +65,7 @@ sleep 100
 uv run tasks/run.py \
 	--task sciworld \
 	--mas_type autogen \
-	--mas_memory empty voyager g-memory memorybank chatdev generative metagpt g-memory intrinsicmemory-notemplate intrinsicmemory-llm-structured-template \
+	--mas_memory empty voyager g-memory memorybank chatdev generative metagpt intrinsicmemory-notemplate intrinsicmemory-llm-structured-template \
 	--seed 11 22 33 44 55 66 77 88 99 111 \
 	--model ${MODEL_NAME}
 

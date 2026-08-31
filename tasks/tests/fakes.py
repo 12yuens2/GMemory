@@ -138,10 +138,36 @@ class FakeCompletions:
         )
 
 
-def chat_over_fake_completions(script, tracker=None, model_name="fake-model"):
-    """A real GPTChat with a scripted client, for testing its retry behaviour."""
-    chat = GPTChat(model_name=model_name, tracker=tracker)
-    completions = FakeCompletions(script)
+class TemperatureRejectingCompletions(FakeCompletions):
+    """An endpoint that refuses the `temperature` parameter.
+
+    Every attempt is appended to `calls`, refused ones included.
+    """
+
+    def __init__(self, script, message=None, status_code: int = 400):
+        super().__init__(script)
+        self.message = message or (
+            "Unsupported value: 'temperature' does not support 0.0 with this model"
+        )
+        self.status_code = status_code
+        self.refusals = 0
+
+    def create(self, **kwargs):
+        if "temperature" in kwargs:
+            self.calls.append(kwargs)
+            self.refusals += 1
+            error = ValueError(self.message)
+            error.status_code = self.status_code
+            raise error
+        return super().create(**kwargs)
+
+
+def chat_over_fake_completions(
+    script, tracker=None, model_name="fake-model", settings=None, completions=None
+):
+    """A real GPTChat with a scripted client, for testing its request behaviour."""
+    chat = GPTChat(model_name=model_name, tracker=tracker, settings=settings)
+    completions = completions if completions is not None else FakeCompletions(script)
     chat.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
     return chat, completions
 

@@ -26,11 +26,15 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
         self.memory_template: str = ""
         self.memory_template_flag: bool = False
 
-        #self.memory_update_prompt = INTRINSICMEMORYLLMTEMPLATE.memory_update_prompt
+        self.memory_update_prompt = INTRINSICMEMORYLLMTEMPLATE.memory_update_prompt
         self.memory_system_prompt = INTRINSICMEMORYLLMTEMPLATE.memory_system_prompt
 
 
     def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:
+        """Update the agent's memory, generating the template on the first call.
+
+        A caller's `template_instructions` is ignored in favour of the generated one.
+        """
         mas_message: MASMessage = self.current_task_context
         if not self.memory_template_flag:
             # Generate initial memory template if this is the first time running summarize
@@ -43,10 +47,7 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
             print(f"\n==== GENERATE MEMORY TEMPLATE ====\n{template_creation_message}\n==== END GENERATE MEMORY TEMPLATE ====\n")
             msg =[Message("system", self.memory_system_prompt), Message("user", template_creation_message)]
 
-            result = self.llm_model(msg)
-            self.agent_intrinsic_memory = result
-            
-            print(f"[DEBUG] memory_template is empty: {not bool(self.memory_template)}", file=sys.stderr)
+            self.memory_template = self.llm_model(msg)
             self.memory_template_flag = True
 
         return super().summarize(

@@ -4,20 +4,26 @@ Everything outstanding from the repo-wide review, in the form it would take as
 GitHub issues — one section per issue, so it can be split up when Issues is
 enabled on the repo (Settings → General → Features → Issues).
 
-Phases 1 and 2 are merged or in review. This file covers Phases 3–6 plus the
+Phases 1 and 2 are merged (PR #4, PR #5). Phase 3 is on `refactor-p3` with six
+of its ten items landed and four deferred. This file covers Phases 3–6 plus the
 findings that turned up during them and do not belong to a phase.
 
 **Full review with evidence:** https://claude.ai/code/artifact/2ba66572-add3-4642-8b92-2d5cb6c4057e
 
 | | | |
 |---|---|---|
-| [Phase 3](#phase-3-close-the-silent-degradation-gaps) | silent degradation | results-affecting |
+| [Phase 3](#phase-3-close-the-silent-degradation-gaps) | silent degradation | 6 of 10 landed |
 | [Phase 4](#phase-4-collapse-the-duplication) | ~700 lines of copy-paste | behaviour-preserving |
 | [Phase 5](#phase-5-split-the-oversized-modules) | module splits, CSV schema | mostly moves |
 | [Phase 6](#phase-6-make-the-operational-surface-reproducible) | container, deploy, logging | low risk |
 | [`--task alfworld` cannot run](#--task-alfworld-cannot-run-the-environment-is-commented-out) | bug | **needs a decision** |
 | [DyLAN/MacNet retry loops](#dylan-and-macnet-retry-loops-are-still-unbounded) | bug | deferred |
+| [Structured output vs a validator agent](#guarantee-the-action-format-instead-of-checking-it-with-a-second-agent) | research | **needs a decision** |
+| [~~`--mas_memory` default~~](#--mas_memory-defaulted-to-a-value-the-registry-does-not-have--closed) | bug | closed |
 | [Intrinsic token accounting](#intrinsic-token-accounting-is-always-zero) | bug | silent |
+| [G-Memory clustering](#g-memorys-clustering-does-not-run) | bug | **deferred** |
+| [PDDL `predicate_map`](#predicate_map-collisions-between-pddl-domains) | bug | **deferred** |
+| [~~Per-task trial budget~~](#per-task-max_steps-never-reaches-the-environment--closed) | bug | closed |
 | [`g-memory` offline](#g-memory-cannot-be-exercised-by-the-offline-test-suite) | test coverage | |
 | [`max_trials` naming](#max_trials-names-two-different-budgets-in-dylan) | tech debt | |
 | [Dependency pins](#single-source-the-dependency-pins) | tech debt | **needs a decision** |
@@ -28,73 +34,74 @@ findings that turned up during them and do not belong to a phase.
 
 ## Phase 3: close the silent-degradation gaps
 
-`silent-failure` · **results-affecting by design**
+`silent-failure` · **results-affecting by design** · branch `refactor-p3`
 
 The most expensive class of defect in a research codebase: the sweep completes,
 the CSV fills in, and the number is not measuring what the flag says it measures.
-Every published figure touched by one of these was produced under it.
 
-**Flag these to whoever owns the current numbers before merging anything here.**
+Planned as ten items in four stages. **Six landed; four moved**, three of them by
+direction and one because it turned out to belong with the work it was a
+prerequisite for. Full write-up with evidence per item:
+https://claude.ai/code/artifact/2ba66572-add3-4642-8b92-2d5cb6c4057e#phase-3
 
-- [ ] **Restore FINCH clustering.** `cluster_tasks` wants the FINCH algorithm, but
-  the pinned dependency was `finch-api` — an unrelated HR/payroll SDK that also
-  exports a `Finch` symbol. So `Finch(X, distance='cosine')` raised, the
-  surrounding `except Exception` printed to stdout, and `labels = np.zeros(...)`
-  put every task in cluster 0. **Every `--mas_memory g-memory` result to date was
-  produced with the task layer collapsed into a single cluster.** Phase 1
-  corrected the pin to `finch-clust==0.2.3` (`baabfa0`); the call site is still
-  wrong and is the work here — the real symbol is `FINCH` not `Finch`; it returns
-  `(c, num_clust, requested_c)` so `_, _, labels` binds `labels` to
-  `requested_c`, which is `None` unless `req_clust` is passed; and `c` is an
-  `(n_samples × n_partitions)` matrix, so a partition level has to be chosen
-  before it is a label vector.
-- [ ] **Narrow the `except` at `GMemory.py:452`** so a clustering failure is
-  logged as a warning through the recorder, never swallowed into a single-cluster
-  fallback. The bare except is why the above went unnoticed for the life of the
-  fork.
-- [ ] **Fix the `autogen_mas` projector.** `_project_insights` was copied verbatim
-  from `autogen.py` and still guards on
-  `isinstance(self.meta_memory, GMemory)`, but `build_system` in that class
-  assigns `meta_memory_solver` and `meta_memory_validator` and never
-  `meta_memory`, which stays at the `MetaMAS` default of `None`.
-  **`--use_projector` is accepted and silently ignored.** Best done as part of the
-  merge in Phase 4.
-- [ ] **Reconcile config with code.** `tasks/configs.yaml` names the MacNet block
-  `graph:` while `build_task` looks up `CONFIG.get('macnet', {})`, so MacNet
-  always falls back to in-code defaults — and they disagree with the file:
-  `use_critic` defaults to `True` at `graph_mas.py:34` where the YAML says
-  `False`. **MacNet runs with critics enabled despite the config saying
-  otherwise.** Also delete the dead `memory_folder` and `max_steps` keys.
-- [ ] **Decide on `temperature`.** `#temperature=temperature` is commented out in
-  the `chat.completions.create` call, so `llm_config.temperature: 0.1` and every
-  `ReasoningConfig(temperature=0)` are inert — runs execute at the backend
-  default, and determinism claims tied to `--seed` do not hold for the sampler.
-  Either pass it and accept the behaviour change, or delete it everywhere. Phase 2
-  made this sharper: the parameter now resolves from `LLMSettings` and is threaded
-  all the way to the call, where that one commented line still drops it. **One
-  line from working, or one line from honest.** `num_comps`, the other sampling
-  parameter, was removed in `737a8e5` on the same reasoning — it was sent to the
-  API and could only cost money, since nothing reads past the first choice.
-- [ ] **Repair or retire `intrinsicmemory-llm-structured-template`.** `summarize`
-  generates a template and stores it in `agent_intrinsic_memory`, then passes
-  `template_instructions=self.memory_template` — a field initialised to `""` and
-  never assigned. The module's own debug line prints that it is empty. So that arm
-  measures an empty template *and* clobbers the accumulated memory on first call.
-  Phase 2 made the missing parameter visible by giving `summarize` a real
-  signature (`2cc0d3c`) but deliberately did not change what it measures.
-- [ ] **Split `predicate_map` per PDDL domain.**
-  `tasks/envs/pddl_env/pddl_env.py` has 80 keys and 75 unique ones: `on`,
-  `clear`, `holding`, `free` and `move` are each defined more than once, so
-  domains overwrite each other's wording. Live effect on the active `TASK_NAMES`:
-  tyreworld's `(free ?x - hub)` renders with gripper's `"{} is free. "` instead of
-  `"Hub {} is free."`, and blockworld's `clear` gets hanoi's
-  `"The {} is clear."`. Key it on `game_name`, then remove the `F601` per-file
-  ignore from `pyproject.toml`.
-- [ ] **Deduplicate `g-memory` in the Slurm sweeps.** It appears twice in the
-  `--mas_memory` list in all four scripts. At ten seeds that is twenty redundant
-  experiments per submission and two rows per configuration in
-  `overall_results.csv`, which a naive group-by averages together. Check whether
-  any published aggregate double-counted it.
+### Landed
+
+| | Item | Commit |
+|---|---|---|
+| 1a | `from finch import Finch` named something the package does not export | `08453f6` |
+| 4 | `--use_projector` decided by capability, not by naming `GMemory` | `01ee10e` |
+| 5 | `temperature` sent, and dropped only if the endpoint refuses it | `379ff59` |
+| 6 | each task's trial budget read from its own config entry | `96de17b` |
+| 7 | the LLM-structured-template arm given its template | `364ac8a` |
+| 9 | `g-memory` no longer requested twice per sweep | `e93687a` |
+| 10 | dead `memory_folder` key deleted; MAS-block lookup written on the file | `e93687a` |
+
+Tests: 115 → **395**. Every fix was run against the pre-fix code first.
+
+**What changed about existing results.** Only two of these move a number:
+`temperature` now reaches the sampler, so every arm changes; and the
+`intrinsicmemory-llm-structured-template` arm now measures what it claims to,
+having previously measured the no-template arm plus one wasted call per task.
+`--use_projector` runs need re-running only if any were done — the flag was inert
+under both workflows in use. FEVER's budget was raised to the 30 already in
+effect, so no FEVER number moves.
+
+### What the finch fix did and did not do
+
+Fixing the import unblocks the CLI, which could not start for *any* value of
+`--mas_memory`. It does not make `g-memory` work, and the clustering fix is
+deferred by direction. Worth knowing what the deferral leaves: `cluster_tasks`
+now reaches its call, `FINCH` returns `(c, num_clust, req_c)`, and `req_c` is
+`None`, so the `zip` on the next line raises `TypeError` outside the `try`. So
+`--mas_memory g-memory` fails loudly, per task, recorded in `failed_tasks.csv` by
+`5e04c0a`. It does not resume producing single-cluster results, and the other
+eleven memory modules work again.
+
+### Two things the plan had wrong
+
+Both found by writing the test before the fix.
+
+- The template fix was recorded as one line — assign the generated template to
+  `memory_template`. It is two: the module's own `memory_update_prompt` was
+  commented out, so it inherited the base prompt, which has no
+  `{template_instructions}` slot. The template would have been formatted into
+  nothing. Neither change works without the other.
+- The projector was recorded as a renamed-field bug in `autogen_mas`. It is
+  wider: `autogen`'s guard is reachable but admits only `GMemory`, whose
+  clustering has never run, so the projector has effectively never projected
+  under either workflow. Pointing `autogen_mas` at the right field would have
+  fixed the symptom and left the mechanism.
+
+### Moved out of this phase
+
+- **G-Memory's clustering** — see the standalone entry below. Deferred by
+  direction. Takes stage 0 (`chromadb` into the dev group) with it, since that
+  existed to make the clustering work observable.
+- **`predicate_map` per PDDL domain** — see the standalone entry below. Deferred:
+  the collision behaviour needs to be understood before it is changed.
+- **The other three copies of `_project_insights`** — DyLAN, MacNet and the dead
+  `autogen_hotpot` still decide projection by naming `GMemory`. Phase 4 deletes
+  the duplication rather than migrating five copies.
 
 ### Done ahead of this phase
 
@@ -118,13 +125,54 @@ context. Bodies confirmed byte-identical by hashing whitespace-stripped source.
   `autogen_mas` and `autogen_hotpot`, with a second identical variant in `dylan`
   and `graph_mas` — reconcile the two variants first. `_solver_stuck` is identical
   in `autogen` and `autogen_mas` (2 × 28 lines).
-- [ ] **Replace the `GMemory` isinstance checks with a `SupportsProjection`
-  protocol,** so the projector works for any memory implementing it rather than
-  one concrete class. This is what makes the Phase 3 projector fix stay fixed.
+- [ ] **Finish the `SupportsProjection` migration.** `autogen` and `autogen_mas`
+  use the protocol as of `01ee10e`; `autogen_hotpot`, `dylan` and `graph_mas` still
+  name `GMemory` directly. Deleting the duplication removes them rather than
+  migrating three more copies.
+
+  **Keeping the projector was considered and decided against removing it**, for
+  now. The case for removal is strong — it is upstream's (`1c5e04f`, May 2025), it
+  has never run, and only `GMemory.retrieve_memory` ever returns a non-empty
+  insights list, so it can affect exactly one arm and that arm's clustering is
+  deferred. The argument for keeping it is baseline integrity: if the upstream
+  paper reports G-Memory with the projector on and those figures are the
+  comparison, deleting a G-Memory component means the baseline is no longer
+  G-Memory. Every figure produced in this fork was projector-off, so removal
+  changes no comparison already made. **If that upstream question comes back
+  "off", delete it in this phase instead of lifting it — deleting is less work than
+  the collapse.**
 - [ ] **Merge `autogen_mas` into `autogen`** behind a `use_validator` config flag.
-  They are a near-verbatim fork, 336 vs 270 lines, and *both define a class called
-  `AutoGen`*, aliased at import in the registry. Keep the existing tests green as
-  the acceptance criterion — there are now 320 of them.
+  They are a near-verbatim fork, 343 vs 263 lines, and *both define a class called
+  `AutoGen`*, aliased at import in the registry.
+
+  Diffed line by line, so the merge is fully specified. The entire difference is
+  **one validator agent**:
+
+  1. a third `Agent` named `validator`, carrying
+     `AUTOGEN_PROMPT.validator_system_prompt`;
+  2. two memory instances instead of one — `meta_memory_solver` (the memory that
+     was passed in) and `meta_memory_validator` (a fresh instance of the same class
+     with `namespace + "_validator"`). Both get `init_task_context` and
+     `save_task_context`; only the solver gets `move_memory_state`,
+     `add_agent_node` and `backward`;
+  3. one `solve_and_validate()` closure passed to `_call_agent_with_retries`: the
+     solver proposes, the validator judges the format, and on `INVALID` the solver
+     is re-prompted with the validator's feedback prepended, raising
+     `RetryAgentCall` so the retry spends a try from the shared budget with the
+     rejected action as fallback.
+
+  `_solver_stuck`, `_project_insights`, the trial loop, the prompt assembly and the
+  ground-truth agent are identical.
+
+  **Resolve the flag through the existing config machinery** rather than a new
+  mechanism: `build_task` already does `CONFIG.get(mas_type, {})`, so an
+  `autogen_mas:` block carrying `use_validator: True`, and `use_validator: False`
+  under `autogen:`, is the whole wiring — which also closes the finding that
+  `autogen_mas` has no config block and silently takes every default. Keep the
+  registry key, so existing scripts and result CSVs keep meaning what they said.
+
+  Keep the existing tests green as the acceptance criterion — there are now 395 of
+  them, and `test_autogen_mas*.py` covers the validator path specifically.
 - [ ] **Turn the intrinsic-memory subclasses into data:** one
   `IntrinsicMASMemory` taking a prompt bundle, plus a `{name: bundle}` registry.
   Four files that differ by exactly one prompt constant become one, and a new task
@@ -227,7 +275,10 @@ result someone else can reproduce.
   `"Add your description here"` and names the project `gmemory`.
 - [ ] **Update the README** once Phases 3–5 land: the flag table, the
   memory-module list and the `--mas_type` matrix all describe behaviour that will
-  have changed.
+  have changed. Already stale as of Phase 3 — the flag table gives `--mas_memory` a
+  default of `none` and `--max_trials` a default of `30`; both are now
+  required-or-absent, `--mas_type` too. `README.md` carries uncommitted local
+  edits, so Phase 3 did not touch it.
 
 ---
 
@@ -268,7 +319,11 @@ Either is fine. What is not fine is the current state, where a reader following
 the README gets an `AttributeError` with no explanation and the commit that caused
 it says *"for now"*.
 
-**Reproduce:** `uv run python tasks/run.py --mas_type autogen --mas_memory none`
+**Reproduce:** `uv run python tasks/run.py --mas_type autogen --mas_memory empty`
+
+This line used to read `--mas_memory none`, which was itself invalid — see the
+entry below. So the documented smallest invocation was failing for two
+independent reasons, and only one of them was ALFWorld.
 
 ---
 
@@ -326,6 +381,114 @@ configured embedding model (`7fcbf1d`).
 
 ---
 
+## ~~`--mas_memory` defaulted to a value the registry does not have~~ — closed
+
+`bug` · found while making the CLI read the registries · **closed in `8b62d40`**
+
+`--mas_memory` defaulted to `['none']`, and `none` is not a registered module —
+the registered name for no memory is `empty`:
+
+```
+python tasks/run.py --mas_type autogen
+→ ValueError: Invalid MAS memory type 'none'. Allowed values: ['empty', ...]
+```
+
+The error is raised inside `build_mas`, which `run_experiment` catches per
+experiment, so the default invocation **recorded a failed experiment, produced no
+result rows, and exited cleanly**.
+
+Not results-affecting: no published number can have come from a run that produced
+none. What it does mean is that a bare `python tasks/run.py --mas_type autogen`
+has never worked — the other default, `--task alfworld`, cannot start either.
+
+`--mas_memory` is now **required with no default** (`eb6fd06`), because selecting
+no memory module is not a meaningful experiment and so there is nothing to fall
+back to. `--mas_type` was made required at the same time: it had the same defect in
+a worse form — no default *and* not required, so omitting it resolved to `None`,
+`build_experiment_configs` expanded that into one experiment, and `get_mas(None)`
+raised inside the same per-experiment `try`. Both are validated against their
+registries, so an unregistered value is rejected at parse time.
+
+`--task` keeps `default=['alfworld']`. `alfworld` is registered, so it is a valid
+selection; that it cannot be constructed is the separate open decision above, and
+making the flag required would quietly resolve half of that decision. Found only because the CLI's choices were changed
+to read the registries instead of repeating them, which is the general lesson: the
+task list was written out four times, and the copies disagreed with each other in
+ways nothing checked.
+
+No test guards this. Once `choices` reads from a registry, argparse itself
+rejects an unregistered value, so the defect is structurally impossible rather
+than watched for — which is the better of the two, and why the CLI tests written
+for it were deleted again on review.
+
+---
+
+## Guarantee the action format instead of checking it with a second agent
+
+`needs-decision` · found while diffing `autogen` against `autogen_mas`
+
+The validator agent exists to solve a problem the serving stack can solve for
+free — and solving it that way turns a confounded comparison into a clean one.
+
+**What the validator actually does.** Its system prompt is explicit:
+
+```
+ONLY EVALUATE THE FORMAT, NOT THE FACTUAL CORRECTNESS OF THE SOLUTION.
+```
+
+It answers `VALID`, or `INVALID: <brief explanation>`. So it is an output-format
+checker implemented as an LLM call — one that can itself be wrong, which is
+exactly why `_call_agent_with_retries` needed a fallback thunk (`afbf5f3`):
+without it, a persistently mistaken validator would stall the episode rather than
+let a disputed but well-formed action through.
+
+**Structured output makes the format true by construction.** The endpoint is
+`openai/gpt-oss-120b` behind vLLM, which supports guided decoding —
+`guided_json`, `guided_regex`, `guided_choice`, `guided_grammar` — as well as
+`response_format` with a JSON schema. A malformed action stops being possible
+rather than being detected after the fact. Feature-detect support the way
+`temperature` now is: send it, and on a refusal fall back and remember. That
+pattern already exists in `GPTChat._create` (`379ff59`).
+
+**What it removes.**
+
+- The validator response and the validator-memory update — roughly half the LLM
+  calls per trial in `autogen_mas`, which currently does four where `autogen` does
+  two.
+- The second memory instance.
+- The `INVALID` re-prompt path and its fallback thunk.
+- The write-only validator memory. This also answers test-backlog **B4**: it *is*
+  write-only. `meta_memory_validator` is constructed, given `init_task_context`,
+  summarised on every attempt and saved at the end — and the `summarize` return
+  value is discarded at the call site. Nothing calls `retrieve_memory` on it.
+
+**The schema is a different shape per task,** and PDDL is the interesting case.
+
+- **FEVER** is a clean grammar — `Search[x]`, `Lookup[x]`,
+  `Finish[SUPPORTS|REFUTES|NOT ENOUGH INFO]` — so a regex covers it.
+- **PDDL** already fuzzy-matches generated text against
+  `env.action_space.all_ground_literals` in `_text_to_action`, so
+  `guided_choice` over those literals would do more than fix formatting: it would
+  make an invalid action impossible.
+- **ALFWorld and ScienceWorld** are constrained vocabularies rather than grammars
+  and need more thought.
+
+**Why this is a decision and not an optimisation.** The two are not
+interchangeable — the validator is a research condition, structured output is
+infrastructure. As things stand, if `autogen_mas` beats `autogen` you cannot tell
+whether a validator agent is useful or whether format errors were simply being
+repaired.
+
+Which is the argument for doing it: make guaranteed-valid output the baseline for
+every arm, so format failures stop being a confound, and let the validator arm
+test whether an LLM critic adds anything *beyond* a well-formed action. That is a
+sharper question than the one currently being asked.
+
+**Depends on** Phase 4's `use_validator` merge, so there is one code path to
+change rather than two.
+
+---
+
 ## Intrinsic token accounting is always zero
 
 `bug` `silent-failure` · found during Phase 1
@@ -370,6 +533,111 @@ confirms `intrinsic=True` works when someone passes it.
 
 ---
 
+## ~~Per-task `max_steps` never reaches the environment~~ — closed
+
+`bug` `silent-failure` · found while planning Phase 3 · **closed in `96de17b`**
+
+`tasks/configs.yaml` gave every task a `max_steps` and nothing read it:
+`build_task` took its budget from `--max_trials`, whose default was 30, and no
+Slurm script passes the flag. FEVER, configured for 12 trials, ran with 30 — every
+FEVER figure to date was produced at 2.5× the configured horizon.
+
+Structural rather than a typo: `--task` is `nargs='+'` and `--max_trials` is one
+scalar, so a sweep over two tasks could never have expressed two budgets. The
+config is now the source, `--max_trials` an explicit override, and a task with no
+configured budget raises rather than silently becoming 30.
+
+FEVER's configured budget was raised to 30 by direction, so no existing number
+moves — the 30 already in effect is now the one the config asks for, and a future
+change to that value will take effect.
+
+---
+
+## G-Memory's clustering does not run
+
+`bug` `silent-failure` · deferred out of Phase 3 by direction
+
+Two defects behind the import that `08453f6` fixed. `cluster_tasks` at
+`mas/memory/mas_memory/GMemory.py:425` cannot complete, so `--mas_memory g-memory`
+fails every task that reaches `merge_insights`.
+
+**1. `labels` is bound to `None`.** `FINCH` returns three values:
+
+```
+c          (n_samples × n_partitions) — one label vector per partition level
+num_clust  the cluster count at each level
+req_c      labels for req_clust, or None when req_clust is not passed
+```
+
+`_, _, labels = FINCH(X, distance='cosine')` binds `labels` to `req_c`, and
+`req_clust` is never passed — so `labels` is `None` and
+`zip(valid_nodes, labels)` on the next line raises `TypeError`, outside the
+`try`.
+
+Choosing a fix is a research decision, not a mechanical one: FINCH is
+hierarchical and returns every level, so a level has to be picked. Either take
+the finest partition, `labels = c[:, 0]`, which is the algorithm's own
+first-order answer and needs no target count; or pass `req_clust=k` and read
+`req_c`, fixing the cluster count by hand. `c[:, 0]` is the better default absent
+a reason to want a specific `k`. Whichever is chosen, write the choice at the call
+site — the number of task clusters is what the task layer *is*.
+
+**2. The bare `except` is why nobody noticed.** `GMemory.py:449-453` catches
+`Exception`, prints to stdout, and falls back to `labels = np.zeros(...)` — a
+legitimate-looking clustering with one cluster containing everything. **Every
+`--mas_memory g-memory` result predating `08453f6` was produced with the task
+layer collapsed into a single cluster.** Narrow it, log through the recorder at
+warning level, and let the rest raise: a memory module that cannot cluster should
+fail the experiment, which `run.py` records per task (`5e04c0a`).
+
+**Also in this function:** `self.task_storage._embedding_function` reaches into
+Chroma's private attribute to embed each node. `TaskLayer` should hold the
+embedding function it was given — the same fix `7fcbf1d` applied to DyLAN's
+neurons.
+
+**Do the offline-test entry below first.** This is a correctness change to code
+that has never once executed successfully; writing it blind is guesswork. That
+entry was Phase 3's stage 0 and moved here with this work.
+
+---
+
+## `predicate_map` collisions between PDDL domains
+
+`bug` `silent-failure` · deferred out of Phase 3 — behaviour to be understood first
+
+`predicate_map` at `tasks/envs/pddl_env/pddl_env.py:363-458` is one flat dict, 80
+keys and 75 unique, already sectioned by domain in comments — and later sections
+silently overwrite earlier ones. Against the four active domains in `TASK_NAMES`
+(`barman`, `blockworld`, `gripper`, `tyreworld`):
+
+| predicate | wins | loses | live effect |
+|---|---|---|---|
+| `clear` | hanoi `"The {} is clear."` | blockworld `"{} is clear."` | blockworld state text reads "The a is clear." |
+| `free` | gripper `"{} is free. "` | tyreworld `"Hub {} is free."` | `(free ?x - hub)` loses the word "Hub" |
+| `holding` | barman | blocks | trailing space only |
+| `on` | tyreworld | blocks | none — the strings are identical |
+| `move` | gripper | hanoi | none — hanoi is not in `TASK_NAMES` |
+
+So two of the five collisions change the observation text the agent is prompted
+with, in two of the four active domains. `predicate_map` is consulted from
+`_literal_to_text`, which renders both the goal and the state for every step, so
+the effect is on the prompt rather than on scoring — which is why fixing it means
+re-running PDDL `blockworld` and `tyreworld` rather than re-tabulating them.
+
+**The fix, when it is wanted:** `PREDICATE_MAPS: dict[str, dict[str, str]]` keyed
+on `game_name`, following the comment sections already in the file, with
+`_literal_to_text` selecting on `self.game_name` and keeping the existing
+bare-predicate fallback for a predicate the domain does not list. The `F601`
+per-file ignore comes out of `pyproject.toml` with it, which is the standing guard
+against a reintroduction. Test **E1**.
+
+**Why it is deferred:** whether a domain should inherit another's wording at all
+is a question about the experiment, not about the code. Nothing here is urgent —
+the wording has been stable for the life of the fork, so no result is
+inconsistent with another.
+
+---
+
 ## `g-memory` cannot be exercised by the offline test suite
 
 `tests` · found during Phase 2
@@ -388,6 +656,9 @@ The exclusion is named rather than silent — `test_contracts.py` declares
 to `module_map` without either being covered or listed there. So this cannot
 quietly get worse.
 
+This was Phase 3's stage 0 and moved out with the clustering work it existed to
+make observable.
+
 **Options.**
 
 1. **Add `chromadb` to the dev group.** It does not pull torch or the CUDA stack,
@@ -398,7 +669,7 @@ quietly get worse.
    implementation in tests. More work, but it is the DIP fix `GMemory` wants
    anyway, and Phase 5 splits that file regardless.
 
-**Do this before Phase 3/5 touch `GMemory.py`.** Phase 3 rewrites its FINCH
+**Do this before the clustering entry above.** Phase 3 rewrites its FINCH
 clustering call and narrows its bare `except`; Phase 5 splits the file into three.
 Both are much safer with the module under test, and the FINCH work in particular
 is a correctness change to code that has never once executed successfully.
@@ -509,8 +780,8 @@ Phase 5's CSV schema so the columns have somewhere honest to go.
 
 `tests`
 
-Phases 1–2 took the suite from **115 tests** — reaching one workflow file and one
-memory module — to **320**, reaching every workflow, recorder and environment and
+Phases 1–3 took the suite from **115 tests** — reaching one workflow file and one
+memory module — to **395**, reaching every workflow, recorder and environment and
 eleven of twelve memory modules. Group D, the cross-registry contract tests, was
 Phase 2's acceptance criterion and is done.
 
@@ -540,8 +811,8 @@ asserts they do not raise. Since the five subclasses differ by exactly one strin
   `-> MASMessage`, returns `None`, and never calls `super()` — so the context is
   never persisted. **Write this as a failing test first**: it is a defect
   specification.
-- [ ] **A5 — the LLM-structured template reaches the prompt.** See Phase 3; that
-  arm currently measures an empty template.
+- [x] ~~A5 — the LLM-structured template reaches the prompt~~ —
+  `test_intrinsic_template.py`, three of eight red against the pre-fix code.
 - [ ] **A6 — memory does not leak between tasks.** Run two tasks against one
   memory instance and assert `agent_intrinsic_memory` is empty at the second
   task's start. The current reset works by rebuilding `GPTChat`, which is a side
@@ -553,13 +824,15 @@ asserts they do not raise. Since the five subclasses differ by exactly one strin
 tests assert shape, not behaviour, which is how the projector bug lived directly
 underneath them.
 
-- [ ] **B1 — the projector actually projects.** With `use_projector=True` and a
-  memory implementing projection, assert `project_insights` is called and per-role
-  insight lists differ. Catches the dead branch; **write it failing** and fix it in
-  Phase 3.
-- [ ] **B4 — validator memory is written and read.** It is summarised and saved,
-  but never retrieved into any prompt. Either assert it feeds something, or record
-  that it is write-only. Right now the code does not say which was intended.
+- [x] ~~B1 — the projector actually projects~~ — `test_projector.py`, six of
+  fourteen red against the pre-fix code, including for `autogen`.
+- [ ] **B4 — validator memory is written and read.** **Answered: it is
+  write-only.** `meta_memory_validator` is constructed, given
+  `init_task_context`, summarised on every attempt and saved at the end — and the
+  `summarize` return value is discarded at the call site. Nothing calls
+  `retrieve_memory` on it. So the test to write is the one that records that, and
+  the item to act on is the structured-output entry above, which removes the call
+  rather than finding it a reader.
 - [x] ~~B2 — an always-empty LLM response terminates~~ — `test_agent_retries.py`,
   verified to fail in 1.3s against the pre-fix loop.
 - [x] ~~B3 — a persistently INVALID verdict is bounded~~ —
@@ -599,15 +872,14 @@ recorders, D2 workflows, D3 environments, D4 memory × workflow.
 
 ### E · Data rendering and the LLM layer
 
-- [ ] **E1 — `predicate_map` has no colliding keys.**
+- [ ] **E1 — `predicate_map` has no colliding keys.** Deferred with its fix.
   `assert len(keys) == len(set(keys))`, then per active domain that its predicates
   render with its own template — tyreworld's `free` as `"Hub {} is free."`. One
   line for the first half, and the `F601` ruff ignore comes out with it. Land with
   Phase 3.
-- [ ] **E2 — sampling parameters reach the API.** Assert the temperature a caller
-  sets arrives in the `chat.completions.create` kwargs — or delete the parameter
-  everywhere. Either resolution is fine; silently dropping it is not. Land with
-  Phase 3.
+- [x] ~~E2 — sampling parameters reach the API~~ — `test_llm_temperature.py`,
+  nine of eleven red against the pre-fix code. Also covers an endpoint that
+  refuses the parameter.
 - [ ] **E4 — per-experiment loggers do not cross-contaminate.**
   `mas/logging_utils.py` was added specifically to stop a handler leak between
   experiments on a reused worker. Assert two loggers built in one process write
@@ -619,4 +891,5 @@ recorders, D2 workflows, D3 environments, D4 memory × workflow.
 ### Suggested order
 
 **A1 and C1–C2 next**, before Phase 4 touches the intrinsic modules or the sweep.
-A2 and E1–E2 alongside their Phase 3 fixes. A4 and B1 written red, deliberately.
+A2 with the intrinsic-token work; E1 with the `predicate_map` fix whenever that is
+taken up. A4 written red, deliberately.

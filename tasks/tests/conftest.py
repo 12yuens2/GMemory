@@ -12,6 +12,7 @@ import sys
 import os
 from pathlib import Path
 from datetime import datetime
+from types import ModuleType
 from unittest.mock import MagicMock
 
 # An endpoint no test will reach, so a developer's .env cannot leak into a run.
@@ -24,13 +25,23 @@ def _stub_module(name: str):
         sys.modules[name] = MagicMock()
 
 
+def _stub_module_exporting(name: str, *exports: str):
+    """Stub a module exposing only `exports`, so a wrong import name still fails."""
+    if name in sys.modules:
+        return
+    module = ModuleType(name)
+    for export in exports:
+        setattr(module, export, MagicMock(name=f"{name}.{export}"))
+    module.__all__ = list(exports)
+    sys.modules[name] = module
+
+
 # The task environments import their simulators at module scope, so the env and
 # recorder registries need these stubbed to be importable offline.
 for _mod in (
     "langchain_chroma",
     "langchain_core",
     "langchain_core.documents",
-    "finch",
     "nltk",
     "pddlgym",
     "pddlgym.structs",
@@ -38,6 +49,9 @@ for _mod in (
     "wikipedia",
 ):
     _stub_module(_mod)
+
+# finch-clust's whole public surface is one function.
+_stub_module_exporting("finch", "FINCH")
 
 
 # ── output logging ────────────────────────────────────────────────────────────

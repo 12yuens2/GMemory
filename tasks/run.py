@@ -12,7 +12,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from itertools import product
 from tqdm import tqdm
 
-from mas.module_map import module_map
+from mas.module_map import MAS_MEMORY_MODULES, module_map
 from mas.reasoning import ReasoningBase
 from mas.memory import MASMemoryBase
 from mas.llm import LLMCallable, GPTChat, TokenTracker
@@ -20,8 +20,8 @@ from mas.settings import LLMSettings, default_llm_settings
 from mas.mas import MetaMAS
 from mas.utils import EmbeddingFunc
 
-from envs import BaseEnv, BaseRecorder, get_env, get_recorder, get_task
-from mas_workflow import get_mas
+from envs import ENVS, BaseEnv, BaseRecorder, get_env, get_recorder, get_task
+from mas_workflow import MAS, get_mas
 from prompts import get_dataset_system_prompt, get_task_few_shots
 from utils import get_model_type
 
@@ -43,12 +43,30 @@ class TaskManager:
     token_tracker: TokenTracker = None   # token accounting for this experiment's LLM calls
 
 
-def build_task(task: str, mas_type: str, memory_type: str, max_steps: int, seed: int, working_dir: str) -> TaskManager:
+def trial_budget(task: str, override: int = None) -> int:
+    """Trials one episode of `task` gets: its `max_steps`, or `override`."""
+    if override is not None:
+        return override
+
+    budget = CONFIG.get(task, {}).get('max_steps')
+    if budget is None:
+        raise KeyError(f"'{task}' has no max_steps in tasks/configs.yaml")
+    return budget
+
+
+def build_task(
+    task: str,
+    mas_type: str,
+    memory_type: str,
+    seed: int,
+    working_dir: str,
+    max_trials: int = None,
+) -> TaskManager:
 
     with open(CONFIG.get(task).get('env_config_path')) as reader:
         config = yaml.safe_load(reader)
 
-    env: BaseEnv = get_env(task, config, max_steps)
+    env: BaseEnv = get_env(task, config, trial_budget(task, max_trials))
     recorder: BaseRecorder = get_recorder(task, working_dir=working_dir, namespace=f'total_task-seed_{seed}')
     tasks: list[dict] = get_task(task)
     mas_workflow: MetaMAS = get_mas(mas_type)
@@ -258,7 +276,9 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     try:
         random.seed(seed)
 
-        task_configs: TaskManager = build_task(task_name, mas_type, mas_memory_type, max_trials, seed, working_dir)
+        task_configs: TaskManager = build_task(
+            task_name, mas_type, mas_memory_type, seed, working_dir, max_trials=max_trials
+        )
         task_configs.mas_config['successful_topk'] = successful_topk
         task_configs.mas_config['failed_topk'] = failed_topk
         task_configs.mas_config['insights_topk'] = insights_topk
@@ -402,17 +422,17 @@ def _write_failed_experiment(
     return failed_path
 
 
-if __name__ == '__main__':
-    # settings
+def build_arg_parser() -> argparse.ArgumentParser:
     num_cpus = max(1, os.cpu_count() - 32)
 
     parser = argparse.ArgumentParser(description='Run tasks with specified modules.')
-    parser.add_argument('--task', type=str, nargs='+', choices=['alfworld', 'fever', 'pddl', 'sciworld'], default=['alfworld'], help='One or more tasks to run')
-    parser.add_argument('--mas_type', type=str, choices=['autogen','autogen_mas', 'macnet', 'dylan'])
-    parser.add_argument('--mas_memory', type=str, nargs='+', default=['none'], help='One or more mas memory modules to run')
+    parser.add_argument('--task', type=str, nargs='+', choices=sorted(ENVS), default=['alfworld'], help='One or more tasks to run')
+    parser.add_argument('--mas_type', type=str, choices=sorted(MAS), required=True, help='Multi-agent workflow to run')
+    parser.add_argument('--mas_memory', type=str, nargs='+', choices=sorted(MAS_MEMORY_MODULES), required=True, help='One or more mas memory modules to run')
     parser.add_argument('--reasoning', type=str, default='io', help='Specify reasoning module')
     parser.add_argument('--model', type=str, default='gpt-3.5-turbo-0125', help='Specify the LLM model type')
-    parser.add_argument('--max_trials', type=int, default=30, help='max number of steps')
+    parser.add_argument('--max_trials', type=int, default=None,
+                        help="Override every task's configured max_steps with this trial budget")
     parser.add_argument('--successful_topk', type=int, default=1, help='Number of successful trajs to be retrieved from memory.')
     parser.add_argument('--failed_topk', type=int, default=0, help='Number of failed trajs to be retrieved from memory.')
     parser.add_argument('--insights_topk', type=int, default=3, help='Number of insights to be retrieved from memory.')
@@ -422,8 +442,11 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')
     parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')
     parser.add_argument('--db_dir', type=str, default='./.db', help='Directory to store results, logs, and memory persistence for this run.')
+    return parser
 
-    args = parser.parse_args()
+
+if __name__ == '__main__':
+    args = build_arg_parser().parse_args()
 
     # Resolved before any worker is spawned, so missing credentials are reported
     # once, here, rather than inside each worker's traceback.

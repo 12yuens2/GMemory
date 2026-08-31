@@ -32,6 +32,7 @@ class AlfworldEnv(BaseEnv):
         max_trials: int = 50
     ): 
         self.env_config = env_config
+        # TODO: broken - main_env is commented out, so reset() raises AttributeError.
         #self.main_env = get_environment(self.env_config['env']['type'])(self.env_config, train_eval=self.env_config['split'])
         
         self.max_trials: int = max_trials
