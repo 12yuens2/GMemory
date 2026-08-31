@@ -1,11 +1,10 @@
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 
 from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage
 from mas.mas import AgentCallFailed, EpisodeResult, MetaMAS, RetryAgentCall
 from mas.reasoning import ReasoningBase, ReasoningConfig
-from mas.memory import MASMemoryBase, SupportsProjection
+from mas.memory import MASMemoryBase
 from mas.agents import Env
 
 from .autogen_prompt import AUTOGEN_PROMPT 
@@ -88,6 +87,10 @@ class AutoGen(MetaMAS):
         )
         
     
+    @property
+    def _projection_memory(self) -> MASMemoryBase:
+        return self.meta_memory_solver
+
     def schedule(self, task_config: dict) -> EpisodeResult:
         """
         Schedules and executes a task according to the given task configuration.
@@ -285,59 +288,5 @@ class AutoGen(MetaMAS):
 
         return EpisodeResult(reward=final_reward, done=final_done, trials=trials)
     
-    def _solver_stuck(self, current_action: str, action_history: list[str]) -> bool:
-        """
-        Determines whether the agent is stuck by repeating the same action.
-
-        If the current action is identical to the last two actions in the history,
-        the agent is considered to be stuck in a loop.
-
-        Args:
-            current_action (str): The action currently being executed by the agent.
-            action_history (list[str]): A chronological list of previously taken actions.
-
-        Returns:
-            bool: True if the last two actions are the same as the current action; False otherwise.
-        """
-        identical = len(action_history) >= 2 and current_action == action_history[-1] and current_action == action_history[-2]
-
-        double_think = len(action_history) >= 3 and "think" in current_action and "think" in action_history[-1] and "think" in action_history[-2]
-
-        similar = False
-        if len(action_history) >= 3:
-            similarity_12 = SequenceMatcher(None, current_action, action_history[-1]).ratio()
-            similarity_13 = SequenceMatcher(None, current_action, action_history[-2]).ratio()
-            similarity_23 = SequenceMatcher(None, action_history[-1], action_history[-2]).ratio()
-
-            threshold = 0.8
-            similar =  all(similarity > threshold for similarity in [similarity_12, similarity_13, similarity_23])
-
-        return identical or double_think or similar
-    def _project_insights(self, insights: list[str]) -> dict[str, list[str]]:
-        """
-        Process insights to generate a dictionary matching roles to insights, based on whether a projector is used.
-
-        Args:
-            insights (list[str]): A list of insight strings.
-
-        Returns:
-            dict[str, list[str]]: A dictionary with roles as keys and lists of insights as values.
-        """
-
-        roles_rules: dict[str, list[str]] = {}
-        roles = set([agent.profile for agent in self.agents_team.values()])
-
-        memory = self.meta_memory_solver
-        if not self._use_projector or not isinstance(memory, SupportsProjection):
-            for role in roles:
-                roles_rules[role] = insights
-        else:
-            for role in roles:
-                roles_rules[role] = memory.project_insights(insights, role)
-        
-        # Limit the number of insights per role to self._insights_topk
-        for role, insights in roles_rules.items():
-            roles_rules[role] = insights[:self._insights_topk]
-        return roles_rules
         
             

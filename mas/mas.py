@@ -1,10 +1,11 @@
 from abc import abstractmethod
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from typing import Callable, Iterable, NamedTuple, Optional, Dict, Any
 
 from .agents import Agent, Env
 from .reasoning import ReasoningBase
-from .memory import MASMemoryBase
+from .memory import MASMemoryBase, SupportsProjection
 
 
 class AgentCallFailed(RuntimeError):
@@ -131,6 +132,50 @@ class MetaMAS:
         raise AgentCallFailed(
             f'{description} produced no usable action in {max_tries} attempts'
         ) from last_error
+
+    def _solver_stuck(self, current_action: str, action_history: list[str]) -> bool:
+        """Whether the agent is going round in circles: the same action, two
+        consecutive `think` steps, or three mutually near-identical actions."""
+        identical = len(action_history) >= 2 and current_action == action_history[-1] and current_action == action_history[-2]
+
+        double_think = len(action_history) >= 3 and "think" in current_action and "think" in action_history[-1] and "think" in action_history[-2]
+
+        similar = False
+        if len(action_history) >= 3:
+            similarity_12 = SequenceMatcher(None, current_action, action_history[-1]).ratio()
+            similarity_13 = SequenceMatcher(None, current_action, action_history[-2]).ratio()
+            similarity_23 = SequenceMatcher(None, action_history[-1], action_history[-2]).ratio()
+
+            threshold = 0.8
+            similar = all(similarity > threshold for similarity in [similarity_12, similarity_13, similarity_23])
+
+        return identical or double_think or similar
+
+    @property
+    def _projection_memory(self) -> Optional[MASMemoryBase]:
+        """The memory whose insights get projected onto each role."""
+        return self.meta_memory
+
+    def _project_insights(self, insights: list[str]) -> dict[str, list[str]]:
+        """One insight list per agent role, each capped at `_insights_topk`.
+
+        Without a projector, or with a memory that cannot project, every role
+        gets the same insights.
+        """
+        roles_rules: dict[str, list[str]] = {}
+        roles = set([agent.profile for agent in self.agents_team.values()])
+
+        memory = self._projection_memory
+        if not self._use_projector or not isinstance(memory, SupportsProjection):
+            for role in roles:
+                roles_rules[role] = insights
+        else:
+            for role in roles:
+                roles_rules[role] = memory.project_insights(insights, role)
+
+        for role, role_insights in roles_rules.items():
+            roles_rules[role] = role_insights[:self._insights_topk]
+        return roles_rules
 
     def add_observer(self, observer) -> None:
         self.observers.append(observer)

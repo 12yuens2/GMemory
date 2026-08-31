@@ -6,7 +6,7 @@ from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage
 from mas.mas import EpisodeResult, MetaMAS
 from mas.reasoning import ReasoningBase, ReasoningConfig
-from mas.memory import MASMemoryBase, GMemory
+from mas.memory import MASMemoryBase
 from mas.agents import Env
 from mas.llm import Message
 
@@ -348,27 +348,3 @@ class MacNet(MetaMAS):
 
         return len(visited) != self._size
 
-    def _project_insights(self, insights: list[str]) -> dict[str, list[str]]:
-        """
-        Process insights to generate a dictionary matching roles to insights, based on whether a projector is used.
-
-        Args:
-            insights (list[str]): A list of insight strings.
-
-        Returns:
-            dict[str, list[str]]: A dictionary with roles as keys and lists of insights as values.
-        """
-        roles_rules: dict[str, list[str]] = {}
-        roles = set([agent.profile for agent in self.agents_team.values()])
-
-        if not self._use_projector or not isinstance(self.meta_memory, GMemory):
-            for role in roles:
-                roles_rules[role] = insights
-        else:
-            for role in roles:
-                roles_rules[role] = self.meta_memory.project_insights(insights, role)
-        
-        # ensure every role have maximum insights of self._insights_topk
-        for role, insights in roles_rules.items():
-            roles_rules[role] = insights[:self._insights_topk]
-        return roles_rules
