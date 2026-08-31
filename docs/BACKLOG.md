@@ -214,14 +214,24 @@ nothing may test that it still works. If any of it is ever worth doing, it is th
 27-line vLLM serve block that is verbatim in all three: `source` it from a shared
 file and leave the three thin wrappers alone.
 
-### Known consequence, deliberately not addressed
+### `use_validator` is recorded as a result column
 
-`working_dir` is `db_dir/model/task/mas_type/mas_memory`, so validator and plain
-runs of the same task, memory and model now share a directory and append to the
-same `results.csv`. **`--use_projector` has had exactly this property since it was
-added**, so this is the existing design rather than a regression, and the CSV
-schema was deliberately left untouched in this phase. The fix is a column, which
-lands with Phase 5's `results.py` extraction.
+`working_dir` is `db_dir/model/task/mas_type/mas_memory` and `use_validator` is
+not part of it, so a validator run and a plain run of the same task, memory and
+model wrote into the same directory and were indistinguishable once written.
+
+Added in `13a68ed`, appended **last** in `overall_results.csv`,
+`failed_experiments.csv` and `failed_tasks.csv`, so anything reading the existing
+columns positionally is unaffected — including `_write_overall_result`'s own
+`result_fields[3:10]` slice. Headers are written only when a file is empty, so
+CSVs already on disk keep their old header and rows; nothing is rewritten. The two
+headerless per-task CSVs are left for Phase 5's `results.py`.
+
+No test guards it: an experiment's output format is configuration, so the tests
+written for it were deleted on review (`ed2f808`).
+
+**`--use_projector` has the same gap and is not addressed.** It is pre-existing
+rather than introduced here, and a second column is cheap once someone wants it.
 
 ### Also not done
 
@@ -277,8 +287,30 @@ instructions, and it was the only module whose update prompt lacked
 what made it measure anything at all, so this compounds rather than adding a new
 re-run.
 
-`prompt.py`'s naming went with it: `DEFAULT_` prefixed all eleven constants where
-only one is a default.
+`prompt.py` was cleaned up with it, over two review rounds:
+
+- `DEFAULT_` prefixed all eleven constants where only one is a default. Now
+  `MEMORY_UPDATE_PROMPT` is the single default and the rest are
+  `MEMORY_SYSTEM_PROMPT_<TASK>`.
+- `MEMORY_SYSTEM_PROMPT_LLM_TEMPLATE` was the `-notemplate` one minus
+  `- OUTPUT ONLY THE UPDATED MEMORY, NOTHING ELSE`. Neither module carries a fixed
+  template, so both use one `MEMORY_SYSTEM_PROMPT_GENERIC` that includes it.
+  `-notemplate` is unchanged; `-llm-structured-template` gains the instruction it
+  was missing.
+- The system prompt is the agent's role and does not touch the memory, so it is
+  `system_prompt` throughout. That removed the aliasing `__post_init__` was doing —
+  a class attribute copied to a differently-named instance attribute, twice.
+
+**Cumulative effect on prompts, whole branch against `main`**, measured by driving
+`summarize()` in a worktree at `main` and comparing every message:
+
+| module | LLM calls | prompts |
+|---|---|---|
+| `intrinsicmemory-pddl` | 1 → 1 | identical |
+| `intrinsicmemory-fever` | 1 → 1 | identical |
+| `intrinsicmemory-alfworld` | 1 → 1 | identical |
+| `intrinsicmemory-notemplate` | 1 → 1 | identical |
+| `intrinsicmemory-llm-structured-template` | 2 → 2 | **changed — re-run** |
 
 ---
 
