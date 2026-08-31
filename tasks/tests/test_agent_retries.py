@@ -117,10 +117,10 @@ def test_a_rejected_action_is_used_once_the_budget_runs_out(harness):
 
 # ── an always-empty LLM ends the episode, and nothing else ────────────────────
 
-@pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
-def test_an_always_empty_llm_does_not_hang(mas_type):
+@pytest.mark.parametrize("use_validator", [False, True])
+def test_an_always_empty_llm_does_not_hang(use_validator):
     env = FakeEnv(max_trials=2)
-    workflow = build_workflow(mas_type, env, replies=[""])
+    workflow = build_workflow("autogen", env, replies=[""], use_validator=use_validator)
 
     result = workflow.schedule(dict(TASK))
 
@@ -128,10 +128,10 @@ def test_an_always_empty_llm_does_not_hang(mas_type):
     assert env.actions == [], "no action should have reached the environment"
 
 
-@pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
-def test_an_always_failing_llm_does_not_hang(mas_type):
+@pytest.mark.parametrize("use_validator", [False, True])
+def test_an_always_failing_llm_does_not_hang(use_validator):
     env = FakeEnv(max_trials=2)
-    workflow = build_workflow(mas_type, env)
+    workflow = build_workflow("autogen", env, use_validator=use_validator)
     workflow.get_agent("solver").reasoning.llm_model = FakeLLM(max_calls=0)
 
     result = workflow.schedule(dict(TASK))
@@ -139,12 +139,12 @@ def test_an_always_failing_llm_does_not_hang(mas_type):
     assert result.done is False
 
 
-@pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
-def test_a_failed_agent_scores_the_task_rather_than_dropping_it(mas_type):
+@pytest.mark.parametrize("use_validator", [False, True])
+def test_a_failed_agent_scores_the_task_rather_than_dropping_it(use_validator):
     """A failed agent ends the episode, which is still scored - the task is not
     dropped from the denominator."""
     env = FakeEnv(max_trials=5)
-    workflow = build_workflow(mas_type, env, replies=[""])
+    workflow = build_workflow("autogen", env, replies=[""], use_validator=use_validator)
     observer = workflow.observers[0]
 
     result = workflow.schedule(dict(TASK))
@@ -156,13 +156,13 @@ def test_a_failed_agent_scores_the_task_rather_than_dropping_it(mas_type):
     )
 
 
-@pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
-def test_an_aborted_episode_reports_no_trial_count(mas_type):
+@pytest.mark.parametrize("use_validator", [False, True])
+def test_an_aborted_episode_reports_no_trial_count(use_validator):
     """How many turns the task needed was never established, so reporting any
     number - the trial reached, or the full budget - would be inventing one.
     Aggregates leave these out of the mean instead."""
     env = FakeEnv(max_trials=5)
-    workflow = build_workflow(mas_type, env, replies=[""])
+    workflow = build_workflow("autogen", env, replies=[""], use_validator=use_validator)
 
     result = workflow.schedule(dict(TASK))
 
@@ -173,11 +173,11 @@ def test_an_aborted_episode_reports_no_trial_count(mas_type):
     ), "the trial it actually reached still has to be recoverable from the log"
 
 
-@pytest.mark.parametrize("mas_type", ["autogen", "autogen_mas"])
-def test_an_agent_that_recovers_mid_episode_still_completes(mas_type):
+@pytest.mark.parametrize("use_validator", [False, True])
+def test_an_agent_that_recovers_mid_episode_still_completes(use_validator):
     """A transient failure should cost attempts, not the episode."""
     env = FakeEnv(max_trials=4, steps_to_done=1)
-    workflow = build_workflow(mas_type, env, replies=["", "", "go to desk 1", "VALID"])
+    workflow = build_workflow("autogen", env, replies=["", "", "go to desk 1", "VALID"], use_validator=use_validator)
 
     result = workflow.schedule(dict(TASK))
 
@@ -191,7 +191,7 @@ def test_a_persistent_invalid_verdict_still_advances_the_episode():
     """Re-prompting the solver spends the shared budget; on exhaustion the
     episode proceeds with the rejected action rather than failing."""
     env = FakeEnv(max_trials=1, steps_to_done=1)
-    workflow = build_workflow("autogen_mas", env, replies=["go to desk 1", "INVALID: bad format"])
+    workflow = build_workflow("autogen", env, replies=["go to desk 1", "INVALID: bad format"], use_validator=True)
 
     result = workflow.schedule(dict(TASK))
 
@@ -203,7 +203,7 @@ def test_a_persistent_invalid_verdict_still_advances_the_episode():
 
 def test_a_persistent_invalid_verdict_re_prompts_at_most_three_times():
     env = FakeEnv(max_trials=1, steps_to_done=1)
-    workflow = build_workflow("autogen_mas", env, replies=["go to desk 1", "INVALID: bad format"])
+    workflow = build_workflow("autogen", env, replies=["go to desk 1", "INVALID: bad format"], use_validator=True)
     solver_llm = workflow.get_agent("solver").reasoning.llm_model
 
     workflow.schedule(dict(TASK))

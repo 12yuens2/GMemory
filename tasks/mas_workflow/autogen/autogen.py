@@ -19,6 +19,7 @@ class AutoGen(MetaMAS):
     def __post_init__(self):
 
         self.solver_name: str = 'solver'
+        self.validator_name: str = 'validator'
         self.ground_truth_name: str = 'ground_truth'
         self.observers = []   
 
@@ -33,11 +34,13 @@ class AutoGen(MetaMAS):
         self._insights_topk: int = config.get('insights_topk', 3)
         self._threshold: float = config.get('threshold', 0)
         self._use_projector: bool = config.get('use_projector', False)
+        self._use_validator: bool = config.get('use_validator', False)
         self.notify_observers(f"Successful Topk   : {self._successful_topk}")
         self.notify_observers(f"Failed Topk       : {self._failed_topk}")
         self.notify_observers(f"Insights Topk     : {self._insights_topk}")
         self.notify_observers(f"Retrieve Threshold: {self._threshold}")
         self.notify_observers(f"Use Role Projector: {self._use_projector}")
+        self.notify_observers(f"Use Validator     : {self._use_validator}")
 
         if not isinstance(reasoning, ReasoningBase):
             raise TypeError("reasoning module must be an instance of ReasoningBase")
@@ -60,13 +63,28 @@ class AutoGen(MetaMAS):
             memory_module=None           
         )
 
-        env_executor = env
-        
-        self.hire([
-            solver_agent,
-            ground_truth_agent
-        ])
-        self.set_env(env_executor)
+        team: list[Agent] = [solver_agent, ground_truth_agent]
+        self.meta_memory_validator: MASMemoryBase = None
+
+        if self._use_validator:
+            team.append(Agent(
+                name=self.validator_name,
+                role='validator',
+                system_instruction=AUTOGEN_PROMPT.validator_system_prompt,
+                reasoning_module=reasoning,
+                memory_module=None
+            ))
+            # Its own instance, so solver and validator updates cannot overwrite
+            # each other.
+            self.meta_memory_validator = mas_memory.__class__(
+                namespace=mas_memory.namespace + "_validator",
+                global_config=mas_memory.global_config,
+                llm_model=mas_memory.llm_model,
+                embedding_func=mas_memory.embedding_func,
+            )
+
+        self.hire(team)
+        self.set_env(env)
         self.meta_memory = mas_memory
         
     
@@ -94,10 +112,13 @@ class AutoGen(MetaMAS):
         # Initialize environment and agents
         env: Env = self.env
         solver: Agent = self.get_agent(self.solver_name)
+        validator: Agent = self.get_agent(self.validator_name)
         ground_truth: Agent = self.get_agent(self.ground_truth_name)
         env.reset()
         
         self.meta_memory.init_task_context(task_main, task_description) 
+        if self._use_validator:
+            self.meta_memory_validator.init_task_context(task_main, task_description)
         
         # Retrieve successful trajectories and insights from memory
         successful_trajectories: list[MASMessage]
@@ -139,9 +160,45 @@ class AutoGen(MetaMAS):
             )
             print(f"\n==== SOLVER AGENT PROMPT ====\n{user_prompt}\n==== END SOLVER AGENT PROMPT ====\n", file=sys.stderr)
 
+            def solve() -> str:
+                return env.process_action(solver.response(user_prompt, self.reasoning_config))
+
+            attempt = solve
+
+            if self._use_validator:
+
+                def propose(rejected: tuple[str, str]) -> str:
+                    if rejected is None:
+                        return solver.response(user_prompt, self.reasoning_config)
+
+                    refused, verdict = rejected
+                    revision: str = AUTOGEN_PROMPT.solver_revision_prompt.format(
+                        action=refused, evaluation=verdict
+                    )
+                    print(f'==== SOLVER INSTRUCTION FOR REVISION ====\n{revision}\n==== END SOLVER INSTRUCTION FOR REVISION ====\n', file=sys.stderr)
+                    return solver.response(f"{revision}{user_prompt}", self.reasoning_config)
+
+                def review(action: str) -> str:
+                    validator_prompt: str = AUTOGEN_PROMPT.validator_user_prompt.format(
+                        action=action,
+                        task_description=task_config.get('task_description'),
+                        few_shots="\n".join(few_shots),
+                    )
+                    print(f'==== VALIDATOR PROMPT ====\n{validator_prompt}\n==== END VALIDATOR PROMPT ====\n', file=sys.stderr)
+
+                    evaluation: str = validator.response(validator_prompt, self.reasoning_config)
+                    print(f'==== VALIDATOR EVALUATION ====\n{evaluation}\n==== END VALIDATOR EVALUATION ====\n', file=sys.stderr)
+
+                    self.meta_memory_validator.summarize(
+                        solver_message=f"## Your latest evaluation: \n {evaluation}"
+                    )
+                    return evaluation
+
+                attempt = self._reviewed_attempt(propose, review, env.process_action)
+
             try:
                 action: str = self._call_agent_with_retries(
-                    lambda: env.process_action(solver.response(user_prompt, self.reasoning_config)),
+                    attempt,
                     description='solver agent',
                 )
             except AgentCallFailed as failure:
@@ -200,6 +257,8 @@ class AutoGen(MetaMAS):
         final_reward, final_done, final_feedback = self.env.feedback()
         self.notify_observers(final_feedback)
         self.meta_memory.save_task_context(label=final_done, feedback=final_feedback)  
+        if self._use_validator:
+            self.meta_memory_validator.save_task_context(label=final_done, feedback=final_feedback)
         self.meta_memory.backward(final_done)    
 
         return EpisodeResult(reward=final_reward, done=final_done, trials=trials)

@@ -177,6 +177,41 @@ class MetaMAS:
             roles_rules[role] = role_insights[:self._insights_topk]
         return roles_rules
 
+    def _reviewed_attempt(
+        self,
+        propose: Callable[[Optional[tuple[str, str]]], str],
+        review: Callable[[str], str],
+        process: Callable[[str], str],
+    ) -> Callable[[], str]:
+        """An attempt a reviewing agent may reject, for `_call_agent_with_retries`.
+
+        `propose` is given the (action, verdict) a reviewer last rejected, or None
+        on the first try, so the caller decides how to re-prompt. A verdict
+        containing INVALID rejects, and offers the rejected action as the
+        fallback: a disputed but well-formed action still advances the episode
+        once the budget runs out, where an empty one could not.
+        """
+        rejected: Optional[tuple[str, str]] = None
+
+        def attempt() -> str:
+            nonlocal rejected
+
+            action = propose(rejected)
+            if not action:
+                return action
+
+            verdict = review(action)
+            if "INVALID" in verdict:
+                rejected = (action, verdict)
+                raise RetryAgentCall(
+                    'validator returned INVALID',
+                    fallback=lambda disputed=action: process(disputed),
+                )
+
+            return process(action)
+
+        return attempt
+
     def add_observer(self, observer) -> None:
         self.observers.append(observer)
 

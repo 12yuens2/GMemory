@@ -53,11 +53,32 @@ Supporting_facts MUST prove the answer and must come from the context indices. N
 """
 
 
+validator_user_prompt: str = """
+                Solver's latest response: \n
+                {action} \n 
+                Task description: \n
+                {task_description} \n
+                Format that solver agent's actions must follow: \n
+                {few_shots}
+                """
+
+solver_revision_prompt: str = """Your response does not follow the expected format. \n 
+                    Modify your response according to the Validator's feedback. \n 
+                    Your original response: \n
+                    {action} \n
+                    Validator's feedback: \n 
+                    {evaluation} \n 
+                    Original instructions: \n
+                    """
+
+
 @dataclass
 class AutoGenPrompt:
     solver_system_prompt: str = solver_system_prompt
     ground_truth_system_prompt: str = ground_truth_system_prompt
     validator_system_prompt: str = validator_system_prompt
+    validator_user_prompt: str = validator_user_prompt
+    solver_revision_prompt: str = solver_revision_prompt
 
 AUTOGEN_PROMPT = AutoGenPrompt()
 

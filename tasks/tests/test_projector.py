@@ -34,7 +34,7 @@ class ProjectingMemory(MASMemoryBase):
 
 def memory_of(workflow):
     """The memory the projector consults, whichever field the workflow keeps it in."""
-    return getattr(workflow, "meta_memory", None) or workflow.meta_memory_solver
+    return workflow.meta_memory
 
 
 # ── the protocol is the contract ──────────────────────────────────────────────

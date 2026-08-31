@@ -237,6 +237,7 @@ def build_experiment_configs(args) -> list[dict]:
         'insights_topk': [args.insights_topk],
         'threshold': [args.threshold],
         'use_projector': [args.use_projector],
+        'use_validator': [args.use_validator],
         'hop': [args.hop],
         'num_workers': [args.num_workers],
         'db_dir': [args.db_dir],
@@ -266,6 +267,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     insights_topk = experiment_config['insights_topk']
     threshold = experiment_config['threshold']
     use_projector = experiment_config['use_projector']
+    use_validator = experiment_config['use_validator']
     hop = experiment_config['hop']
     db_dir = experiment_config['db_dir']
 
@@ -284,6 +286,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         task_configs.mas_config['insights_topk'] = insights_topk
         task_configs.mas_config['threshold'] = threshold
         task_configs.mas_config['use_projector'] = use_projector
+        task_configs.mas_config['use_validator'] = use_validator
 
         # each seed gets its own memory persistence dir so concurrent seeds of the same
         # experiment config never read/write the same graph/vector-store/insights files
@@ -438,6 +441,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--insights_topk', type=int, default=3, help='Number of insights to be retrieved from memory.')
     parser.add_argument('--threshold', type=float, default=0.0, help='threshold for traj similarity.')
     parser.add_argument('--use_projector', action='store_true', help='whether to use role projector.')
+    parser.add_argument('--use_validator', action='store_true',
+                        help='add a validator agent that checks the solver\'s action format before it is taken.')
     parser.add_argument('--hop', type=int, default=1, help='hop for traj similarity.')
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')
     parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')

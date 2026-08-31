@@ -1,6 +1,9 @@
 """
-Test suite for tasks/mas_workflow/autogen/autogen_mas.py and
+Test suite for the validator arm of tasks/mas_workflow/autogen/autogen.py and
 mas/memory/mas_memory/intrinsicmemory_notemplate.py.
+
+Every workflow here is built with `use_validator: True`. What used to be a
+separate module, autogen_mas.py, is now this flag.
 
 Run from GMemory root:
     python -m pytest tasks/tests/test_autogen_pddl.py -v --tb=short
@@ -15,7 +18,7 @@ from unittest.mock import MagicMock, patch
 from mas.memory.mas_memory.intrinsicmemory_notemplate import IntrinsicMASMemoryNoTemplate
 from mas.reasoning import ReasoningBase
 
-from tasks.mas_workflow.autogen.autogen_mas import AutoGen
+from tasks.mas_workflow.autogen.autogen import AutoGen
 from tasks.mas_workflow.autogen.autogen_prompt import AUTOGEN_PROMPT
 from tasks.mas_workflow.format import format_task_prompt_with_insights as _orig_fmt
 
@@ -79,6 +82,7 @@ def make_autogen(reasoning, memory, env) -> AutoGen:
             "insights_topk": 3,
             "threshold": 0.0,
             "use_projector": False,
+            "use_validator": True,
         },
     )
     return ag
@@ -675,13 +679,13 @@ class TestSolverStuck:
 class TestAdditionalGaps:
 
     def test_solver_and_validator_have_distinct_memory_objects(self, tmp_path):
-        """After build_system, meta_memory_solver and meta_memory_validator are distinct objects."""
+        """After build_system, meta_memory and meta_memory_validator are distinct objects."""
         reasoning = StubReasoning()
         memory, _ = make_memory(tmp_path)
         env = make_env()
         ag = make_autogen(reasoning, memory, env)
 
-        assert ag.meta_memory_solver is not ag.meta_memory_validator
+        assert ag.meta_memory is not ag.meta_memory_validator
 
     def test_validator_memory_has_different_namespace(self, tmp_path):
         """Validator memory namespace is derived from solver memory namespace + '_validator'."""
@@ -690,7 +694,7 @@ class TestAdditionalGaps:
         env = make_env()
         ag = make_autogen(reasoning, memory, env)
 
-        assert ag.meta_memory_validator.namespace == ag.meta_memory_solver.namespace + "_validator"
+        assert ag.meta_memory_validator.namespace == ag.meta_memory.namespace + "_validator"
 
     def test_schedule_raises_if_build_system_not_called(self):
         """Calling schedule() before build_system() raises AttributeError."""
@@ -722,7 +726,7 @@ class TestAdditionalGaps:
         assert "You picked up the block." in mem.current_task_context.task_trajectory
 
     def test_tries_incremented_on_invalid_limits_to_three(self, tmp_path):
-        """tries IS incremented on each INVALID response (line 207 in autogen_mas.py).
+        """tries IS incremented on each INVALID response.
         After 3 INVALID evaluations the while loop exits and env.step is called with
         the last solver action regardless — total reasoning calls = 3 solver + 3 validator.
         """
@@ -745,7 +749,7 @@ class TestAdditionalGaps:
 
 # ── I. Pipeline ordering ───────────────────────────────────────────────────────
 
-_FMT_PATCH = "tasks.mas_workflow.autogen.autogen_mas.format_task_prompt_with_insights"
+_FMT_PATCH = "tasks.mas_workflow.autogen.autogen.format_task_prompt_with_insights"
 
 
 class TestPipelineOrdering:

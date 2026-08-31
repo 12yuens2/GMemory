@@ -41,7 +41,7 @@ TASK_CONFIGS = {
 
 
 def build_workflow(mas_type: str, env: FakeEnv, memory_cls=MASMemoryBase, replies=None,
-                   use_projector: bool = False):
+                   use_projector: bool = False, use_validator: bool = False):
     """Assemble one workflow the way run.py's build_mas does, with fakes."""
     workflow = MAS[mas_type]()
     workflow.add_observer(RecordingObserver())
@@ -57,7 +57,8 @@ def build_workflow(mas_type: str, env: FakeEnv, memory_cls=MASMemoryBase, replie
         fake_reasoning(replies=replies),
         memory,
         env,
-        {key: 1 for key in MEMORY_CONFIG_KEYS} | {"use_projector": use_projector},
+        {key: 1 for key in MEMORY_CONFIG_KEYS}
+        | {"use_projector": use_projector, "use_validator": use_validator},
     )
     return workflow
 

@@ -1,5 +1,5 @@
 """
-Compatibility tests for autogen_mas across all --task and --mas_memory
+Compatibility tests for the validator arm across all --task and --mas_memory
 combinations supported by run.py.
 
 Two parametrized test suites:
@@ -29,7 +29,7 @@ from unittest.mock import MagicMock, patch
 
 from mas.module_map import module_map
 from mas.reasoning import ReasoningBase
-from tasks.mas_workflow.autogen.autogen_mas import AutoGen
+from tasks.mas_workflow.autogen.autogen import AutoGen
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
@@ -145,15 +145,16 @@ def test_build_system_compatible_with_memory_type(memory_key, tmp_path):
                 "insights_topk": 3,
                 "threshold": 0.0,
                 "use_projector": False,
+                "use_validator": True,
             },
         )
 
     # Solver and validator memories must be distinct objects.
-    assert ag.meta_memory_solver is not ag.meta_memory_validator, (
-        f"[{memory_key}] meta_memory_solver and meta_memory_validator are the same object"
+    assert ag.meta_memory is not ag.meta_memory_validator, (
+        f"[{memory_key}] meta_memory and meta_memory_validator are the same object"
     )
     # Validator namespace must be derived from the solver namespace.
-    assert ag.meta_memory_validator.namespace == ag.meta_memory_solver.namespace + "_validator", (
+    assert ag.meta_memory_validator.namespace == ag.meta_memory.namespace + "_validator", (
         f"[{memory_key}] Unexpected validator namespace: {ag.meta_memory_validator.namespace!r}"
     )
     # All four agents must be hired.
@@ -191,6 +192,7 @@ def test_schedule_compatible_with_task_and_memory(task, memory_key, tmp_path):
                 "insights_topk": 3,
                 "threshold": 0.0,
                 "use_projector": False,
+                "use_validator": True,
             },
         )
 
