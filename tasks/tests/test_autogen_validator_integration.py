@@ -1,5 +1,5 @@
 """
-Integration tests for the validator arm that require a live LLM endpoint.
+Integration tests for autogen with use_validator, requiring a live LLM endpoint.
 
 What is tested
 --------------

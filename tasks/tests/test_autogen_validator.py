@@ -1,12 +1,9 @@
 """
-Test suite for the validator arm of tasks/mas_workflow/autogen/autogen.py and
-mas/memory/mas_memory/intrinsicmemory.py.
-
-Every workflow here is built with `use_validator: True`. What used to be a
-separate module, autogen_mas.py, is now this flag.
+Test suite for tasks/mas_workflow/autogen/autogen.py with `use_validator: True`,
+and mas/memory/mas_memory/intrinsicmemory.py.
 
 Run from GMemory root:
-    python -m pytest tasks/tests/test_autogen_pddl.py -v --tb=short
+    python -m pytest tasks/tests/test_autogen_validator.py -v --tb=short
 """
 
 import pytest

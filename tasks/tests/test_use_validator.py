@@ -1,8 +1,18 @@
-"""`use_validator` selects the validator arm within one workflow.
+"""`--use_validator` adds a second agent that checks the solver's action format.
 
-The validator was a second near-verbatim copy of AutoGen. It is now a flag, so
-what used to be the difference between two files has to be asserted as the
-difference between two configurations of one.
+The validator is prompted with the solver's proposed action, the task
+description and the few-shot examples, and answers `VALID` or
+`INVALID: <reason>`. It judges format only, not whether the action is a good
+move.
+
+On `INVALID` the solver is re-prompted with the validator's feedback prepended
+and the attempt spends one try from the episode's shared retry budget. If the
+budget runs out while the validator is still refusing, the last rejected action
+is taken anyway: a disputed but well-formed action can still be sent to the
+environment, where an empty one cannot.
+
+It keeps its own memory instance, `meta_memory_validator`, so the two agents'
+memory updates cannot overwrite each other.
 """
 
 import pytest
@@ -65,9 +75,25 @@ def test_with_the_flag_the_validator_gets_its_own_memory():
     assert workflow.meta_memory_validator.namespace == workflow.meta_memory.namespace + "_validator"
 
 
-# ── the flag decides how many calls a trial costs ─────────────────────────────
+# ── the flag decides how many model calls a trial costs ───────────────────────
 
-def test_the_validator_arm_asks_the_model_to_review_each_action():
+def model_calls(workflow) -> int:
+    """Every agent shares one reasoning module here, so this counts the trial."""
+    return len(workflow.get_agent("solver").reasoning.llm_model.calls)
+
+
+def test_one_model_call_per_trial_without_the_validator():
+    env = FakeEnv(max_trials=1, steps_to_done=1)
+    workflow = build_workflow("autogen", env, replies=["go to desk 1"], use_validator=False)
+
+    workflow.schedule(dict(TASK))
+
+    assert model_calls(workflow) == 1, (
+        f"the solver should be the only agent called, got {model_calls(workflow)} calls"
+    )
+
+
+def test_two_model_calls_per_trial_with_the_validator():
     env = FakeEnv(max_trials=1, steps_to_done=1)
     workflow = build_workflow(
         "autogen", env, replies=["go to desk 1", "VALID"], use_validator=True
@@ -75,30 +101,15 @@ def test_the_validator_arm_asks_the_model_to_review_each_action():
 
     workflow.schedule(dict(TASK))
 
-    reviewed = [
-        call for call in workflow.get_agent("solver").reasoning.llm_model.calls
-        if "Solver's latest response" in call[-1].content
-    ]
-    assert reviewed, "the validator was hired but never asked to review anything"
+    assert model_calls(workflow) == 2, (
+        f"the solver proposes and the validator reviews, got {model_calls(workflow)} calls"
+    )
 
 
-def test_the_plain_arm_never_builds_a_validator_prompt():
-    env = FakeEnv(max_trials=1, steps_to_done=1)
-    workflow = build_workflow("autogen", env, replies=["go to desk 1"], use_validator=False)
-
-    workflow.schedule(dict(TASK))
-
-    reviewed = [
-        call for call in workflow.get_agent("solver").reasoning.llm_model.calls
-        if "Solver's latest response" in call[-1].content
-    ]
-    assert not reviewed, "a validator prompt was built for a run with no validator"
-
-
-# ── both arms still satisfy the workflow contract ─────────────────────────────
+# ── either setting still satisfies the workflow contract ─────────────────────
 
 @pytest.mark.parametrize("use_validator", [False, True])
-def test_both_arms_return_an_episode_result(use_validator):
+def test_either_setting_returns_an_episode_result(use_validator):
     env = FakeEnv(max_trials=2, steps_to_done=1)
     workflow = build_workflow("autogen", env, use_validator=use_validator)
 
@@ -109,7 +120,7 @@ def test_both_arms_return_an_episode_result(use_validator):
 
 
 @pytest.mark.parametrize("use_validator", [False, True])
-def test_both_arms_save_the_task_context(use_validator):
+def test_either_setting_saves_the_task_context(use_validator):
     env = FakeEnv(max_trials=1, steps_to_done=1)
     workflow = build_workflow("autogen", env, use_validator=use_validator)
 

@@ -1,5 +1,5 @@
 """
-Compatibility tests for the validator arm across all --task and --mas_memory
+Compatibility tests for autogen with use_validator, across all --task and --mas_memory
 combinations supported by run.py.
 
 Two parametrized test suites:
