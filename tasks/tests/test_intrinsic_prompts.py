@@ -2,8 +2,8 @@
 
 The modules in this family differ from one another only by which prompt
 constants they hold, and a wrong one raises nothing, logs nothing and passes the
-compatibility matrix - it just runs a whole experiment arm against the wrong
-memory instructions.
+compatibility matrix - it just runs a whole experiment against the wrong memory
+instructions.
 
 Both properties are asserted per registry key, so a module added to
 `MAS_MEMORY_MODULES` without an entry here fails rather than going uncovered.
@@ -15,34 +15,27 @@ import pytest
 
 from mas.module_map import MAS_MEMORY_MODULES
 from mas.memory.mas_memory.prompt import (
-    INTRINSICMEMORYALFWORLD,
-    INTRINSICMEMORYDEFAULT,
-    INTRINSICMEMORYFEVER,
-    INTRINSICMEMORYLLMTEMPLATE,
-    INTRINSICMEMORYPDDL,
+    INTRINSICMEMORY_ALFWORLD,
+    INTRINSICMEMORY_DEFAULT,
+    INTRINSICMEMORY_FEVER,
+    INTRINSICMEMORY_LLM_TEMPLATE,
+    INTRINSICMEMORY_PDDL,
     INTRINSICMEMORY_NOTEMPLATE,
 )
 
 from tasks.tests.fakes import FakeEmbeddingFunc, FakeLLM
 
 SYSTEM_PROMPT_OWNER = {
-    'intrinsicmemory-pddl': INTRINSICMEMORYPDDL,
-    'intrinsicmemory-fever': INTRINSICMEMORYFEVER,
-    'intrinsicmemory-alfworld': INTRINSICMEMORYALFWORLD,
+    'intrinsicmemory-pddl': INTRINSICMEMORY_PDDL,
+    'intrinsicmemory-fever': INTRINSICMEMORY_FEVER,
+    'intrinsicmemory-alfworld': INTRINSICMEMORY_ALFWORLD,
     'intrinsicmemory-notemplate': INTRINSICMEMORY_NOTEMPLATE,
-    'intrinsicmemory-llm-structured-template': INTRINSICMEMORYLLMTEMPLATE,
+    'intrinsicmemory-llm-structured-template': INTRINSICMEMORY_LLM_TEMPLATE,
 }
 
-# The four plain modules override only the system prompt, so they inherit the
-# base's update prompt. Whether they should is an open question, not a defect:
-# see docs/BACKLOG.md. This pins today's answer so the next change to it is visible.
-UPDATE_PROMPT_OWNER = {
-    'intrinsicmemory-pddl': INTRINSICMEMORYDEFAULT,
-    'intrinsicmemory-fever': INTRINSICMEMORYDEFAULT,
-    'intrinsicmemory-alfworld': INTRINSICMEMORYDEFAULT,
-    'intrinsicmemory-notemplate': INTRINSICMEMORYDEFAULT,
-    'intrinsicmemory-llm-structured-template': INTRINSICMEMORYLLMTEMPLATE,
-}
+# One shared update prompt across the family: the memory template is the variable
+# under test, so the update procedure is held constant.
+UPDATE_PROMPT_OWNER = dict.fromkeys(SYSTEM_PROMPT_OWNER, INTRINSICMEMORY_DEFAULT)
 
 INTRINSIC_KEYS = sorted(key for key in MAS_MEMORY_MODULES if key.startswith('intrinsicmemory'))
 
@@ -123,14 +116,14 @@ def test_the_update_prompt_accepts_every_field_summarize_formats(key):
     for field in ('DESCRIPTION', 'TRAJECTORY', 'MEMORY'):
         assert field in formatted, f"{key}'s update prompt drops {field}"
 
-# ── the prompts survive the way build_system rebuilds a memory ────────────────
+# ── a memory built from another's class carries the same prompts ──────────────
 
 @pytest.mark.parametrize('key', INTRINSIC_KEYS)
 def test_a_rebuilt_memory_keeps_its_prompts(key):
-    """`build_system` builds the validator's memory as `memory.__class__(...)`.
+    """A module's prompts belong to its class, not to one instance of it.
 
-    Anything that carries a module's prompts as a constructor argument rather
-    than on the class loses them here, silently.
+    So a second instance built from the first one's class carries them too. This
+    is what `build_system` relies on to give the validator its own memory.
     """
     original = build(key)
 

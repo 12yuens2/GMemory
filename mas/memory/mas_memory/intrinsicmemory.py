@@ -3,11 +3,11 @@ import sys
 
 from .memory_base import MASMemoryBase
 from .prompt import (
-    INTRINSICMEMORYALFWORLD,
-    INTRINSICMEMORYDEFAULT,
-    INTRINSICMEMORYFEVER,
-    INTRINSICMEMORYPDDL,
+    INTRINSICMEMORY_ALFWORLD,
+    INTRINSICMEMORY_DEFAULT,
+    INTRINSICMEMORY_FEVER,
     INTRINSICMEMORY_NOTEMPLATE,
+    INTRINSICMEMORY_PDDL,
 )
 from ..common import MASMessage # a MASMessage, which is a specific type of message used in MAS
 from mas.llm import Message, GPTChat # a "normal" message, not a MASMessage?
@@ -27,7 +27,7 @@ class IntrinsicMASMemory(MASMemoryBase):
     # constructor: build_system rebuilds a memory as `memory.__class__(...)`,
     # which drops anything passed in.
     system_prompt = ""
-    update_prompt = INTRINSICMEMORYDEFAULT.memory_update_prompt
+    update_prompt = INTRINSICMEMORY_DEFAULT.memory_update_prompt
 
     def __post_init__(self):
         super().__post_init__()
@@ -84,17 +84,17 @@ class IntrinsicMASMemory(MASMemoryBase):
 
 @dataclass
 class IntrinsicMASMemoryPDDL(IntrinsicMASMemory):
-    system_prompt = INTRINSICMEMORYPDDL.memory_system_prompt
+    system_prompt = INTRINSICMEMORY_PDDL.memory_system_prompt
 
 
 @dataclass
 class IntrinsicMASMemoryFEVER(IntrinsicMASMemory):
-    system_prompt = INTRINSICMEMORYFEVER.memory_system_prompt
+    system_prompt = INTRINSICMEMORY_FEVER.memory_system_prompt
 
 
 @dataclass
 class IntrinsicMASMemoryALFWORLD(IntrinsicMASMemory):
-    system_prompt = INTRINSICMEMORYALFWORLD.memory_system_prompt
+    system_prompt = INTRINSICMEMORY_ALFWORLD.memory_system_prompt
 
 
 @dataclass

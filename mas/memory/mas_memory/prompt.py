@@ -2,10 +2,10 @@ from dataclasses import dataclass
 
 #----------------------------------------------intrinsicmemory memory DEFAULT----------------------------------------------
 
-DEFAULT_MEMORY_UPDATE_PROMPT = """
+MEMORY_UPDATE_PROMPT = """
 Use your latest response to create the new memory with factual information to solve the task based on the task description, current task trajectory, and current memory. OUTPUT ONLY THE UPDATED MEMORY. NOTHING MORE.
 
-{custom_message}
+{custom_message}{template_instructions}
 
 ## Task Description
 {task_description}
@@ -22,29 +22,17 @@ Use your latest response to create the new memory with factual information to so
 """
 
 @dataclass
-class IntrinsicMemoryDEFAULT:
-    memory_update_prompt: str = DEFAULT_MEMORY_UPDATE_PROMPT
+class IntrinsicMemoryDefault:
+    """The update prompt every intrinsic memory module shares."""
 
-INTRINSICMEMORYDEFAULT: IntrinsicMemoryDEFAULT = IntrinsicMemoryDEFAULT()
+    memory_update_prompt: str = MEMORY_UPDATE_PROMPT
+
+INTRINSICMEMORY_DEFAULT: IntrinsicMemoryDefault = IntrinsicMemoryDefault()
 
 #----------------------------------------------intrinsicmemory memory PDDL----------------------------------------------
-DEFAULT_MEMORY_UPDATE_PROMPT_PDDL = """
-Use the latest two steps in the task trajectory to populate and update the current memory with factual information to solve the task 
-based on the task description.
 
-## Task Description
-{task_description}
 
-## Current Task Trajectory
-{task_trajectory}
-
-## Current Memory
-
-{current_memory}
-
-"""
-
-DEFAULT_MEMORY_SYSTEM_PROMPT_PDDL = """
+MEMORY_SYSTEM_PROMPT_PDDL = """
 You are a MEMORY UPDATER for a PDDL-style planning agent.
 
 Your job:
@@ -132,28 +120,13 @@ UPDATE INSTRUCTIONS
 
 @dataclass
 class IntrinsicMemoryPDDL:
-    memory_update_prompt: str = DEFAULT_MEMORY_UPDATE_PROMPT_PDDL
-    memory_system_prompt: str = DEFAULT_MEMORY_SYSTEM_PROMPT_PDDL
+    memory_system_prompt: str = MEMORY_SYSTEM_PROMPT_PDDL
 
-INTRINSICMEMORYPDDL: IntrinsicMemoryPDDL = IntrinsicMemoryPDDL()
+INTRINSICMEMORY_PDDL: IntrinsicMemoryPDDL = IntrinsicMemoryPDDL()
 #----------------------------------------------intrinsicmemory memory FEVER----------------------------------------------
-DEFAULT_MEMORY_UPDATE_PROMPT_FEVER = """
-Use the latest two steps in the task trajectory to populate and update the current memory with factual information to solve the task 
-based on the task description.
 
-## Task Description
-{task_description}
 
-## Current Task Trajectory
-{task_trajectory}
-
-## Current Memory
-
-{current_memory}
-
-"""
-
-DEFAULT_MEMORY_SYSTEM_PROMPT_FEVER = """
+MEMORY_SYSTEM_PROMPT_FEVER = """
 You are a MEMORY UPDATER for a question–answering agent.
 
 The main agent:
@@ -257,28 +230,13 @@ UPDATE INSTRUCTIONS (BE CONCISE)
 
 @dataclass
 class IntrinsicMemoryFEVER:
-    memory_update_prompt: str = DEFAULT_MEMORY_UPDATE_PROMPT_FEVER
-    memory_system_prompt: str = DEFAULT_MEMORY_SYSTEM_PROMPT_FEVER
+    memory_system_prompt: str = MEMORY_SYSTEM_PROMPT_FEVER
 
-INTRINSICMEMORYFEVER: IntrinsicMemoryFEVER = IntrinsicMemoryFEVER()
+INTRINSICMEMORY_FEVER: IntrinsicMemoryFEVER = IntrinsicMemoryFEVER()
 #----------------------------------------------intrinsicmemory memory ALFWORLD----------------------------------------------
-DEFAULT_MEMORY_UPDATE_PROMPT_ALFWORLD = """
-Use the latest two steps in the task trajectory to populate and update the current memory with factual information to solve the task 
-based on the task description.
 
-## Task Description
-{task_description}
 
-## Current Task Trajectory
-{task_trajectory}
-
-## Current Memory
-
-{current_memory}
-
-"""
-
-DEFAULT_MEMORY_SYSTEM_PROMPT_ALFWORLD = """
+MEMORY_SYSTEM_PROMPT_ALFWORLD = """
 You are a MEMORY UPDATER for an Alfworld household agent.
 
 Environment:
@@ -416,28 +374,13 @@ UPDATE INSTRUCTIONS
 
 @dataclass
 class IntrinsicMemoryALFWORLD:
-    memory_update_prompt: str = DEFAULT_MEMORY_UPDATE_PROMPT_ALFWORLD
-    memory_system_prompt: str = DEFAULT_MEMORY_SYSTEM_PROMPT_ALFWORLD
+    memory_system_prompt: str = MEMORY_SYSTEM_PROMPT_ALFWORLD
 
-INTRINSICMEMORYALFWORLD: IntrinsicMemoryALFWORLD = IntrinsicMemoryALFWORLD()
+INTRINSICMEMORY_ALFWORLD: IntrinsicMemoryALFWORLD = IntrinsicMemoryALFWORLD()
 #----------------------------------------------intrinsicmemory memory NO TEMPLATE----------------------------------------------
-DEFAULT_MEMORY_UPDATE_PROMPT_NOTEMPLATE = """
-Use your latest response to create the new memory with factual information to solve the task based on the task description and current memory. OUTPUT ONLY THE UPDATED MEMORY. NOTHING MORE.
 
-{custom_message}
 
-## Task Description
-{task_description}
-
-## Current Task Trajectory
-{task_trajectory}
-
-## Current Memory
-{current_memory}
-
-"""
-
-DEFAULT_MEMORY_SYSTEM_PROMPT_NOTEMPLATE = """
+MEMORY_SYSTEM_PROMPT_NOTEMPLATE = """
 You are an intelligent summarization agent. Your job is to update your current memory using your latest response with information that is useful for efficient task completion.
 - Use only the information explicitly present in your prior responses.
 - Do not invent or infer any information, actions, events, or observations that are not stated.
@@ -448,12 +391,17 @@ You are an intelligent summarization agent. Your job is to update your current m
 
 @dataclass
 class IntrinsicMemoryNoTemplate:
-    memory_update_prompt: str = DEFAULT_MEMORY_UPDATE_PROMPT_NOTEMPLATE
-    memory_system_prompt: str = DEFAULT_MEMORY_SYSTEM_PROMPT_NOTEMPLATE
+    memory_system_prompt: str = MEMORY_SYSTEM_PROMPT_NOTEMPLATE
 
 INTRINSICMEMORY_NOTEMPLATE: IntrinsicMemoryNoTemplate = IntrinsicMemoryNoTemplate()
 
 #----------------------------------------------intrinsicmemory LLM templated----------------------------------------------
+MEMORY_TEMPLATE_SECTION = """
+
+Use your latest response in the task trajectory to populate and update the current memory with factual information to solve the task 
+based on the below instructions:
+{template_instructions}"""
+
 TEMPLATE_CREATION_PROMPT = """I have an AI agent that has to complete a task. 
 The agent has a memory that is updated each time the LLM responds by comparing the latest response and the existing memory, 
 and adding any new important information. The memory should be templated based on the nature of the task in a structured non-json format. 
@@ -464,38 +412,10 @@ Do not explain or describe the prompt, simply return the prompt and nothing more
 {task_description}
 """
 
-DEFAULT_MEMORY_UPDATE_PROMPT_LLM_TEMPLATE = """
-Use your latest response to create the new memory with factual information to solve the task based on the task description, current task trajectory, and current memory.
-
-## Task Description
-{task_description}
-
-## Current Task Trajectory
-{task_trajectory}
-
-
-## Current Memory
-
-{current_memory}
-
-## New Memory
 
 
 
-Use your latest response in the task trajectory to populate and update the current memory with factual information to solve the task 
-based on the below instructions:
-{template_instructions}
-
-## Current Task Trajectory
-{task_trajectory}
-
-## Current memory
-{current_memory}
-
-"""
-
-
-DEFAULT_MEMORY_SYSTEM_PROMPT_LLM_TEMPLATE = """
+MEMORY_SYSTEM_PROMPT_LLM_TEMPLATE = """
 You are an intelligent summarization agent. Your job is to update your current memory using your latest response with information that is useful for efficient task completion.
 - Use only the information explicitly present in your prior responses.
 - Do not invent or infer any information, actions, events, or observations that are not stated.
@@ -505,11 +425,10 @@ You are an intelligent summarization agent. Your job is to update your current m
 
 @dataclass
 class IntrinsicMemoryLLMTemplate:
-    memory_update_prompt: str = DEFAULT_MEMORY_UPDATE_PROMPT_LLM_TEMPLATE
-    memory_system_prompt: str = DEFAULT_MEMORY_SYSTEM_PROMPT_LLM_TEMPLATE
+    memory_system_prompt: str = MEMORY_SYSTEM_PROMPT_LLM_TEMPLATE
     template_creation_prompt: str = TEMPLATE_CREATION_PROMPT
 
-INTRINSICMEMORYLLMTEMPLATE: IntrinsicMemoryLLMTemplate = IntrinsicMemoryLLMTemplate()
+INTRINSICMEMORY_LLM_TEMPLATE: IntrinsicMemoryLLMTemplate = IntrinsicMemoryLLMTemplate()
 
 # ---------------------------------------------- ChatDev memory ----------------------------------------------
 summary_system_prompt: str = """

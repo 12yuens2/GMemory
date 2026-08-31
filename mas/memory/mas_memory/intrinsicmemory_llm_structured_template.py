@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import sys
 
-from .prompt import INTRINSICMEMORYLLMTEMPLATE
+from .prompt import INTRINSICMEMORY_LLM_TEMPLATE, MEMORY_TEMPLATE_SECTION
 from .intrinsicmemory import IntrinsicMASMemory
 from ..common import MASMessage # a MASMessage, which is a specific type of message used in MAS
 from mas.llm import Message # a "normal" message, not a MASMessage?
@@ -17,8 +17,7 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
     A separate memory is used to store the agent's memory, which is updated with the latest information from the agent's messages.
     
     """
-    system_prompt = INTRINSICMEMORYLLMTEMPLATE.memory_system_prompt
-    update_prompt = INTRINSICMEMORYLLMTEMPLATE.memory_update_prompt
+    system_prompt = INTRINSICMEMORY_LLM_TEMPLATE.memory_system_prompt
 
     def __post_init__(self):
         super().__post_init__()
@@ -36,7 +35,7 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
             # Generate initial memory template if this is the first time running summarize
             print("\n==== Generating initial memory template... ====\n", file=sys.stderr)
 
-            template_creation_message: str = INTRINSICMEMORYLLMTEMPLATE.template_creation_prompt.format(
+            template_creation_message: str = INTRINSICMEMORY_LLM_TEMPLATE.template_creation_prompt.format(
                 task_description = mas_message.task_description
             )
 
@@ -47,6 +46,9 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
             self.memory_template_flag = True
 
         return super().summarize(
-            solver_message=solver_message, template_instructions=self.memory_template
+            solver_message=solver_message,
+            template_instructions=MEMORY_TEMPLATE_SECTION.format(
+                template_instructions=self.memory_template
+            ),
         )
 
