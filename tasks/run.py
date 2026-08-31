@@ -202,7 +202,10 @@ def _write_failed_tasks(
     filename: str = 'failed_tasks.csv',
 ) -> None:
     """One row per task that could not be run, alongside the experiment's results."""
-    headers = ['task', 'mas_type', 'mas_memory', 'seed', 'task_id', 'error_type', 'error_message']
+    headers = [
+        'task', 'mas_type', 'mas_memory', 'seed', 'task_id', 'error_type', 'error_message',
+        'use_validator',
+    ]
     path = os.path.join(working_dir, filename)
 
     for failure in failed_tasks:
@@ -218,6 +221,7 @@ def _write_failed_tasks(
                 str(failure['task_id']),
                 type(error).__name__,
                 str(error).replace('\n', ' ').replace(',', ';'),
+                str(task_manager.mas_config.get('use_validator', False)),
             ],
             output_lock=output_lock,
         )
@@ -380,6 +384,7 @@ def _write_overall_result(
         'prompt_tokens',
         'intrinsic_completion_tokens',
         'intrinsic_prompt_tokens',
+        'use_validator',
     ]
 
     basic_values = [
@@ -398,8 +403,15 @@ def _write_overall_result(
     else:
         summary_fields = result_fields[3:]
 
+    trailing_values = [str(experiment_config.get('use_validator', False))]
+
     overall_results_path = os.path.join(db_dir, filename)
-    _append_csv_row(overall_results_path, headers, basic_values + summary_fields, output_lock=output_lock)
+    _append_csv_row(
+        overall_results_path,
+        headers,
+        basic_values + summary_fields + trailing_values,
+        output_lock=output_lock,
+    )
 
 
 def _write_failed_experiment(
@@ -409,7 +421,10 @@ def _write_failed_experiment(
     output_lock=None,
     filename: str = 'failed_experiments.csv',
 ) -> str:
-    headers = ['task', 'mas_type', 'mas_memory', 'model', 'seed', 'error_type', 'error_message']
+    headers = [
+        'task', 'mas_type', 'mas_memory', 'model', 'seed', 'error_type', 'error_message',
+        'use_validator',
+    ]
     values = [
         str(experiment_config.get('task', '')),
         str(experiment_config.get('mas_type', '')),
@@ -418,6 +433,7 @@ def _write_failed_experiment(
         str(experiment_config.get('seed', '')),
         type(error).__name__,
         str(error).replace('\n', ' ').replace(',', ';'),
+        str(experiment_config.get('use_validator', False)),
     ]
 
     failed_path = os.path.join(db_dir, filename)
