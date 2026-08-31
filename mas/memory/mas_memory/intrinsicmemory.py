@@ -27,15 +27,12 @@ class IntrinsicMASMemory(MASMemoryBase):
     # constructor: build_system rebuilds a memory as `memory.__class__(...)`,
     # which drops anything passed in.
     system_prompt = ""
-    update_prompt = INTRINSICMEMORY_DEFAULT.memory_update_prompt
+    memory_update_prompt = INTRINSICMEMORY_DEFAULT.memory_update_prompt
 
     def __post_init__(self):
         super().__post_init__()
         self.counter: int = 0
         self.agent_intrinsic_memory: str = ""
-
-        self.memory_system_prompt = self.system_prompt
-        self.memory_update_prompt = self.update_prompt
 
     def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:
 
@@ -55,7 +52,7 @@ class IntrinsicMASMemory(MASMemoryBase):
                 current_memory=self.agent_intrinsic_memory,
         )
 
-        messages = [Message("system", self.memory_system_prompt), Message("user", memory_update_prompt)]
+        messages = [Message("system", self.system_prompt), Message("user", memory_update_prompt)]
 
         print(f"==== MEMORY UPDATE PROMPT ==== \n{memory_update_prompt}\n==== END MEMORY UPDATE PROMPT ====\n", file=sys.stderr)
 
@@ -84,22 +81,22 @@ class IntrinsicMASMemory(MASMemoryBase):
 
 @dataclass
 class IntrinsicMASMemoryPDDL(IntrinsicMASMemory):
-    system_prompt = INTRINSICMEMORY_PDDL.memory_system_prompt
+    system_prompt = INTRINSICMEMORY_PDDL.system_prompt
 
 
 @dataclass
 class IntrinsicMASMemoryFEVER(IntrinsicMASMemory):
-    system_prompt = INTRINSICMEMORY_FEVER.memory_system_prompt
+    system_prompt = INTRINSICMEMORY_FEVER.system_prompt
 
 
 @dataclass
 class IntrinsicMASMemoryALFWORLD(IntrinsicMASMemory):
-    system_prompt = INTRINSICMEMORY_ALFWORLD.memory_system_prompt
+    system_prompt = INTRINSICMEMORY_ALFWORLD.system_prompt
 
 
 @dataclass
 class IntrinsicMASMemoryNoTemplate(IntrinsicMASMemory):
     """Keeps agent memory without a memory template."""
 
-    system_prompt = INTRINSICMEMORY_NOTEMPLATE.memory_system_prompt
+    system_prompt = INTRINSICMEMORY_NOTEMPLATE.system_prompt
 

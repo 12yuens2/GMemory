@@ -120,7 +120,7 @@ UPDATE INSTRUCTIONS
 
 @dataclass
 class IntrinsicMemoryPDDL:
-    memory_system_prompt: str = MEMORY_SYSTEM_PROMPT_PDDL
+    system_prompt: str = MEMORY_SYSTEM_PROMPT_PDDL
 
 INTRINSICMEMORY_PDDL: IntrinsicMemoryPDDL = IntrinsicMemoryPDDL()
 #----------------------------------------------intrinsicmemory memory FEVER----------------------------------------------
@@ -230,7 +230,7 @@ UPDATE INSTRUCTIONS (BE CONCISE)
 
 @dataclass
 class IntrinsicMemoryFEVER:
-    memory_system_prompt: str = MEMORY_SYSTEM_PROMPT_FEVER
+    system_prompt: str = MEMORY_SYSTEM_PROMPT_FEVER
 
 INTRINSICMEMORY_FEVER: IntrinsicMemoryFEVER = IntrinsicMemoryFEVER()
 #----------------------------------------------intrinsicmemory memory ALFWORLD----------------------------------------------
@@ -374,13 +374,13 @@ UPDATE INSTRUCTIONS
 
 @dataclass
 class IntrinsicMemoryALFWORLD:
-    memory_system_prompt: str = MEMORY_SYSTEM_PROMPT_ALFWORLD
+    system_prompt: str = MEMORY_SYSTEM_PROMPT_ALFWORLD
 
 INTRINSICMEMORY_ALFWORLD: IntrinsicMemoryALFWORLD = IntrinsicMemoryALFWORLD()
 #----------------------------------------------intrinsicmemory memory NO TEMPLATE----------------------------------------------
 
 
-MEMORY_SYSTEM_PROMPT_NOTEMPLATE = """
+MEMORY_SYSTEM_PROMPT_GENERIC = """
 You are an intelligent summarization agent. Your job is to update your current memory using your latest response with information that is useful for efficient task completion.
 - Use only the information explicitly present in your prior responses.
 - Do not invent or infer any information, actions, events, or observations that are not stated.
@@ -391,11 +391,13 @@ You are an intelligent summarization agent. Your job is to update your current m
 
 @dataclass
 class IntrinsicMemoryNoTemplate:
-    memory_system_prompt: str = MEMORY_SYSTEM_PROMPT_NOTEMPLATE
+    system_prompt: str = MEMORY_SYSTEM_PROMPT_GENERIC
 
 INTRINSICMEMORY_NOTEMPLATE: IntrinsicMemoryNoTemplate = IntrinsicMemoryNoTemplate()
 
 #----------------------------------------------intrinsicmemory LLM templated----------------------------------------------
+
+
 MEMORY_TEMPLATE_SECTION = """
 
 Use your latest response in the task trajectory to populate and update the current memory with factual information to solve the task 
@@ -415,18 +417,14 @@ Do not explain or describe the prompt, simply return the prompt and nothing more
 
 
 
-MEMORY_SYSTEM_PROMPT_LLM_TEMPLATE = """
-You are an intelligent summarization agent. Your job is to update your current memory using your latest response with information that is useful for efficient task completion.
-- Use only the information explicitly present in your prior responses.
-- Do not invent or infer any information, actions, events, or observations that are not stated.
-- Use clear and precise language. Avoid unnecessary details or storytelling.
-"""
+
 
 
 @dataclass
 class IntrinsicMemoryLLMTemplate:
-    memory_system_prompt: str = MEMORY_SYSTEM_PROMPT_LLM_TEMPLATE
+    system_prompt: str = MEMORY_SYSTEM_PROMPT_GENERIC
     template_creation_prompt: str = TEMPLATE_CREATION_PROMPT
+    memory_template_section: str = MEMORY_TEMPLATE_SECTION
 
 INTRINSICMEMORY_LLM_TEMPLATE: IntrinsicMemoryLLMTemplate = IntrinsicMemoryLLMTemplate()
 

@@ -1,19 +1,4 @@
-"""`--use_validator` adds a second agent that checks the solver's action format.
-
-The validator is prompted with the solver's proposed action, the task
-description and the few-shot examples, and answers `VALID` or
-`INVALID: <reason>`. It judges format only, not whether the action is a good
-move.
-
-On `INVALID` the solver is re-prompted with the validator's feedback prepended
-and the attempt spends one try from the episode's shared retry budget. If the
-budget runs out while the validator is still refusing, the last rejected action
-is taken anyway: a disputed but well-formed action can still be sent to the
-environment, where an empty one cannot.
-
-It keeps its own memory instance, `meta_memory_validator`, so the two agents'
-memory updates cannot overwrite each other.
-"""
+"""`--use_validator` adds an agent that reviews the solver's action format."""
 
 import pytest
 

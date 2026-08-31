@@ -149,9 +149,9 @@ class TestSummarize:
         assert "UNIQUE_SOLVER_TAG_XYZ" in user_content
 
     def test_notemplate_system_prompt_is_nonempty(self, tmp_path):
-        """NoTemplate memory_system_prompt is non-empty (base IntrinsicMASMemory uses '')."""
+        """NoTemplate system_prompt is non-empty (base IntrinsicMASMemory uses '')."""
         mem, _ = make_memory(tmp_path)
-        assert mem.memory_system_prompt.strip() != ""
+        assert mem.system_prompt.strip() != ""
 
     def test_notemplate_system_prompt_sent_to_llm(self, tmp_path):
         """System Message in the LLM call matches the NoTemplate system prompt."""
@@ -161,7 +161,7 @@ class TestSummarize:
         mem.summarize(solver_message="sys")
 
         system_content = next(m.content for m in llm.call_args[0][0] if m.role == "system")
-        assert system_content == mem.memory_system_prompt
+        assert system_content == mem.system_prompt
 
     def test_update_prompt_contains_required_format_vars(self, tmp_path):
         """memory_update_prompt contains all four expected format placeholders."""

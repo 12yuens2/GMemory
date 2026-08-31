@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import sys
 
-from .prompt import INTRINSICMEMORY_LLM_TEMPLATE, MEMORY_TEMPLATE_SECTION
+from .prompt import INTRINSICMEMORY_LLM_TEMPLATE
 from .intrinsicmemory import IntrinsicMASMemory
 from ..common import MASMessage # a MASMessage, which is a specific type of message used in MAS
 from mas.llm import Message # a "normal" message, not a MASMessage?
@@ -17,7 +17,7 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
     A separate memory is used to store the agent's memory, which is updated with the latest information from the agent's messages.
     
     """
-    system_prompt = INTRINSICMEMORY_LLM_TEMPLATE.memory_system_prompt
+    system_prompt = INTRINSICMEMORY_LLM_TEMPLATE.system_prompt
 
     def __post_init__(self):
         super().__post_init__()
@@ -40,14 +40,14 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
             )
 
             print(f"\n==== GENERATE MEMORY TEMPLATE ====\n{template_creation_message}\n==== END GENERATE MEMORY TEMPLATE ====\n")
-            msg =[Message("system", self.memory_system_prompt), Message("user", template_creation_message)]
+            msg =[Message("system", self.system_prompt), Message("user", template_creation_message)]
 
             self.memory_template = self.llm_model(msg)
             self.memory_template_flag = True
 
         return super().summarize(
             solver_message=solver_message,
-            template_instructions=MEMORY_TEMPLATE_SECTION.format(
+            template_instructions=INTRINSICMEMORY_LLM_TEMPLATE.memory_template_section.format(
                 template_instructions=self.memory_template
             ),
         )

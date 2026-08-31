@@ -14,7 +14,17 @@ import sys
 
 
 @dataclass
-class AutoGen(MetaMAS):   
+class AutoGen(MetaMAS):
+    """A solver agent acting in the environment, with a ground-truth agent as backstop.
+
+    With `use_validator`, a third agent reviews each proposed action for format
+    only - it answers `VALID`, or `INVALID: <reason>` - and a rejection re-prompts
+    the solver with that feedback, spending one try from the episode's shared
+    budget. If the budget runs out while the validator is still refusing, the last
+    rejected action is taken anyway: a disputed but well-formed action can reach
+    the environment where an empty one cannot. The validator keeps its own memory
+    instance, so the two agents' updates cannot overwrite each other.
+    """
 
     def __post_init__(self):
 

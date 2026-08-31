@@ -19,8 +19,8 @@ from mas.memory.mas_memory.prompt import (
     INTRINSICMEMORY_DEFAULT,
     INTRINSICMEMORY_FEVER,
     INTRINSICMEMORY_LLM_TEMPLATE,
-    INTRINSICMEMORY_PDDL,
     INTRINSICMEMORY_NOTEMPLATE,
+    INTRINSICMEMORY_PDDL,
 )
 
 from tasks.tests.fakes import FakeEmbeddingFunc, FakeLLM
@@ -66,22 +66,28 @@ def test_every_registered_intrinsic_module_has_an_expected_prompt():
 
 @pytest.mark.parametrize('key', INTRINSIC_KEYS)
 def test_the_module_carries_its_own_system_prompt(key):
-    expected = SYSTEM_PROMPT_OWNER[key].memory_system_prompt
+    expected = SYSTEM_PROMPT_OWNER[key].system_prompt
 
-    assert build(key).memory_system_prompt == expected, (
-        f"{key} does not carry its own memory_system_prompt"
+    assert build(key).system_prompt == expected, (
+        f"{key} does not carry the system prompt recorded for it"
     )
 
 
 @pytest.mark.parametrize('key', INTRINSIC_KEYS)
 def test_the_system_prompt_is_not_empty(key):
     """The base leaves it empty, so an unset override is indistinguishable from none."""
-    assert build(key).memory_system_prompt, f"{key} has an empty memory_system_prompt"
+    assert build(key).system_prompt, f"{key} has an empty system_prompt"
 
 
-def test_no_two_modules_share_a_system_prompt():
-    """The modules are distinguished by this string and by nothing else."""
-    prompts = {key: build(key).memory_system_prompt for key in INTRINSIC_KEYS}
+def test_the_task_specific_modules_each_have_their_own_system_prompt():
+    """The template is what these three differ by, so no two may share one.
+
+    `-notemplate` and `-llm-structured-template` are excluded deliberately: neither
+    carries a fixed template, so they share the generic summariser prompt and
+    differ by behaviour instead.
+    """
+    task_specific = ['intrinsicmemory-pddl', 'intrinsicmemory-fever', 'intrinsicmemory-alfworld']
+    prompts = {key: build(key).system_prompt for key in task_specific}
 
     collisions = [
         (a, b) for a in prompts for b in prompts if a < b and prompts[a] == prompts[b]
@@ -134,7 +140,7 @@ def test_a_rebuilt_memory_keeps_its_prompts(key):
         embedding_func=original.embedding_func,
     )
 
-    assert rebuilt.memory_system_prompt == original.memory_system_prompt, (
+    assert rebuilt.system_prompt == original.system_prompt, (
         f"{key} lost its system prompt when rebuilt from its own class"
     )
     assert rebuilt.memory_update_prompt == original.memory_update_prompt, (
