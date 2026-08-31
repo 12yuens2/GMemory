@@ -4,21 +4,23 @@ Everything outstanding from the repo-wide review, in the form it would take as
 GitHub issues — one section per issue, so it can be split up when Issues is
 enabled on the repo (Settings → General → Features → Issues).
 
-Phases 1 and 2 are merged (PR #4, PR #5). Phase 3 is on `refactor-p3` with six
-of its ten items landed and four deferred. This file covers Phases 3–6 plus the
-findings that turned up during them and do not belong to a phase.
+Phases 1–3 are merged (PR #4, PR #5, PR #6). Phase 4 is on `refactor-p4` with
+four of its five stages landed and one dropped by direction. This file covers
+Phases 3–6 plus the findings that turned up during them and do not belong to a
+phase.
 
 **Full review with evidence:** https://claude.ai/code/artifact/2ba66572-add3-4642-8b92-2d5cb6c4057e
 
 | | | |
 |---|---|---|
 | [Phase 3](#phase-3-close-the-silent-degradation-gaps) | silent degradation | 6 of 10 landed |
-| [Phase 4](#phase-4-collapse-the-duplication) | ~700 lines of copy-paste | behaviour-preserving |
+| [Phase 4](#phase-4-collapse-the-duplication) | ~700 lines of copy-paste | 4 of 5 landed |
 | [Phase 5](#phase-5-split-the-oversized-modules) | module splits, CSV schema | mostly moves |
 | [Phase 6](#phase-6-make-the-operational-surface-reproducible) | container, deploy, logging | low risk |
 | [`--task alfworld` cannot run](#--task-alfworld-cannot-run-the-environment-is-commented-out) | bug | **needs a decision** |
 | [DyLAN/MacNet retry loops](#dylan-and-macnet-retry-loops-are-still-unbounded) | bug | deferred |
 | [Structured output vs a validator agent](#guarantee-the-action-format-instead-of-checking-it-with-a-second-agent) | research | **needs a decision** |
+| [Intrinsic update prompts](#which-memory-update-prompt-should-each-intrinsic-variant-carry) | research | **needs a decision** |
 | [~~`--mas_memory` default~~](#--mas_memory-defaulted-to-a-value-the-registry-does-not-have--closed) | bug | closed |
 | [Intrinsic token accounting](#intrinsic-token-accounting-is-always-zero) | bug | silent |
 | [G-Memory clustering](#g-memorys-clustering-does-not-run) | bug | **deferred** |
@@ -99,9 +101,9 @@ Both found by writing the test before the fix.
   existed to make the clustering work observable.
 - **`predicate_map` per PDDL domain** — see the standalone entry below. Deferred:
   the collision behaviour needs to be understood before it is changed.
-- **The other three copies of `_project_insights`** — DyLAN, MacNet and the dead
-  `autogen_hotpot` still decide projection by naming `GMemory`. Phase 4 deletes
-  the duplication rather than migrating five copies.
+- ~~**The other three copies of `_project_insights`**~~ — done in Phase 4's
+  stage 2 (`f4445ab`). Lifting the method to `MetaMAS` migrated DyLAN and MacNet
+  as a side effect; `autogen_hotpot` was deleted (`9f8cd07`).
 
 ### Done ahead of this phase
 
@@ -113,87 +115,194 @@ Both found by writing the test before the fix.
 
 ## Phase 4: collapse the duplication
 
-`tech-debt` · behaviour-preserving, wide diff
+`tech-debt` · behaviour-preserving · branch `refactor-p4`
 
-Roughly 700 lines of copy-paste, and the mechanism by which a fix in one copy left
-the other broken — the `autogen_mas` projector bug (Phase 3) survived exactly
-because `_project_insights` exists in five places and the fix landed in one copy's
-context. Bodies confirmed byte-identical by hashing whitespace-stripped source.
+Roughly 700 lines of copy-paste, and the mechanism by which a fix in one copy
+left the other broken — the `autogen_mas` projector bug (Phase 3) survived
+exactly because `_project_insights` existed in five places and the fix landed in
+one copy's context.
 
-- [ ] **Lift `_project_insights` and `_solver_stuck`** to `MetaMAS` or a
-  `workflow/common.py`. `_project_insights` is identical across `autogen`,
-  `autogen_mas` and `autogen_hotpot`, with a second identical variant in `dylan`
-  and `graph_mas` — reconcile the two variants first. `_solver_stuck` is identical
-  in `autogen` and `autogen_mas` (2 × 28 lines).
-- [ ] **Finish the `SupportsProjection` migration.** `autogen` and `autogen_mas`
-  use the protocol as of `01ee10e`; `autogen_hotpot`, `dylan` and `graph_mas` still
-  name `GMemory` directly. Deleting the duplication removes them rather than
-  migrating three more copies.
+**Four of the five stages landed. Stage 5 was dropped by direction.** Net effect
+on first-party code: **227 lines added, 886 removed**, with 5 new comment lines.
+Tests went 395 → **417**.
 
-  **Keeping the projector was considered and decided against removing it**, for
-  now. The case for removal is strong — it is upstream's (`1c5e04f`, May 2025), it
-  has never run, and only `GMemory.retrieve_memory` ever returns a non-empty
-  insights list, so it can affect exactly one arm and that arm's clustering is
-  deferred. The argument for keeping it is baseline integrity: if the upstream
-  paper reports G-Memory with the projector on and those figures are the
-  comparison, deleting a G-Memory component means the baseline is no longer
-  G-Memory. Every figure produced in this fork was projector-off, so removal
-  changes no comparison already made. **If that upstream question comes back
-  "off", delete it in this phase instead of lifting it — deleting is less work than
-  the collapse.**
-- [ ] **Merge `autogen_mas` into `autogen`** behind a `use_validator` config flag.
-  They are a near-verbatim fork, 343 vs 263 lines, and *both define a class called
-  `AutoGen`*, aliased at import in the registry.
+| Stage | What | Commit |
+|---|---|---|
+| 0 | test A1/A1b as the regression net | `0fef126` |
+| 1 | the two dead files, and their ruff ignores | `9f8cd07` |
+| 2 | `_solver_stuck` and `_project_insights` lifted to `MetaMAS` | `f4445ab` |
+| 3 | `autogen_mas` merged into `autogen` behind `--use_validator` | `07d6bb2` |
+| 4 | intrinsic variants turned into three lines each | `f574ee6` |
+| 5 | ~~collapse the Slurm scripts~~ | dropped |
 
-  Diffed line by line, so the merge is fully specified. The entire difference is
-  **one validator agent**:
+### What changed about existing results
 
-  1. a third `Agent` named `validator`, carrying
-     `AUTOGEN_PROMPT.validator_system_prompt`;
-  2. two memory instances instead of one — `meta_memory_solver` (the memory that
-     was passed in) and `meta_memory_validator` (a fresh instance of the same class
-     with `namespace + "_validator"`). Both get `init_task_context` and
-     `save_task_context`; only the solver gets `move_memory_state`,
-     `add_agent_node` and `backward`;
-  3. one `solve_and_validate()` closure passed to `_call_agent_with_retries`: the
-     solver proposes, the validator judges the format, and on `INVALID` the solver
-     is re-prompted with the validator's feedback prepended, raising
-     `RetryAgentCall` so the retry spends a try from the shared budget with the
-     rejected action as fallback.
+**Nothing.** Every stage is behaviour-preserving, and stage 3 — the only one with
+a wide diff — was verified by driving the merged class and the deleted one side by
+side over the same fakes and comparing every solver and validator prompt byte for
+byte, not just the outcome:
 
-  `_solver_stuck`, `_project_insights`, the trial loop, the prompt assembly and the
-  ground-truth agent are identical.
+- validator arm vs `autogen_mas` at `f4445ab`: valid first try, persistent
+  INVALID, empty forever, recovers mid-episode, multi-trial — result, actions and
+  all prompts identical;
+- plain arm vs `autogen` at `f4445ab`: solves first try, empty forever, recovers,
+  multi-trial, stuck repeating — identical.
 
-  **Resolve the flag through the existing config machinery** rather than a new
-  mechanism: `build_task` already does `CONFIG.get(mas_type, {})`, so an
-  `autogen_mas:` block carrying `use_validator: True`, and `use_validator: False`
-  under `autogen:`, is the whole wiring — which also closes the finding that
-  `autogen_mas` has no config block and silently takes every default. Keep the
-  registry key, so existing scripts and result CSVs keep meaning what they said.
+The two validator prompts moved to `autogen_prompt.py` as named constants,
+extracted from the source rather than retyped, and checked by rendering both
+forms with the same values. The stray 16- and 20-space indentation inside those
+f-strings is part of what the model receives, so it is preserved verbatim.
 
-  Keep the existing tests green as the acceptance criterion — there are now 395 of
-  them, and `test_autogen_mas*.py` covers the validator path specifically.
-- [ ] **Turn the intrinsic-memory subclasses into data:** one
-  `IntrinsicMASMemory` taking a prompt bundle, plus a `{name: bundle}` registry.
-  Four files that differ by exactly one prompt constant become one, and a new task
-  variant stops needing a new class. **Write test A1 first** — it is the
-  regression net for this change, and right now nothing detects a copy-paste slip
-  that runs PDDL's prompt on FEVER.
-- [ ] **Delete `autogen_hotpot.py`** (232 lines). Not merely unused —
-  non-functional: undefined name `solver` at `:176-177`, and three agents built
-  and never used at `:116-118`. HotpotQA is not a supported task.
-- [ ] **Delete `intrinsicmemory_deprecated.py`** (67 lines). Unreferenced, and
-  imports `INTRINSICMEMORY`, which no longer exists in `prompt.py`. Also drop
-  `IntrinsicMASMemory` from `__all__` if it is not meant to be selectable.
-- [ ] **Collapse the Slurm scripts** to one parameterised script taking task and
-  model as arguments. `fever`/`pddl`/`sciworld` differ by 3 lines out of 74.
+### What the CLI looks like now
+
+```
+--mas_type {autogen,dylan,macnet}        # autogen_mas is gone
+--use_validator                          # the validator arm, any mas_type
+--mas_memory {…12 unchanged keys…}
+```
+
+`autogen_mas` is rejected at parse time, naming the three that remain. Every
+`MAS_MEMORY_MODULES` key is unchanged, so the Slurm scripts needed no edit and
+result CSV paths keep their names.
+
+### Two claims this section used to make, both wrong
+
+Found by re-measuring against `main` rather than trusting the first review.
+
+- **`_project_insights` had three variants, not two.** Phase 3's `01ee10e` moved
+  `autogen` and `autogen_mas` onto `SupportsProjection` and left
+  `autogen_hotpot`, `dylan` and `graph_mas` naming `GMemory`. `dylan` and
+  `graph_mas` hashed identically to each other; `autogen` and `autogen_mas`
+  differed only in which attribute the memory came from.
+- **"Drop `IntrinsicMASMemory` from `__all__`"** conflated two classes of the same
+  name. The exported one is the live base, which the variants extend; the dead one
+  was in `intrinsicmemory_deprecated.py` and is deleted. No `__all__` change was
+  needed.
+
+### Three things worth knowing that the plan did not anticipate
+
+- **DyLAN and MacNet have no distinct agent roles.** DyLAN's nine agents and
+  MacNet's three all carry the profile `solver`, so per-role projection is
+  vacuous for them however the projector is wired. `test_each_role_gets_its_own_
+  insights` guarded itself with `len(projected) > 1` and so could not be widened;
+  it is now two tests, one asserting every role receives insights projected for
+  it (all four workflows) and one asserting roles that differ receive insights
+  that differ (only `autogen` exercises it).
+- **A `functools.partial` registry for stage 4 would have been silently broken.**
+  `build_system` builds the validator's memory as `memory.__class__(...)`, which
+  drops any constructor argument a registry supplied — the validator would have
+  run on the base's empty system prompt. The prompts are class attributes,
+  deliberately unannotated, and `test_a_rebuilt_memory_keeps_its_prompts` pins
+  it.
+- **The validator mechanism is on `MetaMAS`, so any workflow can use it.**
+  `_reviewed_attempt` wraps a proposing agent in a reviewing one and hands the
+  result to `_call_agent_with_retries`. Only AutoGen uses it: DyLAN and MacNet
+  still hold their own hand-written retry loops, and folding those into
+  `_call_agent_with_retries` is what would let them opt in — see the entry below.
+
+### Stage 5 was dropped: the Slurm scripts stay as they are
+
+Measured: `slurm/{fever,pddl,sciworld}_experiment.sh` are 74 lines each.
+`fever` vs `sciworld` differ by **2** lines, `fever` vs `pddl` by **3**.
+
+Dropped by direction, as experimental configuration rather than codebase — the
+same reasoning that deleted the tests written for these scripts in Phase 3. A
+parameterised script turns each submission from "copy the file, change the task"
+into "get the flag order right at the call site", and by that same principle
+nothing may test that it still works. If any of it is ever worth doing, it is the
+27-line vLLM serve block that is verbatim in all three: `source` it from a shared
+file and leave the three thin wrappers alone.
+
+### Known consequence, deliberately not addressed
+
+`working_dir` is `db_dir/model/task/mas_type/mas_memory`, so validator and plain
+runs of the same task, memory and model now share a directory and append to the
+same `results.csv`. **`--use_projector` has had exactly this property since it was
+added**, so this is the existing design rather than a regression, and the CSV
+schema was deliberately left untouched in this phase. The fix is a column, which
+lands with Phase 5's `results.py` extraction.
+
+### Also not done
+
+- **`entrypoint.sh` cannot reach the validator arm.**
+  `template/generate_templates.py` passed `autogen_mas` as
+  `environmentVariable7`, which `entrypoint.sh` maps to `--mas_type`; that would
+  now be rejected at parse time, so it passes `autogen`. This does change what
+  that deploy path runs, from the validator arm to the plain one. Giving
+  `entrypoint.sh` a way to pass `--use_validator` belongs with the Phase 6 deploy
+  work, which has to touch that template anyway.
+- **`README.md`'s `--mas_type` table still lists `autogen_mas`** and does not
+  mention `--use_validator`. Untouched because that file carries uncommitted local
+  edits; it is on the Phase 6 README item.
 
 ### Done ahead of this phase
 
-- ~~Lift the observer pattern to `MetaMAS`~~ — `afbf5f3`, because the shared retry
-  helper reports through it. Four copies deleted; the fifth is in
-  `autogen_hotpot.py`, which this phase deletes.
+- ~~Lift the observer pattern to `MetaMAS`~~ — `afbf5f3`. The fifth copy was in
+  `autogen_hotpot.py`, deleted in stage 1.
 - ~~Remove the two `time.sleep(5)` calls~~ — `8c9d764`.
+
+---
+
+## Which memory-update prompt should each intrinsic variant carry?
+
+`needs-decision` · found while planning Phase 4's stage 4 · **open**
+
+Not a defect, and not results-affecting today. It is a question about the
+experiment that the code currently answers by accident.
+
+**How the two prompts differ.** Each intrinsic module holds two:
+
+- `memory_system_prompt` — the *role*. It tells the model what kind of thing it
+  is writing: for `intrinsicmemory-pddl`, 3,309 characters of PDDL-specific
+  memory structure; for `-fever` 4,562; for `-alfworld` 6,682; for `-notemplate`
+  468 with no structure at all. **This is the independent variable of the
+  experiment.**
+- `memory_update_prompt` — the *instruction per turn*. It is the user-role
+  message, formatted with five fields — `custom_message`,
+  `template_instructions`, `task_description`, `task_trajectory`,
+  `current_memory` — and it asks for the memory to be rewritten given the latest
+  step. It is task-agnostic machinery.
+
+So the current split is coherent: **the template varies, the update procedure is
+held constant.** For an experiment whose question is *which kind of memory
+template works best*, holding the update instruction fixed across arms is the
+right design — it is the control.
+
+**What is actually wrong** is only that four bundles define a
+`memory_update_prompt` nothing reads:
+
+| bundle | defines it | read | has `{custom_message}` |
+|---|---|---|---|
+| `INTRINSICMEMORYDEFAULT` | 373 chars | **yes, by all four** | yes |
+| `INTRINSICMEMORYPDDL` | 290 | no | **no** |
+| `INTRINSICMEMORYFEVER` | 290 | no | **no** |
+| `INTRINSICMEMORYALFWORLD` | 290 | no | **no** |
+| `INTRINSICMEMORY_NOTEMPLATE` | 331 | no | yes |
+| `INTRINSICMEMORYLLMTEMPLATE` | 586 | **yes, it overrides** | yes |
+
+The three task bundles' versions are identical to each other and are supersded
+drafts: `DEFAULT` has the `{custom_message}` slot, the `OUTPUT ONLY THE UPDATED
+MEMORY` instruction and a `## New Memory` trailer, none of which they have.
+Wiring them up would *silently drop the solver message* that `a5a3643` added,
+since their text has no slot for it.
+
+**Recommendation: delete the four dead definitions**, leaving `DEFAULT` as the
+single shared update prompt. No number moves, and the four arms then differ by
+exactly the variable under test.
+
+**The one case for a per-arm update prompt** is the reverse of the above: if a
+task-specific *template* needs task-specific *filling instructions* to be used
+properly, then holding the update prompt fixed under-serves the structured arms
+and the comparison is unfair in the other direction. That is a real hypothesis,
+but it makes the update prompt a second independent variable, and it should then
+be varied deliberately for all four arms rather than inherited from three
+identical drafts. `intrinsicmemory-llm-structured-template` already shows the
+mechanism works — it overrides both, and Phase 3 had to un-comment that very line
+(`364ac8a`) to make the arm measure anything.
+
+Stage 4 left `update_prompt` as the class attribute where either decision lands:
+one line per variant. `test_intrinsic_prompts.py` pins today's answer, so a
+change to it is visible rather than silent.
 
 ---
 
@@ -370,6 +479,12 @@ same `except AgentCallFailed: break` the AutoGen workflows use (`8bcb42c`), and
 charge the full budget as they do (`91e3a99`). Fold in the `max_trials` rename
 below at the same time.
 
+**Phase 4 raised the value of doing it.** `MetaMAS._reviewed_attempt` (`07d6bb2`)
+puts the validator's contract on the base class, so `--use_validator` would work
+for DyLAN and MacNet too — but only once their loops go through
+`_call_agent_with_retries`, which is what this entry is. Until then the flag is
+accepted for any `--mas_type` and only `autogen` acts on it.
+
 **What Phase 2 did give them**, so they are not stranded: both return
 `EpisodeResult` (`7e8a06a` — before this, `--mas_type dylan` and `--mas_type
 macnet` raised `ValueError: not enough values to unpack` on the first completed
@@ -484,8 +599,9 @@ every arm, so format failures stop being a confound, and let the validator arm
 test whether an LLM critic adds anything *beyond* a well-formed action. That is a
 sharper question than the one currently being asked.
 
-**Depends on** Phase 4's `use_validator` merge, so there is one code path to
-change rather than two.
+**Unblocked.** Phase 4's `use_validator` merge landed in `07d6bb2`, so there is
+one code path to change rather than two. `MetaMAS._reviewed_attempt` is where the
+validator's contract now lives, and it is what structured output would replace.
 
 ---
 
@@ -780,8 +896,8 @@ Phase 5's CSV schema so the columns have somewhere honest to go.
 
 `tests`
 
-Phases 1–3 took the suite from **115 tests** — reaching one workflow file and one
-memory module — to **395**, reaching every workflow, recorder and environment and
+Phases 1–4 took the suite from **115 tests** — reaching one workflow file and one
+memory module — to **417**, reaching every workflow, recorder and environment and
 eleven of twelve memory modules. Group D, the cross-registry contract tests, was
 Phase 2's acceptance criterion and is done.
 
@@ -796,12 +912,12 @@ direct tests; the other five appear only in the compatibility matrix, which
 asserts they do not raise. Since the five subclasses differ by exactly one string,
 **nothing currently detects a wrong one.**
 
-- [ ] **A1 — each module gets its own prompt.** Parametrise over the registry: for
-  every `intrinsicmemory-*` key, assert `memory_system_prompt` is the specific
-  constant that module should carry, and that it is non-empty (the base uses
-  `""`). Cheap, and the only thing standing between a copy-paste slip and a whole
-  experiment arm silently running PDDL's prompt on FEVER. **Write this before
-  Phase 4 collapses these classes into a registry.**
+- [x] ~~**A1 — each module gets its own prompt.**~~ — `test_intrinsic_prompts.py`
+  (`0fef126`), 27 tests, written before stage 4 collapsed the classes. It cannot
+  be red against correct code, so it was verified by mutation: fever's constant
+  swapped for PDDL's, notemplate's override deleted, llm-template's update prompt
+  override cut. It also pins which update prompt each arm carries, and that the
+  prompts survive the `memory.__class__(...)` rebuild `build_system` does.
 - [ ] **A2 — intrinsic LLM calls are billed as intrinsic.** See the
   intrinsic-token-accounting issue.
 - [ ] **A3 — the `len(task_trajectory) > 5` gate.** Boundary test at 3 (the
@@ -825,14 +941,18 @@ tests assert shape, not behaviour, which is how the projector bug lived directly
 underneath them.
 
 - [x] ~~B1 — the projector actually projects~~ — `test_projector.py`, six of
-  fourteen red against the pre-fix code, including for `autogen`.
+  fourteen red against the pre-fix code, including for `autogen`. Widened in
+  Phase 4 to every registered workflow, which turned six more red and established
+  that DyLAN and MacNet had never projected either (`f4445ab`).
 - [ ] **B4 — validator memory is written and read.** **Answered: it is
   write-only.** `meta_memory_validator` is constructed, given
   `init_task_context`, summarised on every attempt and saved at the end — and the
   `summarize` return value is discarded at the call site. Nothing calls
   `retrieve_memory` on it. So the test to write is the one that records that, and
   the item to act on is the structured-output entry above, which removes the call
-  rather than finding it a reader.
+  rather than finding it a reader. Phase 4 moved it behind `--use_validator`
+  (`07d6bb2`) without changing that: the write-only memory exists only when the
+  flag is set.
 - [x] ~~B2 — an always-empty LLM response terminates~~ — `test_agent_retries.py`,
   verified to fail in 1.3s against the pre-fix loop.
 - [x] ~~B3 — a persistently INVALID verdict is bounded~~ —
