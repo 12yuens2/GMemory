@@ -5,12 +5,14 @@ from .metagpt import MetaGPTMASMemory
 from .voyager import VoyagerMASMemory
 from .memorybank import MemoryBankMASMemory
 from .GMemory import GMemory
-from .intrinsicmemory_pddl import IntrinsicMASMemoryPDDL
-from .intrinsicmemory_fever import IntrinsicMASMemoryFEVER
-from .intrinsicmemory_alfworld import IntrinsicMASMemoryALFWORLD
+from .intrinsicmemory import (
+    IntrinsicMASMemory,
+    IntrinsicMASMemoryALFWORLD,
+    IntrinsicMASMemoryFEVER,
+    IntrinsicMASMemoryNoTemplate,
+    IntrinsicMASMemoryPDDL,
+)
 from .intrinsicmemory_llm_structured_template import IntrinsicMASMemoryLLMTemplate
-from .intrinsicmemory_notemplate import IntrinsicMASMemoryNoTemplate
-from .intrinsicmemory import IntrinsicMASMemory
 
 __all__ = [
     'MASMemoryBase', 

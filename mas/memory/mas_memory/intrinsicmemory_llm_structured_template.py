@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import os
 import sys
 
 from .prompt import INTRINSICMEMORYLLMTEMPLATE
@@ -18,16 +17,13 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
     A separate memory is used to store the agent's memory, which is updated with the latest information from the agent's messages.
     
     """
+    system_prompt = INTRINSICMEMORYLLMTEMPLATE.memory_system_prompt
+    update_prompt = INTRINSICMEMORYLLMTEMPLATE.memory_update_prompt
+
     def __post_init__(self):
         super().__post_init__()
-        os.makedirs(self.persist_dir, exist_ok=True)
-        self.counter: int = 0
-        self.agent_intrinsic_memory: str = ""
         self.memory_template: str = ""
         self.memory_template_flag: bool = False
-
-        self.memory_update_prompt = INTRINSICMEMORYLLMTEMPLATE.memory_update_prompt
-        self.memory_system_prompt = INTRINSICMEMORYLLMTEMPLATE.memory_system_prompt
 
 
     def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:

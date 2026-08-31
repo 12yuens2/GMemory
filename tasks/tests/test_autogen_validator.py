@@ -1,6 +1,6 @@
 """
 Test suite for the validator arm of tasks/mas_workflow/autogen/autogen.py and
-mas/memory/mas_memory/intrinsicmemory_notemplate.py.
+mas/memory/mas_memory/intrinsicmemory.py.
 
 Every workflow here is built with `use_validator: True`. What used to be a
 separate module, autogen_mas.py, is now this flag.
@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 # ── path setup ────────────────────────────────────────────────────────────────
 # Env vars and dependency stubs are handled by conftest.py in this directory.
 
-from mas.memory.mas_memory.intrinsicmemory_notemplate import IntrinsicMASMemoryNoTemplate
+from mas.memory.mas_memory.intrinsicmemory import IntrinsicMASMemoryNoTemplate
 from mas.reasoning import ReasoningBase
 
 from tasks.mas_workflow.autogen.autogen import AutoGen

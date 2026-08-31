@@ -122,3 +122,28 @@ def test_the_update_prompt_accepts_every_field_summarize_formats(key):
 
     for field in ('DESCRIPTION', 'TRAJECTORY', 'MEMORY'):
         assert field in formatted, f"{key}'s update prompt drops {field}"
+
+# ── the prompts survive the way build_system rebuilds a memory ────────────────
+
+@pytest.mark.parametrize('key', INTRINSIC_KEYS)
+def test_a_rebuilt_memory_keeps_its_prompts(key):
+    """`build_system` builds the validator's memory as `memory.__class__(...)`.
+
+    Anything that carries a module's prompts as a constructor argument rather
+    than on the class loses them here, silently.
+    """
+    original = build(key)
+
+    rebuilt = original.__class__(
+        namespace=original.namespace + '_validator',
+        global_config=original.global_config,
+        llm_model=original.llm_model,
+        embedding_func=original.embedding_func,
+    )
+
+    assert rebuilt.memory_system_prompt == original.memory_system_prompt, (
+        f"{key} lost its system prompt when rebuilt from its own class"
+    )
+    assert rebuilt.memory_update_prompt == original.memory_update_prompt, (
+        f"{key} lost its update prompt when rebuilt from its own class"
+    )

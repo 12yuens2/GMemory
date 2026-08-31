@@ -58,7 +58,7 @@ pytestmark = [
 # ── imports (only reached when credentials are present) ───────────────────────
 from mas.llm import GPTChat
 from mas.reasoning import ReasoningIO, ReasoningConfig
-from mas.memory.mas_memory.intrinsicmemory_notemplate import IntrinsicMASMemoryNoTemplate
+from mas.memory.mas_memory.intrinsicmemory import IntrinsicMASMemoryNoTemplate
 from mas.agents import Agent
 from tasks.mas_workflow.autogen.autogen_prompt import AUTOGEN_PROMPT
 

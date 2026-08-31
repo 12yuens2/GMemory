@@ -13,7 +13,7 @@ from mas.memory import MASMemoryBase
 from mas.memory.mas_memory.intrinsicmemory_llm_structured_template import (
     IntrinsicMASMemoryLLMTemplate,
 )
-from mas.memory.mas_memory.intrinsicmemory_notemplate import IntrinsicMASMemoryNoTemplate
+from mas.memory.mas_memory.intrinsicmemory import IntrinsicMASMemoryNoTemplate
 from mas.memory.mas_memory.prompt import INTRINSICMEMORYLLMTEMPLATE
 
 from tasks.tests.fakes import FakeEmbeddingFunc, FakeLLM

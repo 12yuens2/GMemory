@@ -1,9 +1,14 @@
 from dataclasses import dataclass
-import os
 import sys
 
 from .memory_base import MASMemoryBase
-from .prompt import INTRINSICMEMORYDEFAULT
+from .prompt import (
+    INTRINSICMEMORYALFWORLD,
+    INTRINSICMEMORYDEFAULT,
+    INTRINSICMEMORYFEVER,
+    INTRINSICMEMORYPDDL,
+    INTRINSICMEMORY_NOTEMPLATE,
+)
 from ..common import MASMessage # a MASMessage, which is a specific type of message used in MAS
 from mas.llm import Message, GPTChat # a "normal" message, not a MASMessage?
 
@@ -18,14 +23,19 @@ class IntrinsicMASMemory(MASMemoryBase):
     A separate memory is used to store the agent's memory, which is updated with the latest information from the agent's messages.
     
     """
+    # Class attributes, deliberately unannotated so they stay off the
+    # constructor: build_system rebuilds a memory as `memory.__class__(...)`,
+    # which drops anything passed in.
+    system_prompt = ""
+    update_prompt = INTRINSICMEMORYDEFAULT.memory_update_prompt
+
     def __post_init__(self):
         super().__post_init__()
-        os.makedirs(self.persist_dir, exist_ok=True)
         self.counter: int = 0
         self.agent_intrinsic_memory: str = ""
 
-        self.memory_update_prompt = INTRINSICMEMORYDEFAULT.memory_update_prompt
-        self.memory_system_prompt = ""
+        self.memory_system_prompt = self.system_prompt
+        self.memory_update_prompt = self.update_prompt
 
     def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:
 
@@ -72,8 +82,24 @@ class IntrinsicMASMemory(MASMemoryBase):
         llm_model_name = self.llm_model.model_name
         self.llm_model = GPTChat(model_name=llm_model_name, tracker=self.llm_model.tracker)
 
-    # chat history
-    # context
-    # agent memory
-    # agent memory update
-    # agent memory initialisation
+@dataclass
+class IntrinsicMASMemoryPDDL(IntrinsicMASMemory):
+    system_prompt = INTRINSICMEMORYPDDL.memory_system_prompt
+
+
+@dataclass
+class IntrinsicMASMemoryFEVER(IntrinsicMASMemory):
+    system_prompt = INTRINSICMEMORYFEVER.memory_system_prompt
+
+
+@dataclass
+class IntrinsicMASMemoryALFWORLD(IntrinsicMASMemory):
+    system_prompt = INTRINSICMEMORYALFWORLD.memory_system_prompt
+
+
+@dataclass
+class IntrinsicMASMemoryNoTemplate(IntrinsicMASMemory):
+    """Keeps agent memory without a memory template."""
+
+    system_prompt = INTRINSICMEMORY_NOTEMPLATE.memory_system_prompt
+
