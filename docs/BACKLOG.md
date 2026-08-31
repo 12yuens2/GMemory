@@ -14,13 +14,14 @@ phase.
 | | | |
 |---|---|---|
 | [Phase 3](#phase-3-close-the-silent-degradation-gaps) | silent degradation | 6 of 10 landed |
-| [Phase 4](#phase-4-collapse-the-duplication) | ~700 lines of copy-paste | 4 of 5 landed |
+| [Phase 4](#phase-4-collapse-the-duplication) | ~700 lines of copy-paste | 4 of 5 landed, in review |
 | [Phase 5](#phase-5-split-the-oversized-modules) | module splits, CSV schema | mostly moves |
 | [Phase 6](#phase-6-make-the-operational-surface-reproducible) | container, deploy, logging | low risk |
 | [`--task alfworld` cannot run](#--task-alfworld-cannot-run-the-environment-is-commented-out) | bug | **needs a decision** |
 | [DyLAN/MacNet retry loops](#dylan-and-macnet-retry-loops-are-still-unbounded) | bug | deferred |
 | [Structured output vs a validator agent](#guarantee-the-action-format-instead-of-checking-it-with-a-second-agent) | research | **needs a decision** |
-| [Intrinsic update prompts](#which-memory-update-prompt-should-each-intrinsic-variant-carry) | research | **needs a decision** |
+| [~~Intrinsic update prompts~~](#which-memory-update-prompt-should-each-intrinsic-variant-carry--closed) | research | closed |
+| [`build_system` rebuilds a memory](#build_system-builds-the-validators-memory-out-of-another-instances-class) | tech debt | from review |
 | [~~`--mas_memory` default~~](#--mas_memory-defaulted-to-a-value-the-registry-does-not-have--closed) | bug | closed |
 | [Intrinsic token accounting](#intrinsic-token-accounting-is-always-zero) | bug | silent |
 | [G-Memory clustering](#g-memorys-clustering-does-not-run) | bug | **deferred** |
@@ -243,66 +244,83 @@ lands with Phase 5's `results.py` extraction.
 
 ---
 
-## Which memory-update prompt should each intrinsic variant carry?
+## ~~Which memory-update prompt should each intrinsic variant carry?~~ — closed
 
-`needs-decision` · found while planning Phase 4's stage 4 · **open**
+`needs-decision` · found while planning Phase 4's stage 4 · **closed in `4014617`**
 
-Not a defect, and not results-affecting today. It is a question about the
-experiment that the code currently answers by accident.
+Answered on review: **one shared update prompt**, and the four unread per-task
+definitions deleted.
 
-**How the two prompts differ.** Each intrinsic module holds two:
+The two prompts do different jobs. `memory_system_prompt` is the *template* — what
+kind of thing the model is writing, 3,309 characters of PDDL structure against 468
+for `-notemplate`. That is the experiment's independent variable.
+`memory_update_prompt` is the *instruction per turn* — task-agnostic machinery. So
+the template varies and the update procedure is the control, which is what makes
+the arms comparable.
 
-- `memory_system_prompt` — the *role*. It tells the model what kind of thing it
-  is writing: for `intrinsicmemory-pddl`, 3,309 characters of PDDL-specific
-  memory structure; for `-fever` 4,562; for `-alfworld` 6,682; for `-notemplate`
-  468 with no structure at all. **This is the independent variable of the
-  experiment.**
-- `memory_update_prompt` — the *instruction per turn*. It is the user-role
-  message, formatted with five fields — `custom_message`,
-  `template_instructions`, `task_description`, `task_trajectory`,
-  `current_memory` — and it asks for the memory to be rewritten given the latest
-  step. It is task-agnostic machinery.
+The four plain modules are **byte-identical**, verified by driving `summarize()`
+against a worktree at the previous commit and comparing every message. The shared
+prompt's new `{template_instructions}` slot sits directly against
+`{custom_message}` with no separator, so both rendering empty reproduces the old
+text exactly.
 
-So the current split is coherent: **the template varies, the update procedure is
-held constant.** For an experiment whose question is *which kind of memory
-template works best*, holding the update instruction fixed across arms is the
-right design — it is the control.
+**`intrinsicmemory-llm-structured-template` changed, and it was a defect.** Its
+update prompt was two prompts concatenated — a complete "create the new memory"
+block ending in `## New Memory`, then a second "populate and update … based on the
+below instructions" block that repeated the trajectory and the current memory. It
+was therefore sending the trajectory and memory **twice** with two different
+instructions, and it was the only module whose update prompt lacked
+`OUTPUT ONLY THE UPDATED MEMORY. NOTHING MORE.` and had no `{custom_message}` slot
+— silently dropping the solver message every other module receives.
 
-**What is actually wrong** is only that four bundles define a
-`memory_update_prompt` nothing reads:
+**That module needs re-running.** Phase 3 already flagged it, since `364ac8a` is
+what made it measure anything at all, so this compounds rather than adding a new
+re-run.
 
-| bundle | defines it | read | has `{custom_message}` |
-|---|---|---|---|
-| `INTRINSICMEMORYDEFAULT` | 373 chars | **yes, by all four** | yes |
-| `INTRINSICMEMORYPDDL` | 290 | no | **no** |
-| `INTRINSICMEMORYFEVER` | 290 | no | **no** |
-| `INTRINSICMEMORYALFWORLD` | 290 | no | **no** |
-| `INTRINSICMEMORY_NOTEMPLATE` | 331 | no | yes |
-| `INTRINSICMEMORYLLMTEMPLATE` | 586 | **yes, it overrides** | yes |
+`prompt.py`'s naming went with it: `DEFAULT_` prefixed all eleven constants where
+only one is a default.
 
-The three task bundles' versions are identical to each other and are supersded
-drafts: `DEFAULT` has the `{custom_message}` slot, the `OUTPUT ONLY THE UPDATED
-MEMORY` instruction and a `## New Memory` trailer, none of which they have.
-Wiring them up would *silently drop the solver message* that `a5a3643` added,
-since their text has no slot for it.
+---
 
-**Recommendation: delete the four dead definitions**, leaving `DEFAULT` as the
-single shared update prompt. No number moves, and the four arms then differ by
-exactly the variable under test.
+## `build_system` builds the validator's memory out of another instance's class
 
-**The one case for a per-arm update prompt** is the reverse of the above: if a
-task-specific *template* needs task-specific *filling instructions* to be used
-properly, then holding the update prompt fixed under-serves the structured arms
-and the comparison is unfair in the other direction. That is a real hypothesis,
-but it makes the update prompt a second independent variable, and it should then
-be varied deliberately for all four arms rather than inherited from three
-identical drafts. `intrinsicmemory-llm-structured-template` already shows the
-mechanism works — it overrides both, and Phase 3 had to un-comment that very line
-(`364ac8a`) to make the arm measure anything.
+`tech-debt` · raised in review of PR #7
 
-Stage 4 left `update_prompt` as the class attribute where either decision lands:
-one line per variant. `test_intrinsic_prompts.py` pins today's answer, so a
-change to it is visible rather than silent.
+`build_system` gives the validator its own memory by reaching into the class of
+the instance it was handed:
+
+```python
+self.meta_memory_validator = mas_memory.__class__(
+    namespace=mas_memory.namespace + "_validator",
+    global_config=mas_memory.global_config,
+    llm_model=mas_memory.llm_model,
+    embedding_func=mas_memory.embedding_func,
+)
+```
+
+It works, and Phase 4 relies on it — the memory modules carry their prompts as
+class attributes precisely so this reconstruction keeps them, which is why a
+`functools.partial` registry would have been silently broken. But a workflow
+reconstructing a collaborator by unpicking one it was given is the wrong direction
+of control: `build_system` has to know every constructor argument
+`MASMemoryBase` takes, and gains a reason to change every time that signature
+does.
+
+**Two ways out.**
+
+1. **`build_mas` supplies both.** It already builds the memory module from
+   `module_map`, so it can build a second one and pass it in. `build_system`'s
+   signature grows an optional `validator_memory`, and the workflow stops knowing
+   how memories are made.
+2. **The memory offers it.** A `MASMemoryBase.for_namespace(suffix)` returning a
+   sibling instance keeps the knowledge of its own constructor where it belongs,
+   and reads as one line at the call site.
+
+Option 2 is smaller and puts the knowledge in the right place. Option 1 is more
+thorough and fits the dependency direction the rest of Phase 4 moved toward.
+
+**Not urgent.** `test_a_rebuilt_memory_keeps_its_prompts` pins the behaviour
+either way, so this can be changed without guessing.
 
 ---
 
