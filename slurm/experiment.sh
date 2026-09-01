@@ -21,7 +21,7 @@ module load brics/nccl
 module list
 
 export MODEL_NAME="openai/gpt-oss-120b"
-export OPENAI_API_BASE=${HEAD_NODE_IP}:8000
+export OPENAI_API_BASE=http://${HEAD_NODE_IP}:8000
 export OPENAI_API_KEY="none"
 
 cd ~/GMemory

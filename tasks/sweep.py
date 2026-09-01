@@ -13,9 +13,11 @@ from itertools import product
 
 from tqdm import tqdm
 
+from mas.logging_utils import log_mas_to_console
 from mas.module_map import MAS_MEMORY_MODULES
 from mas.settings import LLMSettings, default_llm_settings
 
+import results
 from envs import ENVS
 from experiment import run_experiment
 from mas_workflow import MAS
@@ -36,29 +38,46 @@ def build_experiment_configs(args) -> list[dict]:
     return [dict(zip(values, combination)) for combination in product(*values.values())]
 
 
+def experiments_to_run(
+    experiments: list[dict], overall_results_path: str
+) -> tuple[list[dict], int]:
+    """The experiments with no row in `overall_results_path` yet, and how many had one.
+
+    Every writer appends, so re-running a killed sweep would add a second row for
+    every experiment that had already finished, to be de-duplicated by hand
+    before anything could be plotted.
+    """
+    recorded = results.recorded_experiments(overall_results_path)
+    remaining = [
+        experiment for experiment in experiments
+        if results.experiment_key(experiment) not in recorded
+    ]
+
+    return remaining, len(experiments) - len(remaining)
+
+
 def run_experiments(experiments: list[dict], num_workers: int) -> list[dict]:
     """Every experiment, in this process or in a pool of them.
 
-    A pool is not spawned for a single experiment. When one is, every worker
-    writes through the same lock: they append to shared result files.
+    A pool is not spawned for a single experiment. The workers need nothing
+    shared: they append to the same result files under a lock on each file, which
+    is also what makes two separately submitted jobs safe.
     """
     if len(experiments) == 1 or num_workers <= 1:
         return [run_experiment(experiment_config) for experiment_config in experiments]
 
     ctx = multiprocessing.get_context('spawn')
-    with multiprocessing.Manager() as manager:
-        output_lock = manager.Lock()
-        with ProcessPoolExecutor(
-            max_workers=min(num_workers, len(experiments)), mp_context=ctx
-        ) as executor:
-            futures = [
-                executor.submit(run_experiment, experiment_config, output_lock)
-                for experiment_config in experiments
-            ]
-            return [
-                future.result()
-                for future in tqdm(as_completed(futures), total=len(futures), desc='Running experiments')
-            ]
+    with ProcessPoolExecutor(
+        max_workers=min(num_workers, len(experiments)), mp_context=ctx
+    ) as executor:
+        futures = [
+            executor.submit(run_experiment, experiment_config)
+            for experiment_config in experiments
+        ]
+        return [
+            future.result()
+            for future in tqdm(as_completed(futures), total=len(futures), desc='Running experiments')
+        ]
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -72,6 +91,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--model', type=str, default='gpt-3.5-turbo-0125', help='Specify the LLM model type')
     parser.add_argument('--max_trials', type=int, default=None,
                         help="Override every task's configured max_steps with this trial budget")
+    parser.add_argument('--max_tasks', type=int, default=None,
+                        help="Override every task's configured max_tasks with this many tasks")
 
     # memory config
     parser.add_argument('--successful_topk', type=int, default=1, help='Number of successful trajs to be retrieved from memory.')
@@ -82,10 +103,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--use_validator', action='store_true',
                         help='add a validator agent that checks the solver\'s action format before it is taken.')
     parser.add_argument('--hop', type=int, default=1, help='hop for traj similarity.')
+    parser.add_argument('--intrinsic_cross_task', action='store_true',
+                        help='keep an intrinsic memory across the tasks of a dataset instead of '
+                             'starting each task from an empty one. No effect on the other memory '
+                             'modules, which accumulate across tasks either way.')
 
     # experiment config
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')
     parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')
+    parser.add_argument('--resume', action='store_true',
+                        help='Skip the experiments already recorded in the overall results '
+                             'file, instead of appending a second row for each of them.')
 
     # file paths
     parser.add_argument('--db_dir', type=str, default='./.db', help='Directory to store results, logs, and memory persistence for this run.')
@@ -101,7 +129,22 @@ def main(argv: list[str] = None) -> None:
     settings: LLMSettings = default_llm_settings()
     print(f'LLM endpoint: {settings.api_base}, max_tokens: {settings.max_tokens}')
 
+    if settings.log_responses:
+        log_mas_to_console()
+
+    overall_results_path = results.overall_results_path(
+        args.db_dir, args.overall_results_filename
+    )
+    results.check_header(overall_results_path, results.AGGREGATE_COLUMNS)
+
     experiments = build_experiment_configs(args)
+    if args.resume:
+        experiments, already_done = experiments_to_run(experiments, overall_results_path)
+        print(f'{already_done} experiments already recorded in {overall_results_path}, skipping')
+        if not experiments:
+            print('nothing left to run')
+            return
+
     outcomes = run_experiments(experiments, args.num_workers)
 
     failed = [outcome for outcome in outcomes if outcome.get('status') == 'failed']

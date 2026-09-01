@@ -43,3 +43,17 @@ def get_file_logger(
         logger.addHandler(console_handler)
 
     return logger
+
+
+def log_mas_to_console(level: int = logging.DEBUG) -> None:
+    """Put the mas package's own logging on stderr, at `level`.
+
+    Only the mas loggers: at DEBUG the root logger would also carry httpx's
+    record of every request.
+    """
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(name)s - %(message)s'))
+
+    logger = logging.getLogger('mas')
+    logger.setLevel(level)
+    logger.addHandler(handler)

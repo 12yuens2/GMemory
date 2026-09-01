@@ -18,16 +18,17 @@ from mas.reasoning import ReasoningBase
 from mas.memory import MASMemoryBase
 from mas.llm import LLMCallable, GPTChat, TokenTracker
 from mas.mas import EpisodeResult, MetaMAS
-from mas.utils import EmbeddingFunc
+from mas.utils import EmbeddingFunc, repo_path
 
 import results
 from envs import BaseEnv, BaseRecorder, get_env, get_recorder, get_task
 from mas_workflow import get_mas
 from prompts import get_dataset_system_prompt, get_task_few_shots
-from utils import get_model_type
+from utils import model_dir_name
 
+CONFIG_PATH = repo_path('tasks', 'configs.yaml')
 
-with open('tasks/configs.yaml') as reader:
+with open(CONFIG_PATH) as reader:
     CONFIG: dict = yaml.safe_load(reader)
 
 
@@ -54,6 +55,7 @@ class TaskManager:
             mas_type=self.mas_type,
             mas_memory=self.memory_type,
             use_validator=self.mas_config.get('use_validator', False),
+            intrinsic_cross_task=self.mem_config.get('intrinsic_cross_task', False),
         )
 
 
@@ -68,6 +70,17 @@ def trial_budget(task: str, override: int = None) -> int:
     return budget
 
 
+def dataset_size(task: str, override: int = None) -> int:
+    """How many of `task`'s tasks a run covers: its `max_tasks`, or `override`.
+
+    None either way means the whole dataset.
+    """
+    if override is not None:
+        return override
+
+    return CONFIG.get(task, {}).get('max_tasks')
+
+
 def build_task(
     task: str,
     mas_type: str,
@@ -76,14 +89,15 @@ def build_task(
     working_dir: str,
     model: str = None,
     max_trials: int = None,
+    max_tasks: int = None,
 ) -> TaskManager:
 
-    with open(CONFIG.get(task).get('env_config_path')) as reader:
+    with open(repo_path(CONFIG.get(task).get('env_config_path'))) as reader:
         config = yaml.safe_load(reader)
 
     env: BaseEnv = get_env(task, config, trial_budget(task, max_trials))
     recorder: BaseRecorder = get_recorder(task, working_dir=working_dir, namespace=f'total_task-seed_{seed}')
-    tasks: list[dict] = get_task(task, max_tasks=CONFIG.get(task, {}).get('max_tasks'))
+    tasks: list[dict] = get_task(task, max_tasks=dataset_size(task, max_tasks))
     mas_workflow: MetaMAS = get_mas(mas_type)
     mas_config: dict = CONFIG.get(mas_type, {})
 
@@ -107,7 +121,10 @@ def build_mas(
     llm_type: str = None,
 ) -> None:
     
-    embed_func = EmbeddingFunc(CONFIG.get('embedding_model', "sentence-transformers/all-MiniLM-L6-v2")) 
+    embed_func = EmbeddingFunc(
+        CONFIG.get('embedding_model', "sentence-transformers/all-MiniLM-L6-v2"),
+        device=CONFIG.get('embedding_device', 'cpu'),
+    )
     reasoning_module_type, mas_memory_module_type = module_map(reasoning, mas_memory)
 
     llm_model: LLMCallable = GPTChat(model_name=llm_type)
@@ -126,7 +143,6 @@ def run_task(
     task_manager: TaskManager,
     working_dir: str,
     failed_tasks_filename: str,
-    output_lock=None,
 ) -> None:
     task_manager.recorder.dataset_begin()
     task_results_path = results.task_results_path(
@@ -194,7 +210,6 @@ def run_task(
                 episode=episode,
                 spent=tracker.since(before),
             ),
-            output_lock=output_lock,
         )
 
         # means so far, so a killed job leaves a result without processing
@@ -208,7 +223,6 @@ def run_task(
                 averages=task_manager.recorder.average_results(),
                 tracker=tracker,
             ),
-            output_lock=output_lock,
         ))
 
     if failed_tasks:
@@ -218,7 +232,7 @@ def run_task(
         )
         task_manager.recorder.log(summary)
         print(summary, file=sys.stderr)
-        _write_failed_tasks(task_manager, failed_tasks, working_dir, failed_tasks_filename, output_lock=output_lock)
+        _write_failed_tasks(task_manager, failed_tasks, working_dir, failed_tasks_filename)
 
     task_manager.recorder.dataset_end()
 
@@ -228,7 +242,6 @@ def _write_failed_tasks(
     failed_tasks: list[dict],
     working_dir: str,
     failed_tasks_filename: str,
-    output_lock=None,
 ) -> None:
     """One row per task that could not be run, alongside the experiment's results."""
     path = results.failed_tasks_path(working_dir, failed_tasks_filename)
@@ -243,17 +256,17 @@ def _write_failed_tasks(
                 'seed': task_manager.seed,
                 **results.failure_fields(failure['error']),
             },
-            output_lock=output_lock,
         )
 
 
-def run_experiment(experiment_config: dict, output_lock=None) -> dict:
+def run_experiment(experiment_config: dict) -> dict:
     task_name = experiment_config['task']
     mas_type = experiment_config['mas_type']
     mas_memory_type = experiment_config['mas_memory']
     reasoning_type = experiment_config['reasoning']
     model_type = experiment_config['model']
     max_trials = experiment_config['max_trials']
+    max_tasks = experiment_config['max_tasks']
     seed = experiment_config['seed']
     successful_topk = experiment_config['successful_topk']
     failed_topk = experiment_config['failed_topk']
@@ -262,13 +275,14 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     use_projector = experiment_config['use_projector']
     use_validator = experiment_config['use_validator']
     hop = experiment_config['hop']
+    intrinsic_cross_task = experiment_config['intrinsic_cross_task']
     db_dir = experiment_config['db_dir']
     overall_results_filename = experiment_config['overall_results_filename']
     failed_tasks_filename = experiment_config['failed_tasks_filename']
     failed_experiments_filename = experiment_config['failed_experiments_filename']
 
     # set save dirs
-    working_dir = os.path.join(db_dir, get_model_type(model_type), task_name, mas_type, f'{mas_memory_type}')
+    working_dir = os.path.join(db_dir, model_dir_name(model_type), task_name, mas_type, f'{mas_memory_type}')
     os.makedirs(working_dir, exist_ok=True)
 
     try:
@@ -276,7 +290,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
 
         task_configs: TaskManager = build_task(
             task_name, mas_type, mas_memory_type, seed, working_dir,
-            model=model_type, max_trials=max_trials,
+            model=model_type, max_trials=max_trials, max_tasks=max_tasks,
         )
         task_configs.mas_config['successful_topk'] = successful_topk
         task_configs.mas_config['failed_topk'] = failed_topk
@@ -290,11 +304,12 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         memory_dir = os.path.join(working_dir, f'seed_{seed}')
         task_configs.mem_config.update(
             working_dir=memory_dir,
-            hop=hop
+            hop=hop,
+            intrinsic_cross_task=intrinsic_cross_task,
         )
 
         build_mas(task_configs, reasoning_type, mas_memory_type, model_type)
-        run_task(task_configs, working_dir, failed_tasks_filename, output_lock=output_lock)
+        run_task(task_configs, working_dir, failed_tasks_filename)
 
         tracker = task_configs.token_tracker
         completion_tokens, prompt_tokens = tracker.completion_tokens, tracker.prompt_tokens
@@ -313,7 +328,6 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
                 averages=task_configs.recorder.average_results(),
                 tracker=tracker,
             ),
-            output_lock=output_lock,
         )
         print(result_line)
 
@@ -332,7 +346,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         }
     except Exception as e:
         print(f"Experiment failed: task={task_name} mas_memory={mas_memory_type} seed={seed}\n{traceback.format_exc()}", file=sys.stderr)
-        failed_path = _write_failed_experiment(experiment_config, e, db_dir, failed_experiments_filename, output_lock=output_lock)
+        failed_path = _write_failed_experiment(experiment_config, e, db_dir, failed_experiments_filename)
         return {
             'task': task_name,
             'mas_type': mas_type,
@@ -349,7 +363,6 @@ def _write_failed_experiment(
     error: Exception,
     db_dir: str,
     failed_experiments_filename: str,
-    output_lock=None,
 ) -> str:
     failed_path = results.failed_experiments_path(db_dir, failed_experiments_filename)
     results.write_row(
@@ -362,10 +375,10 @@ def _write_failed_experiment(
                 mas_type=experiment_config.get('mas_type', ''),
                 mas_memory=experiment_config.get('mas_memory', ''),
                 use_validator=experiment_config.get('use_validator', False),
+                intrinsic_cross_task=experiment_config.get('intrinsic_cross_task', False),
             ),
             'seed': experiment_config.get('seed', ''),
             **results.failure_fields(error),
         },
-        output_lock=output_lock,
     )
     return failed_path

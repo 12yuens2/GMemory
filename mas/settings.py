@@ -12,13 +12,10 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-from .utils import load_config
+from .utils import load_config, repo_path
 
-# Resolved against this file, not the working directory, so the process can be
-# started from any directory.
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CONFIG_PATH = _REPO_ROOT / "configs" / "configs.yaml"
-DEFAULT_ENV_PATH = _REPO_ROOT / ".env"
+DEFAULT_CONFIG_PATH = repo_path("configs", "configs.yaml")
+DEFAULT_ENV_PATH = repo_path(".env")
 
 
 class MissingSettings(RuntimeError):
@@ -35,12 +32,20 @@ class LLMSettings:
         max_tokens: Ceiling on the tokens generated per response, sent as
             `max_completion_tokens`. A truncated answer is still returned.
         temperature: Sampling temperature for any call that does not set its own.
+        request_timeout: Seconds one request may take before it is abandoned. The
+            openai default is 600, which multiplied by that client's retries and
+            the retry loops above it lets one action block for over an hour.
+        log_responses: Echo every LLM response and memory-update prompt to
+            stderr. Off by default: one Slurm job writes one .out file, from
+            every worker at once, over the order of 100,000 requests.
     """
 
     api_base: str
     api_key: str
     max_tokens: int = 512
     temperature: float = 0.1
+    request_timeout: float = 300.0
+    log_responses: bool = False
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "LLMSettings":
@@ -63,6 +68,13 @@ class LLMSettings:
                 f"file at the repository root."
             )
 
+        if not api_base.startswith(("http://", "https://")):
+            raise MissingSettings(
+                f"OPENAI_API_BASE must carry a scheme: 'http://{api_base}', not '{api_base}'. "
+                f"A base URL without one parses as a relative path, with no host, so "
+                f"requests never reach the server."
+            )
+
         llm_config: dict = (load_config(str(config_path or DEFAULT_CONFIG_PATH)) or {}).get(
             "llm_config", {}
         )
@@ -71,6 +83,8 @@ class LLMSettings:
             api_key=api_key,
             max_tokens=llm_config.get("max_token", 512),
             temperature=llm_config.get("temperature", 0.1),
+            request_timeout=llm_config.get("request_timeout", 300.0),
+            log_responses=llm_config.get("log_responses", False),
         )
 
 

@@ -112,3 +112,21 @@ def test_an_intrinsic_call_is_billed_to_the_intrinsic_columns_too():
     assert tracker.intrinsic_prompt_tokens == 11
     assert tracker.intrinsic_completion_tokens == 7
     assert tracker.intrinsic_prompt_tokens <= tracker.prompt_tokens
+
+
+# ── a request cannot take forever ─────────────────────────────────────────────
+
+def test_the_client_is_built_with_the_configured_request_timeout():
+    """Nothing above GPTChat can bound this: it builds its own client."""
+    from mas.llm import GPTChat
+    from mas.settings import LLMSettings
+
+    settings = LLMSettings(
+        api_base="http://localhost:9999/v1", api_key="none", request_timeout=42.0
+    )
+
+    chat = GPTChat(model_name="fake-model", settings=settings)
+
+    assert chat.client.timeout == 42.0, (
+        "a wedged endpoint consumes the allocation instead of failing the job"
+    )

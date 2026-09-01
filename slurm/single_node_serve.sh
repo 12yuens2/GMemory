@@ -51,8 +51,8 @@ echo "vLLM started!"
 
 deactivate
 
-# experiment setup
-export MODEL_NAME="openai/gpt-oss-120b"
+# experiment setup, against the model served above
+export MODEL_NAME
 export OPENAI_API_BASE=http://localhost:8000/v1
 export OPENAI_API_KEY="none"
 

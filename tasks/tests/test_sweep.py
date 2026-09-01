@@ -3,7 +3,7 @@
 Three properties, all of which fail invisibly rather than loudly:
 
   - a flag given several values must produce one experiment per combination;
-  - concurrent workers must share the lock they append result files through;
+  - every experiment must reach a worker exactly once;
   - two seeds of one config must not share a memory persistence directory.
 
 The last one is the expensive kind of wrong: memory carried from one seed into
@@ -87,23 +87,6 @@ class FakeExecutor:
         return future
 
 
-class FakeManager:
-    """multiprocessing.Manager()'s shape, handing out one lock."""
-
-    def __init__(self, lock):
-        self.lock = lock
-
-    def __enter__(self):
-        return SimpleNamespace(Lock=lambda: self.lock)
-
-    def __exit__(self, *exc_info):
-        return False
-
-
-def fake_multiprocessing(lock):
-    return SimpleNamespace(get_context=lambda method: method, Manager=lambda: FakeManager(lock))
-
-
 def test_a_single_experiment_does_not_spawn_a_pool(sweep_module, monkeypatch):
     sweep = sweep_module
     monkeypatch.setattr(sweep, 'run_experiment', lambda config, *args: {'ran': config['seed']})
@@ -122,14 +105,14 @@ def test_one_worker_runs_every_experiment_in_this_process(sweep_module, monkeypa
     assert outcomes == [{'ran': 1}, {'ran': 2}]
 
 
-def test_every_parallel_worker_is_given_the_shared_output_lock(sweep_module, monkeypatch):
-    """The workers append to the same result files, so the lock has to reach all of them."""
+def test_every_experiment_reaches_a_worker_exactly_once(sweep_module, monkeypatch):
     sweep = sweep_module
-    lock = object()
     submissions: list[tuple] = []
 
     monkeypatch.setattr(sweep, 'run_experiment', lambda config, *args: {'ran': config['seed']})
-    monkeypatch.setattr(sweep, 'multiprocessing', fake_multiprocessing(lock))
+    monkeypatch.setattr(
+        sweep, 'multiprocessing', SimpleNamespace(get_context=lambda method: method)
+    )
     monkeypatch.setattr(
         sweep, 'ProcessPoolExecutor', lambda **kwargs: FakeExecutor(submissions, **kwargs)
     )
@@ -137,8 +120,7 @@ def test_every_parallel_worker_is_given_the_shared_output_lock(sweep_module, mon
     experiments = [{'seed': seed} for seed in (1, 2, 3)]
     outcomes = sweep.run_experiments(experiments, num_workers=2)
 
-    assert [config for config, _ in submissions] == experiments, "every experiment is submitted once"
-    assert {passed_lock for _, passed_lock in submissions} == {lock}
+    assert [config for (config,) in submissions] == experiments
     assert sorted(outcome['ran'] for outcome in outcomes) == [1, 2, 3]
 
 
@@ -147,7 +129,9 @@ def test_no_more_workers_are_started_than_there_are_experiments(sweep_module, mo
     started: list = []
 
     monkeypatch.setattr(sweep, 'run_experiment', lambda config, *args: {})
-    monkeypatch.setattr(sweep, 'multiprocessing', fake_multiprocessing(object()))
+    monkeypatch.setattr(
+        sweep, 'multiprocessing', SimpleNamespace(get_context=lambda method: method)
+    )
     monkeypatch.setattr(
         sweep, 'ProcessPoolExecutor', lambda **kwargs: FakeExecutor(started, **kwargs)
     )
@@ -166,9 +150,10 @@ def _refuse_to_be_used(*args, **kwargs):
 def build_config(tmp_path, seed: int) -> dict:
     return {
         'task': 'fever', 'mas_type': 'autogen', 'mas_memory': 'empty', 'reasoning': 'io',
-        'model': 'fake-model', 'max_trials': 3, 'seed': seed, 'successful_topk': 1,
+        'model': 'fake-model', 'max_trials': 3, 'max_tasks': None, 'seed': seed, 'successful_topk': 1,
         'failed_topk': 0, 'insights_topk': 3, 'threshold': 0.0, 'use_projector': False,
-        'use_validator': False, 'hop': 1, 'num_workers': 1, 'db_dir': str(tmp_path),
+        'use_validator': False, 'hop': 1, 'intrinsic_cross_task': False,
+        'num_workers': 1, 'db_dir': str(tmp_path),
         'overall_results_filename': 'overall_results.csv', 'failed_tasks_filename': 'failed_tasks.csv',
         'failed_experiments_filename': 'failed_experiments.csv',
     }
@@ -176,7 +161,8 @@ def build_config(tmp_path, seed: int) -> dict:
 
 def stub_build_task(experiment, tasks: list[dict] = ()):
     """build_task's signature, over a fake env and workflow."""
-    def build(task, mas_type, memory_type, seed, working_dir, model=None, max_trials=None):
+    def build(task, mas_type, memory_type, seed, working_dir, model=None, max_trials=None,
+              max_tasks=None):
         env = FakeEnv(max_trials=max_trials or 3)
         return experiment.TaskManager(
             task_name=task,
@@ -204,7 +190,7 @@ def test_two_seeds_of_one_config_do_not_share_a_memory_directory(
     monkeypatch.setattr(
         experiment,
         'run_task',
-        lambda manager, working_dir, failed_tasks_filename, output_lock=None: memory_dirs.append(
+        lambda manager, working_dir, failed_tasks_filename: memory_dirs.append(
             manager.mem_config['working_dir']
         ),
     )
@@ -221,12 +207,8 @@ def test_two_seeds_of_one_config_do_not_share_a_memory_directory(
 # ── the progress file is a backup, and lives exactly as long as it is needed ───
 
 def config_dir(tmp_path) -> Path:
-    """Where run_experiment puts one config's files, from its own path scheme.
-
-    `unknown` because get_model_type maps a model name it does not recognise to
-    that, which the fake model in build_config is.
-    """
-    return Path(tmp_path) / 'unknown' / 'fever' / 'autogen' / 'empty'
+    """Where run_experiment puts one config's files, from its own path scheme."""
+    return Path(tmp_path) / 'fake-model' / 'fever' / 'autogen' / 'empty'
 
 
 def test_the_progress_file_is_removed_once_the_experiment_has_its_result(
@@ -260,7 +242,7 @@ def test_the_progress_file_survives_an_experiment_that_failed(
     """The case it exists for: no result was written, so the partial one is all there is."""
     experiment = experiment_module
 
-    def run_task_then_fail(task_manager, working_dir, failed_tasks_filename, output_lock=None):
+    def run_task_then_fail(task_manager, working_dir, failed_tasks_filename):
         experiment.results.write_row(
             experiment.results.progress_path(
                 working_dir, task_manager.task_name, task_manager.memory_type, task_manager.seed
@@ -287,3 +269,60 @@ def test_the_progress_file_survives_an_experiment_that_failed(
         "deleting the backup of a run that failed is the one thing this must not do"
     )
     assert len(read_csv(Path(tmp_path) / 'failed_experiments.csv')) == 1
+
+
+# ── a killed sweep can be continued rather than repeated ──────────────────────
+
+def run_one_experiment(experiment, monkeypatch, config) -> None:
+    """One real run_experiment over a fake env and workflow, writing real rows."""
+    monkeypatch.setattr(experiment, 'CONFIG', {'fever': {'few_shots_num': 1}})
+    monkeypatch.setattr(experiment, 'get_task_few_shots', lambda **kwargs: ['a few shot'])
+    monkeypatch.setattr(experiment, 'get_dataset_system_prompt', lambda *a, **k: 'do the task')
+    monkeypatch.setattr(
+        experiment, 'build_task', stub_build_task(experiment, [{'task': 'a'}])
+    )
+    monkeypatch.setattr(experiment, 'build_mas', lambda *args, **kwargs: None)
+
+    outcome = experiment.run_experiment(config)
+    assert outcome['status'] == 'success', outcome.get('error')
+
+
+def test_an_experiment_that_finished_is_not_run_again(
+    sweep_module, experiment_module, monkeypatch, tmp_path
+):
+    """The key has to match between a config and the row that config produced."""
+    config = build_config(tmp_path, seed=42)
+    run_one_experiment(experiment_module, monkeypatch, config)
+
+    remaining, already_done = sweep_module.experiments_to_run(
+        [config], str(Path(tmp_path) / 'overall_results.csv')
+    )
+
+    assert (remaining, already_done) == ([], 1)
+
+
+def test_another_seed_of_the_same_config_is_still_run(
+    sweep_module, experiment_module, monkeypatch, tmp_path
+):
+    run_one_experiment(experiment_module, monkeypatch, build_config(tmp_path, seed=42))
+    other_seed = build_config(tmp_path, seed=43)
+
+    remaining, already_done = sweep_module.experiments_to_run(
+        [other_seed], str(Path(tmp_path) / 'overall_results.csv')
+    )
+
+    assert (remaining, already_done) == ([other_seed], 0)
+
+
+def test_the_cross_task_arm_is_not_mistaken_for_the_baseline(
+    sweep_module, experiment_module, monkeypatch, tmp_path
+):
+    """The two arms share a mas_memory value; the column is what separates them."""
+    run_one_experiment(experiment_module, monkeypatch, build_config(tmp_path, seed=42))
+    cross_task = {**build_config(tmp_path, seed=42), 'intrinsic_cross_task': True}
+
+    remaining, already_done = sweep_module.experiments_to_run(
+        [cross_task], str(Path(tmp_path) / 'overall_results.csv')
+    )
+
+    assert (remaining, already_done) == ([cross_task], 0)

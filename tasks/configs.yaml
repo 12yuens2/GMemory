@@ -1,5 +1,7 @@
 # global configs
 embedding_model: sentence-transformers/all-MiniLM-L6-v2
+# Keep this off the GPUs: on a node serving vLLM they are all the server's.
+embedding_device: cpu
 
 # env configs
 alfworld:

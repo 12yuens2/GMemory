@@ -66,6 +66,9 @@ Submit one with:
 sbatch slurm/fever_experiment.sh
 ```
 
+**Check the whole path in half an hour first**
+`slurm/smoke_test.sh` has the same shape as those - serve, then run - but for one task, two memory modules, one seed and two tasks of the dataset (`--max_tasks 2 --max_trials 3`). It then prints what the run wrote and fails if the two result rows are not there — including a wrong `--model`, which otherwise fails once per experiment rather than once. It also probes whether the filesystem grants `flock`, which is what the results file's append lock needs. Worth a submission before any 24-hour job, and after any change to the cluster, the model or the environment.
+
 **Attach to an already-running vLLM/Ray cluster**
 `slurm/experiment.sh` doesn't start its own model server. It expects a vLLM/Ray serving job already running elsewhere on the cluster and resolves that job's head node from its Slurm job ID:
 ```bash
@@ -83,10 +86,12 @@ These scripts hardcode several specific paths and values that need updating for 
 | `YAML_CONFIG="/projects/public/brics/distributed_vllm/GPT-OSS_Hopper.yaml"` | vLLM server config (tensor-parallel/batch settings) stored in BriCS's shared project space | Replace with your own vLLM config path, or drop `--config $YAML_CONFIG` and pass the equivalent `vllm serve` flags directly |
 | `HF_HOME=/projects/public/brics/hf` | Shared HuggingFace cache directory on BriCS's project space | Point at your own HF cache dir, or unset to fall back to the default `~/.cache/huggingface` |
 | `MODEL_PATH=$HF_HOME/hub/models--openai--gpt-oss-120b/snapshots/<hash>/` | Resolved local snapshot path for the served model's weights inside `HF_HOME` | Update the snapshot hash to match your own cache, or pass a HF Hub model name directly instead of a local path |
-| `MODEL_NAME` (`openai/gpt-oss-120b`, or `Qwen/Qwen3.6-35B-A3B` in `single_node_serve.sh`) | The model tag `vllm serve` registers and the tag `tasks/run.py` requests via the OpenAI-compatible API | Set to whichever model you're serving — note `single_node_serve.sh` currently serves `Qwen/Qwen3.6-35B-A3B` but then queries `openai/gpt-oss-120b`, so double-check this matches before reusing it |
+| `MODEL_NAME` (`openai/gpt-oss-120b`, or `Qwen/Qwen3.6-35B-A3B` in `single_node_serve.sh`) | The model tag `vllm serve` registers and the tag `tasks/run.py` requests via the OpenAI-compatible API | Set to whichever model you're serving — each script now serves and queries one name, where `single_node_serve.sh` used to serve one and ask for another |
 | `TIKTOKEN_ENCODINGS_BASE="/projects/public/brics/distributed_vllm/etc/encodings"` | Local copy of tiktoken's tokenizer encodings, used to avoid downloading them from the internet on restricted compute nodes | Point at your own local encodings cache, or drop the variable if your compute nodes have internet access |
 
 Beyond this table, `#SBATCH --output=out/...` in every script writes logs to a `out/` directory relative to wherever you run `sbatch` from — create it first (`mkdir -p out`) or change the path.
+
+`OPENAI_API_BASE` needs its scheme: `http://host:8000`, not `host:8000`. A base URL without one parses as a relative path with no host, so requests never reach the server; the settings loader refuses it rather than letting a job run against nothing.
 
 ## ⚙️ tasks/run.py Flags
 
@@ -100,6 +105,7 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 | `--reasoning` | `io` | Reasoning module |
 | `--model` (sweep) | `gpt-3.5-turbo-0125` | LLM model name, as recognized by your `OPENAI_API_BASE` backend |
 | `--max_trials` | each task's `max_steps` | Trials one episode gets. Unset, the budget comes from that task's entry in `tasks/configs.yaml` (30 for all four); given, it overrides every task in the sweep |
+| `--max_tasks` | each task's `max_tasks` | How many tasks of the dataset a run covers. Unset, from `tasks/configs.yaml` (only FEVER sets one, at 200) and otherwise the whole dataset; given, it overrides every task in the sweep. `--max_tasks 2` is what makes a smoke run short |
 | `--successful_topk` | `1` | Number of successful trajectories retrieved from memory |
 | `--failed_topk` | `0` | Number of failed trajectories retrieved from memory |
 | `--insights_topk` | `3` | Number of insights retrieved from memory |
@@ -107,11 +113,25 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 | `--hop` | `1` | Hop count for graph-based trajectory similarity |
 | `--use_projector` | off | Enable the role projector, which tailors retrieved insights per agent. Only `g-memory` implements projection |
 | `--use_validator` | off | Add a validator agent that checks the solver's action format before it is taken, re-prompting the solver on a rejection. Only `autogen` acts on it |
+| `--intrinsic_cross_task` | off | Keep an `intrinsicmemory-*` module's memory across the tasks of a dataset instead of starting each task from an empty one. No effect on the other modules, which accumulate across tasks either way. It is a column in every result file, so the two arms are distinguishable |
 | `--seed` (sweep) | `42` | One or more random seeds. Each seed gets its own memory persistence directory, so concurrent seeds of one config never share a graph or vector store |
 | `--num_workers` | `os.cpu_count() - 32` (min 1) | Worker processes for running the experiment sweep in parallel |
-| `--db_dir` | `./.db` | Where results, logs and memory persistence for this run go |
+| `--resume` | off | Skip the experiments already recorded in the overall results file, rather than appending a second row for each of them. The identity columns plus `seed` are the key, so a job killed at its wall clock is continued by resubmitting with this |
+| `--db_dir` | `./.db` | Where results, logs and memory persistence for this run go. Point every job of one experiment set at the same one: they append to one `overall_results.csv` under a lock on the file |
+| `--overall_results_filename` | `overall_results.csv` | Name of the per-set results file, in `--db_dir` |
+| `--failed_tasks_filename` | `failed_tasks.csv` | Name of the failed-task file, in each experiment's own directory |
+| `--failed_experiments_filename` | `failed_experiments.csv` | Name of the failed-experiment file, in `--db_dir` |
 
-Two settings are per-task rather than flags, in `tasks/configs.yaml`: `max_steps` (the trial budget above) and `few_shots_num`. FEVER also has `max_tasks: 200`, which cuts that dataset to its first 200 claims.
+Two settings are per-task rather than flags, in `tasks/configs.yaml`: `max_steps` (the trial budget above) and `few_shots_num`. FEVER also has `max_tasks: 200`, which cuts that dataset to its first 200 claims. `tasks/configs.yaml` also holds `embedding_model` and `embedding_device`, which is `cpu`: left to itself the embedding model takes `cuda:0`, and on a node serving vLLM every GPU is the server's.
+
+`configs/configs.yaml` holds the settings for the LLM calls themselves:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `max_token` | `512` | Ceiling on the tokens generated per response |
+| `temperature` | `0.1` | Sampling temperature for any call that does not set its own |
+| `request_timeout` | `300` | Seconds one request may take. The openai client's own default is 600, which multiplied by its retries and the retry loops above it lets one action block for around 90 minutes against a server that has stopped answering |
+| `log_responses` | `false` | Echo every LLM response and memory-update prompt to stderr. Off because one Slurm job writes one `.out` file, from every worker at once, over the order of 100,000 requests — it is all in the per-experiment log files either way |
 
 Example sweep (2 tasks × 3 memories × 3 seeds = 18 experiments, parallelized across 8 workers):
 ```bash
@@ -135,8 +155,8 @@ Under `--db_dir`, with per-experiment files in `<db_dir>/<model>/<task>/<mas_typ
 The task file is the raw material — anything the means hide, like variance or cost per task, is computable from it, and the reverse is not true:
 
 ```
-model,task,mas_type,mas_memory,use_validator,max_trials,task_id,reward,done,trials,
-completion_tokens,prompt_tokens,intrinsic_completion_tokens,intrinsic_prompt_tokens,seed
+model,task,mas_type,mas_memory,use_validator,intrinsic_cross_task,max_trials,task_id,reward,done,
+trials,completion_tokens,prompt_tokens,intrinsic_completion_tokens,intrinsic_prompt_tokens,seed
 ```
 
 `trials` is empty for an episode cut short because an agent could not act — how many turns that task needed was never established, and `0` would read as a task that took no turns. The token columns are that episode's spend, so they sum to the run total unless a task failed part-way, since a task with no row still spent what it spent.
@@ -144,13 +164,16 @@ completion_tokens,prompt_tokens,intrinsic_completion_tokens,intrinsic_prompt_tok
 `overall_results.csv` and the progress file share the aggregate schema:
 
 ```
-model,task,mas_type,mas_memory,use_validator,max_trials,mean_reward,mean_done,mean_trials,
-tasks_scored,completion_tokens,prompt_tokens,intrinsic_completion_tokens,intrinsic_prompt_tokens,seed
+model,task,mas_type,mas_memory,use_validator,intrinsic_cross_task,max_trials,mean_reward,mean_done,
+mean_trials,tasks_scored,completion_tokens,prompt_tokens,intrinsic_completion_tokens,
+intrinsic_prompt_tokens,seed
 ```
 
 `tasks_scored` is how many episodes the means are over, so a progress row states its own progress. A task whose episode could not run goes in `failed_tasks.csv` and is left out of the means rather than scored as zero. `intrinsic_*_tokens` are the share spent by the memory module's own LLM calls, and are non-zero only for the `intrinsicmemory-*` modules.
 
-Every file opens with the same identity columns and ends with `seed`. Results written before September 2026 use a different, per-file column order and have no header, so don't append a new run to an old `--db_dir`.
+Every file opens with the same identity columns and ends with `seed`. A run refuses to append to a file whose header is not its own schema, and says which is which — so an old `--db_dir` fails at the start rather than producing a CSV nobody can read. Results written before September 2026 use a different, per-file column order and have no header at all.
+
+`<db_dir>/<model>/` is the model name made into one path component: `openai/gpt-oss-120b` becomes `openai--gpt-oss-120b`.
 
 ## 👋 Introduction
 This repo is the official implementation of [***G-Memory: Tracing Hierarchical Memory for Multi-Agent Systems***](https://arxiv.org/abs/2506.07398).

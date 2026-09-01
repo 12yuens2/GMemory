@@ -1,3 +1,4 @@
+import logging
 import sys
 
 from typing import (
@@ -12,6 +13,8 @@ from abc import ABC, abstractmethod
 
 from .settings import LLMSettings, default_llm_settings
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 def _refuses_temperature(error: BaseException) -> bool:
@@ -106,7 +109,8 @@ class GPTChat(LLM):
         self.settings: LLMSettings = settings if settings is not None else default_llm_settings()
         self.client = OpenAI(
             base_url=self.settings.api_base,
-            api_key=self.settings.api_key
+            api_key=self.settings.api_key,
+            timeout=self.settings.request_timeout,
         )
         self.tracker: TokenTracker = tracker if tracker is not None else TokenTracker()
         self._sends_temperature: bool = True
@@ -186,7 +190,7 @@ class GPTChat(LLM):
                     print("Error: LLM returned None", file=sys.stderr)
                     continue
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                print(f"==== LLM RESPONSE ====\nTIME: {current_time}\n{answer}\n==== END LLM RESPONSE ====\n", file=sys.stderr)
+                logger.debug('LLM RESPONSE at %s\n%s', current_time, answer)
                 return answer  
 
             except Exception as e:
@@ -203,4 +207,3 @@ class GPTChat(LLM):
         raise LLMCallFailed(
             f'{self.model_name} returned no answer after {max_retries} attempts'
         ) from last_error
-
