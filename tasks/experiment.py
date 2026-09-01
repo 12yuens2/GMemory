@@ -8,6 +8,7 @@ one means.
 import os
 import random
 import sys
+import time
 import traceback
 import yaml
 from dataclasses import dataclass, field
@@ -261,7 +262,7 @@ def _write_failed_tasks(
         )
 
 
-def run_experiment(experiment_config: dict, output_lock=None) -> dict:
+def run_experiment(experiment_config: dict, output_lock=None, deadline: float = None) -> dict:
     task_name = experiment_config['task']
     mas_type = experiment_config['mas_type']
     mas_memory_type = experiment_config['mas_memory']
@@ -282,6 +283,15 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     overall_results_filename = experiment_config['overall_results_filename']
     failed_tasks_filename = experiment_config['failed_tasks_filename']
     failed_experiments_filename = experiment_config['failed_experiments_filename']
+
+    if deadline is not None and time.time() > deadline:
+        return {
+            'task': task_name,
+            'mas_type': mas_type,
+            'mas_memory': mas_memory_type,
+            'seed': seed,
+            'status': 'skipped',
+        }
 
     # set save dirs
     working_dir = os.path.join(db_dir, model_dir_name(model_type), task_name, mas_type, f'{mas_memory_type}')

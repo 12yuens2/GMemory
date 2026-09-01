@@ -32,12 +32,16 @@ class LLMSettings:
         max_tokens: Ceiling on the tokens generated per response, sent as
             `max_completion_tokens`. A truncated answer is still returned.
         temperature: Sampling temperature for any call that does not set its own.
+        request_timeout: Seconds one request may take before it is abandoned. The
+            openai default is 600, which multiplied by that client's retries and
+            the retry loops above it lets one action block for over an hour.
     """
 
     api_base: str
     api_key: str
     max_tokens: int = 512
     temperature: float = 0.1
+    request_timeout: float = 300.0
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "LLMSettings":
@@ -75,6 +79,7 @@ class LLMSettings:
             api_key=api_key,
             max_tokens=llm_config.get("max_token", 512),
             temperature=llm_config.get("temperature", 0.1),
+            request_timeout=llm_config.get("request_timeout", 300.0),
         )
 
 

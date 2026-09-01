@@ -114,7 +114,8 @@ class GPTChat(LLM):
         self.settings: LLMSettings = settings if settings is not None else default_llm_settings()
         self.client = OpenAI(
             base_url=self.settings.api_base,
-            api_key=self.settings.api_key
+            api_key=self.settings.api_key,
+            timeout=self.settings.request_timeout,
         )
         self.tracker: TokenTracker = tracker if tracker is not None else TokenTracker()
         self._sends_temperature: bool = True

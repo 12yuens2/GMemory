@@ -8,6 +8,7 @@ each one is isolated - a failure is recorded and the rest of the sweep continues
 import argparse
 import multiprocessing
 import os
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from itertools import product
 
@@ -37,14 +38,23 @@ def build_experiment_configs(args) -> list[dict]:
     return [dict(zip(values, combination)) for combination in product(*values.values())]
 
 
-def run_experiments(experiments: list[dict], num_workers: int) -> list[dict]:
+def run_experiments(
+    experiments: list[dict], num_workers: int, deadline: float = None
+) -> list[dict]:
     """Every experiment, in this process or in a pool of them.
 
     A pool is not spawned for a single experiment. When one is, every worker
     writes through the same lock: they append to shared result files.
+
+    `deadline` is an absolute time after which an experiment is not started. A
+    worker reaching it returns without running, so the sweep ends of its own
+    accord rather than being killed part-way through writing something.
     """
     if len(experiments) == 1 or num_workers <= 1:
-        return [run_experiment(experiment_config) for experiment_config in experiments]
+        return [
+            run_experiment(experiment_config, None, deadline)
+            for experiment_config in experiments
+        ]
 
     ctx = multiprocessing.get_context('spawn')
     with multiprocessing.Manager() as manager:
@@ -53,7 +63,7 @@ def run_experiments(experiments: list[dict], num_workers: int) -> list[dict]:
             max_workers=min(num_workers, len(experiments)), mp_context=ctx
         ) as executor:
             futures = [
-                executor.submit(run_experiment, experiment_config, output_lock)
+                executor.submit(run_experiment, experiment_config, output_lock, deadline)
                 for experiment_config in experiments
             ]
             return [
@@ -95,6 +105,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')
     parser.add_argument('--skip_preflight', action='store_true',
                         help='Start without checking that the endpoint serves --model.')
+    parser.add_argument('--max_hours', type=float, default=None,
+                        help='Stop starting experiments after this many hours, so a sweep '
+                             'ends cleanly rather than being killed part-way through one.')
 
     # file paths
     parser.add_argument('--db_dir', type=str, default='./.db', help='Directory to store results, logs, and memory persistence for this run.')
@@ -115,7 +128,15 @@ def main(argv: list[str] = None) -> None:
         print(f'endpoint serves {args.model} and answered a one-token request')
 
     experiments = build_experiment_configs(args)
-    outcomes = run_experiments(experiments, args.num_workers)
+    deadline = time.time() + args.max_hours * 3600 if args.max_hours else None
+    outcomes = run_experiments(experiments, args.num_workers, deadline)
+
+    skipped = [outcome for outcome in outcomes if outcome.get('status') == 'skipped']
+    if skipped:
+        print(
+            f"\n{len(skipped)}/{len(outcomes)} experiments were not started: the "
+            f"{args.max_hours}h budget ran out."
+        )
 
     failed = [outcome for outcome in outcomes if outcome.get('status') == 'failed']
     if failed:

@@ -137,8 +137,8 @@ def test_every_parallel_worker_is_given_the_shared_output_lock(sweep_module, mon
     experiments = [{'seed': seed} for seed in (1, 2, 3)]
     outcomes = sweep.run_experiments(experiments, num_workers=2)
 
-    assert [config for config, _ in submissions] == experiments, "every experiment is submitted once"
-    assert {passed_lock for _, passed_lock in submissions} == {lock}
+    assert [config for config, _, _ in submissions] == experiments, "every experiment is submitted once"
+    assert {passed_lock for _, passed_lock, _ in submissions} == {lock}
     assert sorted(outcome['ran'] for outcome in outcomes) == [1, 2, 3]
 
 
@@ -285,3 +285,21 @@ def test_the_progress_file_survives_an_experiment_that_failed(
         "deleting the backup of a run that failed is the one thing this must not do"
     )
     assert len(read_csv(Path(tmp_path) / 'failed_experiments.csv')) == 1
+
+
+# ── the sweep stops starting experiments before the scheduler kills it ─────────
+
+def test_an_experiment_is_not_started_once_the_time_budget_has_gone(
+    experiment_module, monkeypatch, tmp_path
+):
+    """A killed job leaves a part-written file; a skipped experiment leaves a record."""
+    experiment = experiment_module
+    monkeypatch.setattr(experiment, 'build_task', _refuse_to_be_used)
+    monkeypatch.setattr(experiment, 'build_mas', _refuse_to_be_used)
+
+    outcome = experiment.run_experiment(build_config(tmp_path, seed=42), deadline=0.0)
+
+    assert outcome['status'] == 'skipped'
+    assert not list(Path(tmp_path).rglob('*.csv')), (
+        'a skipped experiment wrote a row, which resume would then treat as done'
+    )

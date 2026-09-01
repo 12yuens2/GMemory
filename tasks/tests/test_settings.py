@@ -74,6 +74,15 @@ def test_the_llm_config_is_read_from_the_yaml(monkeypatch, tmp_path):
     assert (settings.max_tokens, settings.temperature) == (128, 0.7)
 
 
+def test_the_request_timeout_is_read_from_the_yaml(monkeypatch, tmp_path):
+    config = tmp_path / "configs.yaml"
+    config.write_text("llm_config:\n  request_timeout: 30\n")
+    monkeypatch.setenv("OPENAI_API_BASE", "http://localhost:9999")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    assert LLMSettings.load(config_path=config).request_timeout == 30
+
+
 def test_the_defaults_survive_a_config_with_no_llm_block(monkeypatch, tmp_path):
     config = tmp_path / "configs.yaml"
     config.write_text("something_else: 1\n")
