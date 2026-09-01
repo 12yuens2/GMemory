@@ -126,23 +126,31 @@ Under `--db_dir`, with per-experiment files in `<db_dir>/<model>/<task>/<mas_typ
 
 | File | One row is |
 |---|---|
-| `<task>-<memory>-progress.csv` | one completed task. Appended as the run goes, so a job the scheduler kills part-way through a dataset keeps what it measured |
-| `results.csv` | one finished experiment, for that config |
-| `overall_results.csv` (at `<db_dir>/`) | one finished experiment, for the whole sweep |
+| `<task>-<memory>-task_results.csv` | one completed task, raw: that episode's own reward, done and trials, and the tokens that episode spent |
+| `<task>-<memory>-seed_<n>-progress.csv` | one completed task, as means over the tasks scored so far. **Deleted once that experiment finishes** — it is a crash backup, and the two files below say everything it did |
+| `overall_results.csv` (at `<db_dir>/`) | one finished experiment |
 | `failed_tasks.csv` | one task that could not be run, with its error |
 | `failed_experiments.csv` (at `<db_dir>/`) | one experiment that could not be run, with its error |
 
-The first three share one schema, so rows from any of them line up column by column:
+The task file is the raw material — anything the means hide, like variance or cost per task, is computable from it, and the reverse is not true:
 
 ```
-model,task,mas_type,mas_memory,use_validator,max_trials,mean_reward,mean_done,
-mean_trials,tasks_scored,completion_tokens,prompt_tokens,
-intrinsic_completion_tokens,intrinsic_prompt_tokens,seed
+model,task,mas_type,mas_memory,use_validator,max_trials,task_id,reward,done,trials,
+completion_tokens,prompt_tokens,intrinsic_completion_tokens,intrinsic_prompt_tokens,seed
 ```
 
-`tasks_scored` is how many episodes the means are over — so a progress row states its own progress, and the last row of a finished run equals that experiment's `results.csv` row. A task whose episode could not run is recorded in `failed_tasks.csv` and left out of the means rather than scored as zero. `intrinsic_*_tokens` are the share of the totals spent by the memory module's own LLM calls, and are non-zero only for the `intrinsicmemory-*` modules.
+`trials` is empty for an episode cut short because an agent could not act — how many turns that task needed was never established, and `0` would read as a task that took no turns. The token columns are that episode's spend, so they sum to the run total unless a task failed part-way, since a task with no row still spent what it spent.
 
-Results written before September 2026 use a different, per-file column order and have no header, so don't append a new run to an old `--db_dir`.
+`overall_results.csv` and the progress file share the aggregate schema:
+
+```
+model,task,mas_type,mas_memory,use_validator,max_trials,mean_reward,mean_done,mean_trials,
+tasks_scored,completion_tokens,prompt_tokens,intrinsic_completion_tokens,intrinsic_prompt_tokens,seed
+```
+
+`tasks_scored` is how many episodes the means are over, so a progress row states its own progress. A task whose episode could not run goes in `failed_tasks.csv` and is left out of the means rather than scored as zero. `intrinsic_*_tokens` are the share spent by the memory module's own LLM calls, and are non-zero only for the `intrinsicmemory-*` modules.
+
+Every file opens with the same identity columns and ends with `seed`. Results written before September 2026 use a different, per-file column order and have no header, so don't append a new run to an old `--db_dir`.
 
 ## 👋 Introduction
 This repo is the official implementation of [***G-Memory: Tracing Hierarchical Memory for Multi-Agent Systems***](https://arxiv.org/abs/2506.07398).

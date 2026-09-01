@@ -7,7 +7,7 @@ from typing import (
     List,
 )
 from openai import OpenAI
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from abc import ABC, abstractmethod
 
 from .settings import LLMSettings, default_llm_settings
@@ -47,6 +47,17 @@ class TokenTracker:
         if intrinsic:
             self.intrinsic_prompt_tokens += prompt_tokens
             self.intrinsic_completion_tokens += completion_tokens
+
+    def snapshot(self) -> "TokenTracker":
+        """The counts as they stand, detached from further recording."""
+        return TokenTracker(**{field.name: getattr(self, field.name) for field in fields(self)})
+
+    def since(self, earlier: "TokenTracker") -> "TokenTracker":
+        """What has been spent since `earlier` was snapshotted."""
+        return TokenTracker(**{
+            field.name: getattr(self, field.name) - getattr(earlier, field.name)
+            for field in fields(self)
+        })
 
 
 @dataclass(frozen=True)

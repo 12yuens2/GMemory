@@ -17,7 +17,7 @@ from mas.module_map import module_map
 from mas.reasoning import ReasoningBase
 from mas.memory import MASMemoryBase
 from mas.llm import LLMCallable, GPTChat, TokenTracker
-from mas.mas import MetaMAS
+from mas.mas import EpisodeResult, MetaMAS
 from mas.utils import EmbeddingFunc
 
 import results
@@ -128,11 +128,17 @@ def run_task(
     output_lock=None,
 ) -> None:
     task_manager.recorder.dataset_begin()
-    progress_path = results.progress_path(working_dir, task_manager.task_name, task_manager.memory_type)
+    task_results_path = results.task_results_path(
+        working_dir, task_manager.task_name, task_manager.memory_type
+    )
+    progress_path = results.progress_path(
+        working_dir, task_manager.task_name, task_manager.memory_type, task_manager.seed
+    )
 
     failed_tasks: list[dict] = []
 
     for task_id, task_config in tqdm(enumerate(task_manager.tasks), total=len(task_manager.tasks), desc="Running Tasks"):
+        before = task_manager.token_tracker.snapshot()
         try:
             task_manager.recorder.task_begin(task_id, task_config)
 
@@ -149,7 +155,7 @@ def run_task(
                 task_manager.recorder.log(f'------------ MAS Agent: {agent.name} ------------')
                 task_manager.recorder.log(agent.add_task_instruction(task_instruction))
 
-            episode = task_manager.mas.schedule(task_config) # Schedule method from the mas_workflow (e.g. autogen)
+            episode: EpisodeResult = task_manager.mas.schedule(task_config) # Schedule method from the mas_workflow (e.g. autogen)
             task_manager.recorder.task_end(episode)
         except Exception as error:
             failed_tasks.append({'task_id': task_id, 'error': error})
@@ -172,14 +178,32 @@ def run_task(
         task_manager.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}\n')
         task_manager.recorder.log(f'seed: {task_manager.seed}\n')
 
-        # a partial result per completed task, so a killed job keeps what it measured
+        identity = task_manager.identity()
+        max_trials = task_manager.env.max_trials
+
+        # the raw numbers for this task, which no aggregate can be worked back to
+        results.write_row(
+            task_results_path,
+            results.TASK_COLUMNS,
+            results.task_row(
+                identity_fields=identity,
+                seed=task_manager.seed,
+                max_trials=max_trials,
+                task_id=task_id,
+                episode=episode,
+                spent=tracker.since(before),
+            ),
+            output_lock=output_lock,
+        )
+
+        # means so far, so a killed job leaves a result without processing
         print(results.write_row(
             progress_path,
-            results.RESULT_COLUMNS,
-            results.result_row(
-                identity_fields=task_manager.identity(),
+            results.AGGREGATE_COLUMNS,
+            results.aggregate_row(
+                identity_fields=identity,
                 seed=task_manager.seed,
-                max_trials=task_manager.env.max_trials,
+                max_trials=max_trials,
                 averages=task_manager.recorder.average_results(),
                 tracker=tracker,
             ),
@@ -274,20 +298,23 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         task_configs.recorder.log(f'completion_tokens:{completion_tokens}, prompt_tokens:{prompt_tokens}')
         task_configs.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}')
 
-        row = results.result_row(
-            identity_fields=task_configs.identity(),
-            seed=seed,
-            max_trials=task_configs.env.max_trials,
-            averages=task_configs.recorder.average_results(),
-            tracker=tracker,
-        )
         result_line = results.write_row(
-            results.results_path(working_dir), results.RESULT_COLUMNS, row, output_lock=output_lock
+            results.overall_results_path(db_dir),
+            results.AGGREGATE_COLUMNS,
+            results.aggregate_row(
+                identity_fields=task_configs.identity(),
+                seed=seed,
+                max_trials=task_configs.env.max_trials,
+                averages=task_configs.recorder.average_results(),
+                tracker=tracker,
+            ),
+            output_lock=output_lock,
         )
         print(result_line)
 
-        results.write_row(
-            results.overall_results_path(db_dir), results.RESULT_COLUMNS, row, output_lock=output_lock
+        # the experiment has its result, so its crash-recovery file has no reader
+        results.remove_progress(
+            results.progress_path(working_dir, task_name, mas_memory_type, seed)
         )
 
         return {

@@ -116,16 +116,39 @@ def test_every_task_in_the_dataset_is_scheduled(run_task_module, tmp_path):
     assert [e.reward for e in manager.recorder.episodes] == [1.0] * 4
 
 
-def test_progress_is_checkpointed_after_every_completed_task(run_task_module, tmp_path):
-    """A job killed part-way through a dataset keeps what it had measured."""
+def test_every_task_gets_a_row_of_its_own_raw_numbers(run_task_module, tmp_path):
+    """The means are recoverable from the task rows; the reverse is not true."""
     run = run_task_module
+    outcomes = [
+        EpisodeResult(reward=1.0, done=True, trials=1),
+        EpisodeResult(reward=0.0, done=False, trials=3),
+        EpisodeResult(reward=0.0, done=False, trials=None),
+    ]
     tasks = [{"task": f"claim {i}"} for i in range(3)]
-    mas = StubMAS(FakeEnv())
+    mas = StubMAS(FakeEnv(), outcomes=outcomes)
     manager = build_manager(run, tmp_path, tasks, mas)
 
     run.run_task(manager, working_dir=str(tmp_path))
 
-    rows = read_csv(tmp_path / "fever-empty-progress.csv")
+    rows = read_csv(tmp_path / "fever-empty-task_results.csv")
+    assert [row["task_id"] for row in rows] == ["0", "1", "2"]
+    assert [row["reward"] for row in rows] == ["1.0", "0.0", "0.0"]
+    assert [row["done"] for row in rows] == ["True", "False", "False"]
+    assert [row["trials"] for row in rows] == ["1", "3", ""], (
+        "an episode that never established a trial count reports no number, not zero"
+    )
+
+
+def test_progress_is_checkpointed_after_every_completed_task(run_task_module, tmp_path):
+    """A job killed part-way through a dataset leaves a readable result."""
+    run = run_task_module
+    tasks = [{"task": f"claim {i}"} for i in range(3)]
+    mas = StubMAS(FakeEnv())
+    manager = build_manager(run, tmp_path, tasks, mas, seed=7)
+
+    run.run_task(manager, working_dir=str(tmp_path))
+
+    rows = read_csv(tmp_path / "fever-empty-seed_7-progress.csv")
     assert len(rows) == 3, "one row should be appended per completed task, not one at the end"
     assert [row["tasks_scored"] for row in rows] == ["1", "2", "3"], (
         "each row's means are over the tasks scored so far"
