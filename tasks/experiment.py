@@ -18,16 +18,17 @@ from mas.reasoning import ReasoningBase
 from mas.memory import MASMemoryBase
 from mas.llm import LLMCallable, GPTChat, TokenTracker
 from mas.mas import EpisodeResult, MetaMAS
-from mas.utils import EmbeddingFunc
+from mas.utils import EmbeddingFunc, repo_path
 
 import results
 from envs import BaseEnv, BaseRecorder, get_env, get_recorder, get_task
 from mas_workflow import get_mas
 from prompts import get_dataset_system_prompt, get_task_few_shots
-from utils import get_model_type
+from utils import model_dir_name
 
+CONFIG_PATH = repo_path('tasks', 'configs.yaml')
 
-with open('tasks/configs.yaml') as reader:
+with open(CONFIG_PATH) as reader:
     CONFIG: dict = yaml.safe_load(reader)
 
 
@@ -78,7 +79,7 @@ def build_task(
     max_trials: int = None,
 ) -> TaskManager:
 
-    with open(CONFIG.get(task).get('env_config_path')) as reader:
+    with open(repo_path(CONFIG.get(task).get('env_config_path'))) as reader:
         config = yaml.safe_load(reader)
 
     env: BaseEnv = get_env(task, config, trial_budget(task, max_trials))
@@ -268,7 +269,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     failed_experiments_filename = experiment_config['failed_experiments_filename']
 
     # set save dirs
-    working_dir = os.path.join(db_dir, get_model_type(model_type), task_name, mas_type, f'{mas_memory_type}')
+    working_dir = os.path.join(db_dir, model_dir_name(model_type), task_name, mas_type, f'{mas_memory_type}')
     os.makedirs(working_dir, exist_ok=True)
 
     try:

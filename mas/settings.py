@@ -12,13 +12,10 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-from .utils import load_config
+from .utils import load_config, repo_path
 
-# Resolved against this file, not the working directory, so the process can be
-# started from any directory.
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CONFIG_PATH = _REPO_ROOT / "configs" / "configs.yaml"
-DEFAULT_ENV_PATH = _REPO_ROOT / ".env"
+DEFAULT_CONFIG_PATH = repo_path("configs", "configs.yaml")
+DEFAULT_ENV_PATH = repo_path(".env")
 
 
 class MissingSettings(RuntimeError):

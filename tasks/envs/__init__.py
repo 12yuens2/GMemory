@@ -1,6 +1,8 @@
 import json
 import jsonlines
 
+from mas.utils import repo_path
+
 from .base_env import BaseEnv, BaseRecorder
 from .alfworld_env import AlfworldEnv, AlfworldRecorder, get_env_name_from_gamefile, prefixes
 from .sciworld_env import SciworldEnv, SciworldRecorder, build_simplification_str
@@ -8,10 +10,10 @@ from .fever_env import FeverEnv, FeverRecorder
 from .pddl_env.pddl_env import PDDLEnv, PDDLRecorder, get_all_environment_configs
 
 TASKS_PATH = {
-    'alfworld': 'data/alfworld/alfworld_tasks_suffix.json',
-    'fever': 'data/fever/fever_dev.jsonl',
-    'pddl': 'data/pddl/test.jsonl',
-    'sciworld': 'data/sciworld/test.jsonl',
+    'alfworld': repo_path('data/alfworld/alfworld_tasks_suffix.json'),
+    'fever': repo_path('data/fever/fever_dev.jsonl'),
+    'pddl': repo_path('data/pddl/test.jsonl'),
+    'sciworld': repo_path('data/sciworld/test.jsonl'),
 }
 
 PDDL_DOMAINS = ["barman", "blockworld", "gripper", "tyreworld"]

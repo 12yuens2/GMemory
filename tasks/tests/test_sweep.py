@@ -221,12 +221,8 @@ def test_two_seeds_of_one_config_do_not_share_a_memory_directory(
 # ── the progress file is a backup, and lives exactly as long as it is needed ───
 
 def config_dir(tmp_path) -> Path:
-    """Where run_experiment puts one config's files, from its own path scheme.
-
-    `unknown` because get_model_type maps a model name it does not recognise to
-    that, which the fake model in build_config is.
-    """
-    return Path(tmp_path) / 'unknown' / 'fever' / 'autogen' / 'empty'
+    """Where run_experiment puts one config's files, from its own path scheme."""
+    return Path(tmp_path) / 'fake-model' / 'fever' / 'autogen' / 'empty'
 
 
 def test_the_progress_file_is_removed_once_the_experiment_has_its_result(

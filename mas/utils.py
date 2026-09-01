@@ -1,5 +1,6 @@
 import yaml
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Union, Any
 import random
 import json
@@ -8,6 +9,15 @@ import math
 
 if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
+
+# Resolved against this file rather than the working directory, so a job can be
+# started from wherever the scheduler puts it.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def repo_path(*parts: str) -> Path:
+    """An absolute path to something in the repository."""
+    return REPO_ROOT.joinpath(*parts)
 
 
 def load_config(config_path: str):
