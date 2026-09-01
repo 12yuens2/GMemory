@@ -120,7 +120,7 @@ def test_every_experiment_reaches_a_worker_exactly_once(sweep_module, monkeypatc
     experiments = [{'seed': seed} for seed in (1, 2, 3)]
     outcomes = sweep.run_experiments(experiments, num_workers=2)
 
-    assert [config for config, _ in submissions] == experiments
+    assert [config for (config,) in submissions] == experiments
     assert sorted(outcome['ran'] for outcome in outcomes) == [1, 2, 3]
 
 
@@ -271,24 +271,6 @@ def test_the_progress_file_survives_an_experiment_that_failed(
     assert len(read_csv(Path(tmp_path) / 'failed_experiments.csv')) == 1
 
 
-# ── the sweep stops starting experiments before the scheduler kills it ─────────
-
-def test_an_experiment_is_not_started_once_the_time_budget_has_gone(
-    experiment_module, monkeypatch, tmp_path
-):
-    """A killed job leaves a part-written file; a skipped experiment leaves a record."""
-    experiment = experiment_module
-    monkeypatch.setattr(experiment, 'build_task', _refuse_to_be_used)
-    monkeypatch.setattr(experiment, 'build_mas', _refuse_to_be_used)
-
-    outcome = experiment.run_experiment(build_config(tmp_path, seed=42), deadline=0.0)
-
-    assert outcome['status'] == 'skipped'
-    assert not list(Path(tmp_path).rglob('*.csv')), (
-        'a skipped experiment wrote a row, which resume would then treat as done'
-    )
-
-
 # ── a killed sweep can be continued rather than repeated ──────────────────────
 
 def run_one_experiment(experiment, monkeypatch, config) -> None:
@@ -312,7 +294,7 @@ def test_an_experiment_that_finished_is_not_run_again(
     config = build_config(tmp_path, seed=42)
     run_one_experiment(experiment_module, monkeypatch, config)
 
-    remaining, already_done = sweep_module.drop_completed(
+    remaining, already_done = sweep_module.experiments_to_run(
         [config], str(Path(tmp_path) / 'overall_results.csv')
     )
 
@@ -325,7 +307,7 @@ def test_another_seed_of_the_same_config_is_still_run(
     run_one_experiment(experiment_module, monkeypatch, build_config(tmp_path, seed=42))
     other_seed = build_config(tmp_path, seed=43)
 
-    remaining, already_done = sweep_module.drop_completed(
+    remaining, already_done = sweep_module.experiments_to_run(
         [other_seed], str(Path(tmp_path) / 'overall_results.csv')
     )
 
@@ -339,7 +321,7 @@ def test_the_cross_task_arm_is_not_mistaken_for_the_baseline(
     run_one_experiment(experiment_module, monkeypatch, build_config(tmp_path, seed=42))
     cross_task = {**build_config(tmp_path, seed=42), 'intrinsic_cross_task': True}
 
-    remaining, already_done = sweep_module.drop_completed(
+    remaining, already_done = sweep_module.experiments_to_run(
         [cross_task], str(Path(tmp_path) / 'overall_results.csv')
     )
 

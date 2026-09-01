@@ -67,7 +67,7 @@ sbatch slurm/fever_experiment.sh
 ```
 
 **Check the whole path in half an hour first**
-`slurm/smoke_test.sh` has the same shape as those - serve, then run - but for one task, two memory modules, one seed and two tasks of the dataset (`--max_tasks 2 --max_trials 3`). It then prints what the run wrote and fails if the two result rows are not there. It also probes whether the filesystem grants `flock`, which is what the results file's append lock needs. Worth a submission before any 24-hour job, and after any change to the cluster, the model or the environment.
+`slurm/smoke_test.sh` has the same shape as those - serve, then run - but for one task, two memory modules, one seed and two tasks of the dataset (`--max_tasks 2 --max_trials 3`). It then prints what the run wrote and fails if the two result rows are not there — including a wrong `--model`, which otherwise fails once per experiment rather than once. It also probes whether the filesystem grants `flock`, which is what the results file's append lock needs. Worth a submission before any 24-hour job, and after any change to the cluster, the model or the environment.
 
 **Attach to an already-running vLLM/Ray cluster**
 `slurm/experiment.sh` doesn't start its own model server. It expects a vLLM/Ray serving job already running elsewhere on the cluster and resolves that job's head node from its Slurm job ID:
@@ -86,7 +86,7 @@ These scripts hardcode several specific paths and values that need updating for 
 | `YAML_CONFIG="/projects/public/brics/distributed_vllm/GPT-OSS_Hopper.yaml"` | vLLM server config (tensor-parallel/batch settings) stored in BriCS's shared project space | Replace with your own vLLM config path, or drop `--config $YAML_CONFIG` and pass the equivalent `vllm serve` flags directly |
 | `HF_HOME=/projects/public/brics/hf` | Shared HuggingFace cache directory on BriCS's project space | Point at your own HF cache dir, or unset to fall back to the default `~/.cache/huggingface` |
 | `MODEL_PATH=$HF_HOME/hub/models--openai--gpt-oss-120b/snapshots/<hash>/` | Resolved local snapshot path for the served model's weights inside `HF_HOME` | Update the snapshot hash to match your own cache, or pass a HF Hub model name directly instead of a local path |
-| `MODEL_NAME` (`openai/gpt-oss-120b`, or `Qwen/Qwen3.6-35B-A3B` in `single_node_serve.sh`) | The model tag `vllm serve` registers and the tag `tasks/run.py` requests via the OpenAI-compatible API | Set to whichever model you're serving. Each script now serves and queries one name; if you split them again, the preflight refuses to start and names both |
+| `MODEL_NAME` (`openai/gpt-oss-120b`, or `Qwen/Qwen3.6-35B-A3B` in `single_node_serve.sh`) | The model tag `vllm serve` registers and the tag `tasks/run.py` requests via the OpenAI-compatible API | Set to whichever model you're serving — each script now serves and queries one name, where `single_node_serve.sh` used to serve one and ask for another |
 | `TIKTOKEN_ENCODINGS_BASE="/projects/public/brics/distributed_vllm/etc/encodings"` | Local copy of tiktoken's tokenizer encodings, used to avoid downloading them from the internet on restricted compute nodes | Point at your own local encodings cache, or drop the variable if your compute nodes have internet access |
 
 Beyond this table, `#SBATCH --output=out/...` in every script writes logs to a `out/` directory relative to wherever you run `sbatch` from — create it first (`mkdir -p out`) or change the path.
@@ -116,9 +116,7 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 | `--intrinsic_cross_task` | off | Keep an `intrinsicmemory-*` module's memory across the tasks of a dataset instead of starting each task from an empty one. No effect on the other modules, which accumulate across tasks either way. It is a column in every result file, so the two arms are distinguishable |
 | `--seed` (sweep) | `42` | One or more random seeds. Each seed gets its own memory persistence directory, so concurrent seeds of one config never share a graph or vector store |
 | `--num_workers` | `os.cpu_count() - 32` (min 1) | Worker processes for running the experiment sweep in parallel |
-| `--resume` | off | Skip the experiments already recorded in the overall results file, rather than appending a second row for each of them. The identity columns plus `seed` are the key |
-| `--max_hours` | none | Stop starting experiments after this many hours. A sweep then ends of its own accord with everything finished so far recorded, instead of being killed part-way through writing a row — re-run with `--resume` to continue |
-| `--skip_preflight` | off | Start without checking the endpoint first. The preflight asks `/v1/models`, refuses a `--model` the server does not serve, and asks for one token |
+| `--resume` | off | Skip the experiments already recorded in the overall results file, rather than appending a second row for each of them. The identity columns plus `seed` are the key, so a job killed at its wall clock is continued by resubmitting with this |
 | `--db_dir` | `./.db` | Where results, logs and memory persistence for this run go. Point every job of one experiment set at the same one: they append to one `overall_results.csv` under a lock on the file |
 | `--overall_results_filename` | `overall_results.csv` | Name of the per-set results file, in `--db_dir` |
 | `--failed_tasks_filename` | `failed_tasks.csv` | Name of the failed-task file, in each experiment's own directory |

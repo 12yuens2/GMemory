@@ -8,13 +8,11 @@ each one is isolated - a failure is recorded and the rest of the sweep continues
 import argparse
 import multiprocessing
 import os
-import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from itertools import product
 
 from tqdm import tqdm
 
-from mas.llm import check_endpoint
 from mas.logging_utils import log_mas_to_console
 from mas.module_map import MAS_MEMORY_MODULES
 from mas.settings import LLMSettings, default_llm_settings
@@ -40,7 +38,9 @@ def build_experiment_configs(args) -> list[dict]:
     return [dict(zip(values, combination)) for combination in product(*values.values())]
 
 
-def drop_completed(experiments: list[dict], overall_results_path: str) -> tuple[list[dict], int]:
+def experiments_to_run(
+    experiments: list[dict], overall_results_path: str
+) -> tuple[list[dict], int]:
     """The experiments with no row in `overall_results_path` yet, and how many had one.
 
     Every writer appends, so re-running a killed sweep would add a second row for
@@ -56,30 +56,22 @@ def drop_completed(experiments: list[dict], overall_results_path: str) -> tuple[
     return remaining, len(experiments) - len(remaining)
 
 
-def run_experiments(
-    experiments: list[dict], num_workers: int, deadline: float = None
-) -> list[dict]:
+def run_experiments(experiments: list[dict], num_workers: int) -> list[dict]:
     """Every experiment, in this process or in a pool of them.
 
     A pool is not spawned for a single experiment. The workers need nothing
     shared: they append to the same result files under a lock on each file, which
     is also what makes two separately submitted jobs safe.
-
-    `deadline` is an absolute time after which an experiment is not started. A
-    worker reaching it returns without running, so the sweep ends of its own
-    accord rather than being killed part-way through writing something.
     """
     if len(experiments) == 1 or num_workers <= 1:
-        return [
-            run_experiment(experiment_config, deadline) for experiment_config in experiments
-        ]
+        return [run_experiment(experiment_config) for experiment_config in experiments]
 
     ctx = multiprocessing.get_context('spawn')
     with ProcessPoolExecutor(
         max_workers=min(num_workers, len(experiments)), mp_context=ctx
     ) as executor:
         futures = [
-            executor.submit(run_experiment, experiment_config, deadline)
+            executor.submit(run_experiment, experiment_config)
             for experiment_config in experiments
         ]
         return [
@@ -119,14 +111,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # experiment config
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')
     parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')
-    parser.add_argument('--skip_preflight', action='store_true',
-                        help='Start without checking that the endpoint serves --model.')
     parser.add_argument('--resume', action='store_true',
                         help='Skip the experiments already recorded in the overall results '
                              'file, instead of appending a second row for each of them.')
-    parser.add_argument('--max_hours', type=float, default=None,
-                        help='Stop starting experiments after this many hours, so a sweep '
-                             'ends cleanly rather than being killed part-way through one.')
 
     # file paths
     parser.add_argument('--db_dir', type=str, default='./.db', help='Directory to store results, logs, and memory persistence for this run.')
@@ -145,10 +132,6 @@ def main(argv: list[str] = None) -> None:
     if settings.log_responses:
         log_mas_to_console()
 
-    if not args.skip_preflight:
-        check_endpoint(args.model, settings=settings)
-        print(f'endpoint serves {args.model} and answered a one-token request')
-
     overall_results_path = results.overall_results_path(
         args.db_dir, args.overall_results_filename
     )
@@ -156,21 +139,13 @@ def main(argv: list[str] = None) -> None:
 
     experiments = build_experiment_configs(args)
     if args.resume:
-        experiments, already_done = drop_completed(experiments, overall_results_path)
+        experiments, already_done = experiments_to_run(experiments, overall_results_path)
         print(f'{already_done} experiments already recorded in {overall_results_path}, skipping')
         if not experiments:
             print('nothing left to run')
             return
 
-    deadline = time.time() + args.max_hours * 3600 if args.max_hours else None
-    outcomes = run_experiments(experiments, args.num_workers, deadline)
-
-    skipped = [outcome for outcome in outcomes if outcome.get('status') == 'skipped']
-    if skipped:
-        print(
-            f"\n{len(skipped)}/{len(outcomes)} experiments were not started: the "
-            f"{args.max_hours}h budget ran out. Re-run with --resume to continue."
-        )
+    outcomes = run_experiments(experiments, args.num_workers)
 
     failed = [outcome for outcome in outcomes if outcome.get('status') == 'failed']
     if failed:

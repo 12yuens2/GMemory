@@ -52,6 +52,7 @@ echo "vLLM started!"
 deactivate
 
 # experiment setup, against the model served above
+export MODEL_NAME
 export OPENAI_API_BASE=http://localhost:8000/v1
 export OPENAI_API_KEY="none"
 
