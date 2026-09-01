@@ -1,37 +1,17 @@
 """The result rows an experiment writes, and the CSV files they go in.
 
-Three rules hold across every file here: the same identity columns come first,
-`seed` is last, and wherever token counts appear they appear in the same order.
-A reader can then line up a row from any of them, and nothing has to recover a
-field by its position.
-
-Four files, and what one row of each is:
-
+Different results files:
     <task>-<memory>-task_results.csv      one completed task, raw
     <task>-<memory>-seed_<n>-progress.csv one completed task, as means so far
-    overall_results.csv                   one finished experiment
-    failed_tasks.csv                      one task that could not be run
-    failed_experiments.csv                one experiment that could not be run
+    overall_results.csv                   finished experiment
+    failed_tasks.csv                      tasks that could not be run
+    failed_experiments.csv                experiments that could not be run
 
-The task file is the raw material: one row per task carrying that episode's own
-reward, done and trials, and the tokens that episode spent, so anything the mean
-hides - variance, which tasks were solved, cost per task - can be computed from
-it afterwards.
+The progress file is a crash-recovery file: it is removed once the experiment is finished.
 
-The progress file is the same tasks reported as running means, and exists only so
-a job the scheduler kills part-way through a dataset leaves something readable
-without processing. It is removed once that experiment's `overall_results.csv`
-row is written, since from then on it says nothing the other two files do not.
-It is per seed, so concurrent seeds of one config do not share the file one of
-them will delete.
-
-Two things worth knowing about the token columns. On a task row they are that
-episode's spend, and they will not sum to the run total when a task failed
-part-way, because a task with no row still spent what it spent. On an aggregate
-row they are the run's cumulative total.
-
-Each filename is an argument with a default, so a caller writing somewhere else
-does not have to know how the name is built.
+Two things worth knowing about the token columns:
+1. On a task row they are that episode's spend, and they will not sum to the run total when a task failed part-way, because a task with no row still spent what it spent
+2. On an aggregate row they are the run's cumulative total.
 """
 
 import csv
@@ -112,8 +92,7 @@ class TaskMeasurements:
         )
 
 
-# Which experiment a row belongs to. Everything here is either in the config that
-# asked for the run or resolved before the first task.
+# Which experiment a row belongs to.
 IDENTITY_COLUMNS: tuple[str, ...] = ('model', 'task', 'mas_type', 'mas_memory', 'use_validator')
 
 MEASUREMENT_COLUMNS: tuple[str, ...] = tuple(field.name for field in fields(Measurements))
@@ -138,12 +117,9 @@ FAILED_EXPERIMENT_COLUMNS: tuple[str, ...] = (
     IDENTITY_COLUMNS + ('error_type', 'error_message', 'seed')
 )
 
-
+# Default filenames, can be overridden in args config.
 TASK_RESULTS_FILENAME = '{task}-{mas_memory}-task_results.csv'
 PROGRESS_FILENAME = '{task}-{mas_memory}-seed_{seed}-progress.csv'
-OVERALL_RESULTS_FILENAME = 'overall_results.csv'
-FAILED_TASKS_FILENAME = 'failed_tasks.csv'
-FAILED_EXPERIMENTS_FILENAME = 'failed_experiments.csv'
 
 
 def task_results_path(
@@ -160,15 +136,15 @@ def progress_path(
     )
 
 
-def overall_results_path(db_dir: str, filename: str = OVERALL_RESULTS_FILENAME) -> str:
+def overall_results_path(db_dir: str, filename: str) -> str:
     return os.path.join(db_dir, filename)
 
 
-def failed_tasks_path(working_dir: str, filename: str = FAILED_TASKS_FILENAME) -> str:
+def failed_tasks_path(working_dir: str, filename: str) -> str:
     return os.path.join(working_dir, filename)
 
 
-def failed_experiments_path(db_dir: str, filename: str = FAILED_EXPERIMENTS_FILENAME) -> str:
+def failed_experiments_path(db_dir: str, filename: str) -> str:
     return os.path.join(db_dir, filename)
 
 

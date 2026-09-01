@@ -125,6 +125,7 @@ def build_mas(
 def run_task(
     task_manager: TaskManager,
     working_dir: str,
+    failed_tasks_filename: str,
     output_lock=None,
 ) -> None:
     task_manager.recorder.dataset_begin()
@@ -217,7 +218,7 @@ def run_task(
         )
         task_manager.recorder.log(summary)
         print(summary, file=sys.stderr)
-        _write_failed_tasks(task_manager, failed_tasks, working_dir, output_lock=output_lock)
+        _write_failed_tasks(task_manager, failed_tasks, working_dir, failed_tasks_filename, output_lock=output_lock)
 
     task_manager.recorder.dataset_end()
 
@@ -226,10 +227,11 @@ def _write_failed_tasks(
     task_manager: TaskManager,
     failed_tasks: list[dict],
     working_dir: str,
+    failed_tasks_filename: str,
     output_lock=None,
 ) -> None:
     """One row per task that could not be run, alongside the experiment's results."""
-    path = results.failed_tasks_path(working_dir)
+    path = results.failed_tasks_path(working_dir, failed_tasks_filename)
 
     for failure in failed_tasks:
         results.write_row(
@@ -261,6 +263,9 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     use_validator = experiment_config['use_validator']
     hop = experiment_config['hop']
     db_dir = experiment_config['db_dir']
+    overall_results_filename = experiment_config['overall_results_filename']
+    failed_tasks_filename = experiment_config['failed_tasks_filename']
+    failed_experiments_filename = experiment_config['failed_experiments_filename']
 
     # set save dirs
     working_dir = os.path.join(db_dir, get_model_type(model_type), task_name, mas_type, f'{mas_memory_type}')
@@ -289,7 +294,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         )
 
         build_mas(task_configs, reasoning_type, mas_memory_type, model_type)
-        run_task(task_configs, working_dir, output_lock=output_lock)
+        run_task(task_configs, working_dir, failed_tasks_filename, output_lock=output_lock)
 
         tracker = task_configs.token_tracker
         completion_tokens, prompt_tokens = tracker.completion_tokens, tracker.prompt_tokens
@@ -299,7 +304,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         task_configs.recorder.log(f'intrinsic completion tokens:{intrinsic_completion_tokens}, intrinsic_prompt_tokens:{intrinsic_prompt_tokens}')
 
         result_line = results.write_row(
-            results.overall_results_path(db_dir),
+            results.overall_results_path(db_dir, overall_results_filename),
             results.AGGREGATE_COLUMNS,
             results.aggregate_row(
                 identity_fields=task_configs.identity(),
@@ -327,7 +332,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         }
     except Exception as e:
         print(f"Experiment failed: task={task_name} mas_memory={mas_memory_type} seed={seed}\n{traceback.format_exc()}", file=sys.stderr)
-        failed_path = _write_failed_experiment(experiment_config, e, db_dir, output_lock=output_lock)
+        failed_path = _write_failed_experiment(experiment_config, e, db_dir, failed_experiments_filename, output_lock=output_lock)
         return {
             'task': task_name,
             'mas_type': mas_type,
@@ -343,9 +348,10 @@ def _write_failed_experiment(
     experiment_config: dict,
     error: Exception,
     db_dir: str,
+    failed_experiments_filename: str,
     output_lock=None,
 ) -> str:
-    failed_path = results.failed_experiments_path(db_dir)
+    failed_path = results.failed_experiments_path(db_dir, failed_experiments_filename)
     results.write_row(
         failed_path,
         results.FAILED_EXPERIMENT_COLUMNS,

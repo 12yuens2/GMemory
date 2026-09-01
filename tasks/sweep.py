@@ -72,6 +72,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--model', type=str, default='gpt-3.5-turbo-0125', help='Specify the LLM model type')
     parser.add_argument('--max_trials', type=int, default=None,
                         help="Override every task's configured max_steps with this trial budget")
+
+    # memory config
     parser.add_argument('--successful_topk', type=int, default=1, help='Number of successful trajs to be retrieved from memory.')
     parser.add_argument('--failed_topk', type=int, default=0, help='Number of failed trajs to be retrieved from memory.')
     parser.add_argument('--insights_topk', type=int, default=3, help='Number of insights to be retrieved from memory.')
@@ -80,18 +82,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--use_validator', action='store_true',
                         help='add a validator agent that checks the solver\'s action format before it is taken.')
     parser.add_argument('--hop', type=int, default=1, help='hop for traj similarity.')
+
+    # experiment config
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')
     parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')
+
+    # file paths
     parser.add_argument('--db_dir', type=str, default='./.db', help='Directory to store results, logs, and memory persistence for this run.')
+    parser.add_argument('--overall_results_filename', type=str, default='overall_results.csv', help='Filename for overall results.')
+    parser.add_argument('--failed_tasks_filename', type=str, default='failed_tasks.csv', help='Filename for failed tasks.')
+    parser.add_argument('--failed_experiments_filename', type=str, default='failed_experiments.csv', help='Filename for failed experiments.')
     return parser
 
 
 def main(argv: list[str] = None) -> None:
-    """`argv` is the command line without the program name; None reads sys.argv."""
     args = build_arg_parser().parse_args(argv)
 
-    # Resolved before any worker is spawned, so missing credentials are reported
-    # once, here, rather than inside each worker's traceback.
     settings: LLMSettings = default_llm_settings()
     print(f'LLM endpoint: {settings.api_base}, max_tokens: {settings.max_tokens}')
 
