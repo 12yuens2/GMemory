@@ -217,7 +217,6 @@ class GPTChat(LLM):
         ) from last_error
 
 
-
 def check_endpoint(
     model_name: str,
     settings: Optional[LLMSettings] = None,
