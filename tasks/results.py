@@ -1,16 +1,29 @@
 """The result rows an experiment writes, and the CSV files they go in.
 
 Three rules hold across every file here: the same identity columns come first,
-`seed` is last, and the two files reporting results report the same columns in
-the same order. A reader can then line up a progress row, a final row and a row
-of `overall_results.csv` column by column, and nothing has to recover a field by
-its position.
+`seed` is last, and the files reporting results report the same columns in the
+same order. A reader can then line up a row from any of them column by column,
+and nothing has to recover a field by its position.
+
+Five files, and what one row of each is:
+
+    <task>-<memory>-progress.csv  one completed task, in that experiment's dir
+    results.csv                   one finished experiment, in that config's dir
+    overall_results.csv           one finished experiment, for the whole sweep
+    failed_tasks.csv              one task that could not be run
+    failed_experiments.csv        one experiment that could not be run
+
+The first three share one schema, which makes results.csv the rows of
+overall_results.csv for one config, and makes the last progress row of a
+finished run equal to that experiment's results.csv row.
 
 The progress file is a partial result kept on purpose. One row is appended per
 completed task, holding the means over the tasks scored *so far*, so a job the
 scheduler kills part-way through a dataset still has what it measured up to
-there. `tasks_scored` is that row's denominator; the last row of a run that
-finished is the run's result, and matches the row `results.csv` gets.
+there. `tasks_scored` is that row's denominator.
+
+Each filename is an argument with a default, so a caller writing somewhere else
+does not have to know how the name is built.
 """
 
 import csv
@@ -76,16 +89,33 @@ FAILED_EXPERIMENT_COLUMNS: tuple[str, ...] = (
 )
 
 
-def progress_path(working_dir: str, task: str, mas_memory: str) -> str:
-    return os.path.join(working_dir, f'{task}-{mas_memory}-progress.csv')
+PROGRESS_FILENAME = '{task}-{mas_memory}-progress.csv'
+RESULTS_FILENAME = 'results.csv'
+OVERALL_RESULTS_FILENAME = 'overall_results.csv'
+FAILED_TASKS_FILENAME = 'failed_tasks.csv'
+FAILED_EXPERIMENTS_FILENAME = 'failed_experiments.csv'
 
 
-def results_path(working_dir: str) -> str:
-    return os.path.join(working_dir, 'results.csv')
+def progress_path(
+    working_dir: str, task: str, mas_memory: str, filename: str = PROGRESS_FILENAME
+) -> str:
+    return os.path.join(working_dir, filename.format(task=task, mas_memory=mas_memory))
 
 
-def overall_results_path(db_dir: str) -> str:
-    return os.path.join(db_dir, 'overall_results.csv')
+def results_path(working_dir: str, filename: str = RESULTS_FILENAME) -> str:
+    return os.path.join(working_dir, filename)
+
+
+def overall_results_path(db_dir: str, filename: str = OVERALL_RESULTS_FILENAME) -> str:
+    return os.path.join(db_dir, filename)
+
+
+def failed_tasks_path(working_dir: str, filename: str = FAILED_TASKS_FILENAME) -> str:
+    return os.path.join(working_dir, filename)
+
+
+def failed_experiments_path(db_dir: str, filename: str = FAILED_EXPERIMENTS_FILENAME) -> str:
+    return os.path.join(db_dir, filename)
 
 
 def identity(

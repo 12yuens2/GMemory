@@ -203,10 +203,9 @@ def _write_failed_tasks(
     failed_tasks: list[dict],
     working_dir: str,
     output_lock=None,
-    filename: str = 'failed_tasks.csv',
 ) -> None:
     """One row per task that could not be run, alongside the experiment's results."""
-    path = os.path.join(working_dir, filename)
+    path = results.failed_tasks_path(working_dir)
 
     for failure in failed_tasks:
         results.write_row(
@@ -318,9 +317,8 @@ def _write_failed_experiment(
     error: Exception,
     db_dir: str,
     output_lock=None,
-    filename: str = 'failed_experiments.csv',
 ) -> str:
-    failed_path = os.path.join(db_dir, filename)
+    failed_path = results.failed_experiments_path(db_dir)
     results.write_row(
         failed_path,
         results.FAILED_EXPERIMENT_COLUMNS,

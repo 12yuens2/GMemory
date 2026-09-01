@@ -87,6 +87,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] = None) -> None:
+    """`argv` is the command line without the program name; None reads sys.argv."""
     args = build_arg_parser().parse_args(argv)
 
     # Resolved before any worker is spawned, so missing credentials are reported
