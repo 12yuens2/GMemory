@@ -22,7 +22,7 @@ TASKS = sorted(ENVS)
 
 @pytest.fixture
 def run_module(monkeypatch):
-    """run.py with its environment and dataset construction stubbed out.
+    """experiment.py with its environment and dataset construction stubbed out.
 
     `built` collects the trial budget each env was constructed with.
     """
@@ -30,7 +30,7 @@ def run_module(monkeypatch):
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    module = importlib.import_module("run")
+    module = importlib.import_module("experiment")
 
     built: list[tuple[str, int]] = []
 

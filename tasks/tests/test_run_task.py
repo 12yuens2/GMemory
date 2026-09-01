@@ -64,12 +64,12 @@ class ExplodingEnv(FakeEnv):
 
 @pytest.fixture
 def run_task_module(monkeypatch):
-    """run.py reads tasks/configs.yaml at import; these tests supply their own."""
+    """experiment.py reads tasks/configs.yaml at import; these tests supply their own."""
     import importlib
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    module = importlib.import_module("run")
+    module = importlib.import_module("experiment")
     monkeypatch.setattr(module, "get_task_few_shots", lambda **kwargs: ["a few shot"])
     monkeypatch.setattr(module, "get_dataset_system_prompt", lambda *a, **k: "do the task")
     monkeypatch.setattr(module, "CONFIG", {"fever": {"few_shots_num": 1}})
