@@ -19,9 +19,9 @@ def build_simplification_str():
 class SciworldEnv(BaseEnv):
     
     def __init__(self, env_config: dict, max_trials: int):
+        super().__init__(env_config, max_trials)
         server_path: str = env_config.get('server_path', None)
         self.env = ScienceWorldEnv("", server_path, envStepLimit=max_trials)
-        self.max_trials = max_trials
 
     def set_env(self, configs: dict) -> tuple[str, str]:
 
