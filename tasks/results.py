@@ -122,6 +122,9 @@ FAILED_EXPERIMENT_COLUMNS: tuple[str, ...] = (
     IDENTITY_COLUMNS + ('error_type', 'error_message', 'seed')
 )
 
+# What makes two rows the same experiment, for --resume.
+KEY_COLUMNS: tuple[str, ...] = IDENTITY_COLUMNS + ('seed',)
+
 # Default filenames, can be overridden in args config.
 TASK_RESULTS_FILENAME = '{task}-{mas_memory}-task_results.csv'
 PROGRESS_FILENAME = '{task}-{mas_memory}-seed_{seed}-progress.csv'
@@ -213,6 +216,23 @@ def task_row(
         **asdict(TaskMeasurements.of(episode, spent)),
         'seed': seed,
     }
+
+
+def experiment_key(config: dict) -> tuple[str, ...]:
+    """Which experiment a config is, as the strings a written row would carry."""
+    return tuple(str(config.get(column, '')) for column in KEY_COLUMNS)
+
+
+def recorded_experiments(path: str) -> set[tuple[str, ...]]:
+    """The key of every experiment already in a results file."""
+    if not os.path.exists(path):
+        return set()
+
+    with open(path, newline='', encoding='utf-8') as reader:
+        return {
+            tuple(str(row.get(column, '')) for column in KEY_COLUMNS)
+            for row in csv.DictReader(reader)
+        }
 
 
 def remove_progress(path: str) -> None:

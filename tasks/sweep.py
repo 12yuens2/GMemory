@@ -40,6 +40,22 @@ def build_experiment_configs(args) -> list[dict]:
     return [dict(zip(values, combination)) for combination in product(*values.values())]
 
 
+def drop_completed(experiments: list[dict], overall_results_path: str) -> tuple[list[dict], int]:
+    """The experiments with no row in `overall_results_path` yet, and how many had one.
+
+    Every writer appends, so re-running a killed sweep would add a second row for
+    every experiment that had already finished, to be de-duplicated by hand
+    before anything could be plotted.
+    """
+    recorded = results.recorded_experiments(overall_results_path)
+    remaining = [
+        experiment for experiment in experiments
+        if results.experiment_key(experiment) not in recorded
+    ]
+
+    return remaining, len(experiments) - len(remaining)
+
+
 def run_experiments(
     experiments: list[dict], num_workers: int, deadline: float = None
 ) -> list[dict]:
@@ -105,6 +121,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')
     parser.add_argument('--skip_preflight', action='store_true',
                         help='Start without checking that the endpoint serves --model.')
+    parser.add_argument('--resume', action='store_true',
+                        help='Skip the experiments already recorded in the overall results '
+                             'file, instead of appending a second row for each of them.')
     parser.add_argument('--max_hours', type=float, default=None,
                         help='Stop starting experiments after this many hours, so a sweep '
                              'ends cleanly rather than being killed part-way through one.')
@@ -130,12 +149,19 @@ def main(argv: list[str] = None) -> None:
         check_endpoint(args.model, settings=settings)
         print(f'endpoint serves {args.model} and answered a one-token request')
 
-    results.check_header(
-        results.overall_results_path(args.db_dir, args.overall_results_filename),
-        results.AGGREGATE_COLUMNS,
+    overall_results_path = results.overall_results_path(
+        args.db_dir, args.overall_results_filename
     )
+    results.check_header(overall_results_path, results.AGGREGATE_COLUMNS)
 
     experiments = build_experiment_configs(args)
+    if args.resume:
+        experiments, already_done = drop_completed(experiments, overall_results_path)
+        print(f'{already_done} experiments already recorded in {overall_results_path}, skipping')
+        if not experiments:
+            print('nothing left to run')
+            return
+
     deadline = time.time() + args.max_hours * 3600 if args.max_hours else None
     outcomes = run_experiments(experiments, args.num_workers, deadline)
 
@@ -143,7 +169,7 @@ def main(argv: list[str] = None) -> None:
     if skipped:
         print(
             f"\n{len(skipped)}/{len(outcomes)} experiments were not started: the "
-            f"{args.max_hours}h budget ran out."
+            f"{args.max_hours}h budget ran out. Re-run with --resume to continue."
         )
 
     failed = [outcome for outcome in outcomes if outcome.get('status') == 'failed']

@@ -287,3 +287,60 @@ def test_an_experiment_is_not_started_once_the_time_budget_has_gone(
     assert not list(Path(tmp_path).rglob('*.csv')), (
         'a skipped experiment wrote a row, which resume would then treat as done'
     )
+
+
+# ── a killed sweep can be continued rather than repeated ──────────────────────
+
+def run_one_experiment(experiment, monkeypatch, config) -> None:
+    """One real run_experiment over a fake env and workflow, writing real rows."""
+    monkeypatch.setattr(experiment, 'CONFIG', {'fever': {'few_shots_num': 1}})
+    monkeypatch.setattr(experiment, 'get_task_few_shots', lambda **kwargs: ['a few shot'])
+    monkeypatch.setattr(experiment, 'get_dataset_system_prompt', lambda *a, **k: 'do the task')
+    monkeypatch.setattr(
+        experiment, 'build_task', stub_build_task(experiment, [{'task': 'a'}])
+    )
+    monkeypatch.setattr(experiment, 'build_mas', lambda *args, **kwargs: None)
+
+    outcome = experiment.run_experiment(config)
+    assert outcome['status'] == 'success', outcome.get('error')
+
+
+def test_an_experiment_that_finished_is_not_run_again(
+    sweep_module, experiment_module, monkeypatch, tmp_path
+):
+    """The key has to match between a config and the row that config produced."""
+    config = build_config(tmp_path, seed=42)
+    run_one_experiment(experiment_module, monkeypatch, config)
+
+    remaining, already_done = sweep_module.drop_completed(
+        [config], str(Path(tmp_path) / 'overall_results.csv')
+    )
+
+    assert (remaining, already_done) == ([], 1)
+
+
+def test_another_seed_of_the_same_config_is_still_run(
+    sweep_module, experiment_module, monkeypatch, tmp_path
+):
+    run_one_experiment(experiment_module, monkeypatch, build_config(tmp_path, seed=42))
+    other_seed = build_config(tmp_path, seed=43)
+
+    remaining, already_done = sweep_module.drop_completed(
+        [other_seed], str(Path(tmp_path) / 'overall_results.csv')
+    )
+
+    assert (remaining, already_done) == ([other_seed], 0)
+
+
+def test_the_cross_task_arm_is_not_mistaken_for_the_baseline(
+    sweep_module, experiment_module, monkeypatch, tmp_path
+):
+    """The two arms share a mas_memory value; the column is what separates them."""
+    run_one_experiment(experiment_module, monkeypatch, build_config(tmp_path, seed=42))
+    cross_task = {**build_config(tmp_path, seed=42), 'intrinsic_cross_task': True}
+
+    remaining, already_done = sweep_module.drop_completed(
+        [cross_task], str(Path(tmp_path) / 'overall_results.csv')
+    )
+
+    assert (remaining, already_done) == ([cross_task], 0)
