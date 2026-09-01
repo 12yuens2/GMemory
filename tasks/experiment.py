@@ -144,7 +144,6 @@ def run_task(
     task_manager: TaskManager,
     working_dir: str,
     failed_tasks_filename: str,
-    output_lock=None,
 ) -> None:
     task_manager.recorder.dataset_begin()
     task_results_path = results.task_results_path(
@@ -212,7 +211,6 @@ def run_task(
                 episode=episode,
                 spent=tracker.since(before),
             ),
-            output_lock=output_lock,
         )
 
         # means so far, so a killed job leaves a result without processing
@@ -226,7 +224,6 @@ def run_task(
                 averages=task_manager.recorder.average_results(),
                 tracker=tracker,
             ),
-            output_lock=output_lock,
         ))
 
     if failed_tasks:
@@ -236,7 +233,7 @@ def run_task(
         )
         task_manager.recorder.log(summary)
         print(summary, file=sys.stderr)
-        _write_failed_tasks(task_manager, failed_tasks, working_dir, failed_tasks_filename, output_lock=output_lock)
+        _write_failed_tasks(task_manager, failed_tasks, working_dir, failed_tasks_filename)
 
     task_manager.recorder.dataset_end()
 
@@ -246,7 +243,6 @@ def _write_failed_tasks(
     failed_tasks: list[dict],
     working_dir: str,
     failed_tasks_filename: str,
-    output_lock=None,
 ) -> None:
     """One row per task that could not be run, alongside the experiment's results."""
     path = results.failed_tasks_path(working_dir, failed_tasks_filename)
@@ -261,11 +257,10 @@ def _write_failed_tasks(
                 'seed': task_manager.seed,
                 **results.failure_fields(failure['error']),
             },
-            output_lock=output_lock,
         )
 
 
-def run_experiment(experiment_config: dict, output_lock=None, deadline: float = None) -> dict:
+def run_experiment(experiment_config: dict, deadline: float = None) -> dict:
     task_name = experiment_config['task']
     mas_type = experiment_config['mas_type']
     mas_memory_type = experiment_config['mas_memory']
@@ -324,7 +319,7 @@ def run_experiment(experiment_config: dict, output_lock=None, deadline: float = 
         )
 
         build_mas(task_configs, reasoning_type, mas_memory_type, model_type)
-        run_task(task_configs, working_dir, failed_tasks_filename, output_lock=output_lock)
+        run_task(task_configs, working_dir, failed_tasks_filename)
 
         tracker = task_configs.token_tracker
         completion_tokens, prompt_tokens = tracker.completion_tokens, tracker.prompt_tokens
@@ -343,7 +338,6 @@ def run_experiment(experiment_config: dict, output_lock=None, deadline: float = 
                 averages=task_configs.recorder.average_results(),
                 tracker=tracker,
             ),
-            output_lock=output_lock,
         )
         print(result_line)
 
@@ -362,7 +356,7 @@ def run_experiment(experiment_config: dict, output_lock=None, deadline: float = 
         }
     except Exception as e:
         print(f"Experiment failed: task={task_name} mas_memory={mas_memory_type} seed={seed}\n{traceback.format_exc()}", file=sys.stderr)
-        failed_path = _write_failed_experiment(experiment_config, e, db_dir, failed_experiments_filename, output_lock=output_lock)
+        failed_path = _write_failed_experiment(experiment_config, e, db_dir, failed_experiments_filename)
         return {
             'task': task_name,
             'mas_type': mas_type,
@@ -379,7 +373,6 @@ def _write_failed_experiment(
     error: Exception,
     db_dir: str,
     failed_experiments_filename: str,
-    output_lock=None,
 ) -> str:
     failed_path = results.failed_experiments_path(db_dir, failed_experiments_filename)
     results.write_row(
@@ -397,6 +390,5 @@ def _write_failed_experiment(
             'seed': experiment_config.get('seed', ''),
             **results.failure_fields(error),
         },
-        output_lock=output_lock,
     )
     return failed_path

@@ -3,7 +3,7 @@
 Three properties, all of which fail invisibly rather than loudly:
 
   - a flag given several values must produce one experiment per combination;
-  - concurrent workers must share the lock they append result files through;
+  - every experiment must reach a worker exactly once;
   - two seeds of one config must not share a memory persistence directory.
 
 The last one is the expensive kind of wrong: memory carried from one seed into
@@ -87,23 +87,6 @@ class FakeExecutor:
         return future
 
 
-class FakeManager:
-    """multiprocessing.Manager()'s shape, handing out one lock."""
-
-    def __init__(self, lock):
-        self.lock = lock
-
-    def __enter__(self):
-        return SimpleNamespace(Lock=lambda: self.lock)
-
-    def __exit__(self, *exc_info):
-        return False
-
-
-def fake_multiprocessing(lock):
-    return SimpleNamespace(get_context=lambda method: method, Manager=lambda: FakeManager(lock))
-
-
 def test_a_single_experiment_does_not_spawn_a_pool(sweep_module, monkeypatch):
     sweep = sweep_module
     monkeypatch.setattr(sweep, 'run_experiment', lambda config, *args: {'ran': config['seed']})
@@ -122,14 +105,14 @@ def test_one_worker_runs_every_experiment_in_this_process(sweep_module, monkeypa
     assert outcomes == [{'ran': 1}, {'ran': 2}]
 
 
-def test_every_parallel_worker_is_given_the_shared_output_lock(sweep_module, monkeypatch):
-    """The workers append to the same result files, so the lock has to reach all of them."""
+def test_every_experiment_reaches_a_worker_exactly_once(sweep_module, monkeypatch):
     sweep = sweep_module
-    lock = object()
     submissions: list[tuple] = []
 
     monkeypatch.setattr(sweep, 'run_experiment', lambda config, *args: {'ran': config['seed']})
-    monkeypatch.setattr(sweep, 'multiprocessing', fake_multiprocessing(lock))
+    monkeypatch.setattr(
+        sweep, 'multiprocessing', SimpleNamespace(get_context=lambda method: method)
+    )
     monkeypatch.setattr(
         sweep, 'ProcessPoolExecutor', lambda **kwargs: FakeExecutor(submissions, **kwargs)
     )
@@ -137,8 +120,7 @@ def test_every_parallel_worker_is_given_the_shared_output_lock(sweep_module, mon
     experiments = [{'seed': seed} for seed in (1, 2, 3)]
     outcomes = sweep.run_experiments(experiments, num_workers=2)
 
-    assert [config for config, _, _ in submissions] == experiments, "every experiment is submitted once"
-    assert {passed_lock for _, passed_lock, _ in submissions} == {lock}
+    assert [config for config, _ in submissions] == experiments
     assert sorted(outcome['ran'] for outcome in outcomes) == [1, 2, 3]
 
 
@@ -147,7 +129,9 @@ def test_no_more_workers_are_started_than_there_are_experiments(sweep_module, mo
     started: list = []
 
     monkeypatch.setattr(sweep, 'run_experiment', lambda config, *args: {})
-    monkeypatch.setattr(sweep, 'multiprocessing', fake_multiprocessing(object()))
+    monkeypatch.setattr(
+        sweep, 'multiprocessing', SimpleNamespace(get_context=lambda method: method)
+    )
     monkeypatch.setattr(
         sweep, 'ProcessPoolExecutor', lambda **kwargs: FakeExecutor(started, **kwargs)
     )
@@ -206,7 +190,7 @@ def test_two_seeds_of_one_config_do_not_share_a_memory_directory(
     monkeypatch.setattr(
         experiment,
         'run_task',
-        lambda manager, working_dir, failed_tasks_filename, output_lock=None: memory_dirs.append(
+        lambda manager, working_dir, failed_tasks_filename: memory_dirs.append(
             manager.mem_config['working_dir']
         ),
     )
@@ -258,7 +242,7 @@ def test_the_progress_file_survives_an_experiment_that_failed(
     """The case it exists for: no result was written, so the partial one is all there is."""
     experiment = experiment_module
 
-    def run_task_then_fail(task_manager, working_dir, failed_tasks_filename, output_lock=None):
+    def run_task_then_fail(task_manager, working_dir, failed_tasks_filename):
         experiment.results.write_row(
             experiment.results.progress_path(
                 working_dir, task_manager.task_name, task_manager.memory_type, task_manager.seed

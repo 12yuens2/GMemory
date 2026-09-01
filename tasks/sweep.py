@@ -19,6 +19,7 @@ from mas.logging_utils import log_mas_to_console
 from mas.module_map import MAS_MEMORY_MODULES
 from mas.settings import LLMSettings, default_llm_settings
 
+import results
 from envs import ENVS
 from experiment import run_experiment
 from mas_workflow import MAS
@@ -44,8 +45,9 @@ def run_experiments(
 ) -> list[dict]:
     """Every experiment, in this process or in a pool of them.
 
-    A pool is not spawned for a single experiment. When one is, every worker
-    writes through the same lock: they append to shared result files.
+    A pool is not spawned for a single experiment. The workers need nothing
+    shared: they append to the same result files under a lock on each file, which
+    is also what makes two separately submitted jobs safe.
 
     `deadline` is an absolute time after which an experiment is not started. A
     worker reaching it returns without running, so the sweep ends of its own
@@ -53,24 +55,21 @@ def run_experiments(
     """
     if len(experiments) == 1 or num_workers <= 1:
         return [
-            run_experiment(experiment_config, None, deadline)
-            for experiment_config in experiments
+            run_experiment(experiment_config, deadline) for experiment_config in experiments
         ]
 
     ctx = multiprocessing.get_context('spawn')
-    with multiprocessing.Manager() as manager:
-        output_lock = manager.Lock()
-        with ProcessPoolExecutor(
-            max_workers=min(num_workers, len(experiments)), mp_context=ctx
-        ) as executor:
-            futures = [
-                executor.submit(run_experiment, experiment_config, output_lock, deadline)
-                for experiment_config in experiments
-            ]
-            return [
-                future.result()
-                for future in tqdm(as_completed(futures), total=len(futures), desc='Running experiments')
-            ]
+    with ProcessPoolExecutor(
+        max_workers=min(num_workers, len(experiments)), mp_context=ctx
+    ) as executor:
+        futures = [
+            executor.submit(run_experiment, experiment_config, deadline)
+            for experiment_config in experiments
+        ]
+        return [
+            future.result()
+            for future in tqdm(as_completed(futures), total=len(futures), desc='Running experiments')
+        ]
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -130,6 +129,11 @@ def main(argv: list[str] = None) -> None:
     if not args.skip_preflight:
         check_endpoint(args.model, settings=settings)
         print(f'endpoint serves {args.model} and answered a one-token request')
+
+    results.check_header(
+        results.overall_results_path(args.db_dir, args.overall_results_filename),
+        results.AGGREGATE_COLUMNS,
+    )
 
     experiments = build_experiment_configs(args)
     deadline = time.time() + args.max_hours * 3600 if args.max_hours else None

@@ -15,8 +15,11 @@ Two things worth knowing about the token columns:
 """
 
 import csv
+import fcntl
 import io
 import os
+import sys
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, fields
 from typing import TYPE_CHECKING
 
@@ -226,31 +229,98 @@ def failure_fields(error: Exception) -> dict:
     }
 
 
-def write_row(path: str, columns: tuple[str, ...], row: dict, output_lock=None) -> str:
+class SchemaMismatch(RuntimeError):
+    """An existing results file's header is not the schema being written.
+
+    Appending anyway is what turns a campaign's CSV into something nobody can
+    read, and it cannot be undone from the file afterwards.
+    """
+
+
+def check_header(path: str, columns: tuple[str, ...]) -> None:
+    """Raise if `path` already exists under a different schema.
+
+    So a sweep pointed at an existing --db_dir says so before it runs rather than
+    when its first experiment finishes.
+    """
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return
+
+    with open(path, encoding='utf-8') as reader:
+        existing = reader.readline().rstrip('\n')
+
+    if existing != ','.join(columns):
+        raise _mismatch(path, existing, columns)
+
+
+def _mismatch(path: str, existing: str, columns: tuple[str, ...]) -> SchemaMismatch:
+    return SchemaMismatch(
+        f'{path} was written by another schema.\n'
+        f'  its header: {existing}\n'
+        f'  this run:   {",".join(columns)}'
+    )
+
+
+def write_row(path: str, columns: tuple[str, ...], row: dict) -> str:
     """Append one row, writing the header first if the file is new.
+
+    Reading the header and appending are one operation, under a lock on the file
+    itself: an experiment set is submitted as several Slurm jobs pointed at one
+    --db_dir, and processes in different jobs share nothing else to lock in.
 
     Returns the line written. Every column must be present in `row`: a row that
     does not fill its schema raises here rather than reaching the file short.
     """
     line = _format(columns, row)
+    header = ','.join(columns)
 
-    def append() -> None:
-        directory = os.path.dirname(path)
-        if directory:
-            os.makedirs(directory, exist_ok=True)
-        new_file = not os.path.exists(path) or os.path.getsize(path) == 0
-        with open(path, 'a', encoding='utf-8') as writer:
-            if new_file:
-                writer.write(','.join(columns) + '\n')
-            writer.write(line)
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
 
-    if output_lock is not None:
-        with output_lock:
-            append()
-    else:
-        append()
+    with open(path, 'a+', encoding='utf-8') as handle:
+        with _locked(handle, path):
+            handle.seek(0)
+            existing = handle.readline().rstrip('\n')
+            if not existing:
+                handle.write(header + '\n')
+            elif existing != header:
+                raise _mismatch(path, existing, columns)
+            handle.write(line)
+            # Flushed inside the lock: the next writer reads the header back.
+            handle.flush()
 
     return line.rstrip('\n')
+
+
+_UNLOCKABLE: set[str] = set()
+
+
+@contextmanager
+def _locked(handle, path: str):
+    """An exclusive lock on the open file, if the filesystem grants one.
+
+    Lustre supports flock only when mounted with it, and the alternative to
+    appending unlocked is refusing to record a finished experiment - so a refusal
+    is reported once per file and the write goes ahead.
+    """
+    locked = False
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        locked = True
+    except OSError as error:
+        if path not in _UNLOCKABLE:
+            _UNLOCKABLE.add(path)
+            print(
+                f'cannot lock {path} ({error}); concurrent jobs may interleave rows',
+                file=sys.stderr,
+            )
+
+    try:
+        yield
+    finally:
+        if locked:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _format(columns: tuple[str, ...], row: dict) -> str:
