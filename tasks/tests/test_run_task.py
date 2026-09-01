@@ -110,7 +110,7 @@ def test_every_task_in_the_dataset_is_scheduled(run_task_module, tmp_path):
     mas = StubMAS(FakeEnv())
     manager = build_manager(run, tmp_path, tasks, mas)
 
-    run.run_task(manager, working_dir=str(tmp_path))
+    run.run_task(manager, working_dir=str(tmp_path), failed_tasks_filename='failed_tasks.csv')
 
     assert len(mas.scheduled) == 4
     assert [e.reward for e in manager.recorder.episodes] == [1.0] * 4
@@ -128,7 +128,7 @@ def test_every_task_gets_a_row_of_its_own_raw_numbers(run_task_module, tmp_path)
     mas = StubMAS(FakeEnv(), outcomes=outcomes)
     manager = build_manager(run, tmp_path, tasks, mas)
 
-    run.run_task(manager, working_dir=str(tmp_path))
+    run.run_task(manager, working_dir=str(tmp_path), failed_tasks_filename='failed_tasks.csv')
 
     rows = read_csv(tmp_path / "fever-empty-task_results.csv")
     assert [row["task_id"] for row in rows] == ["0", "1", "2"]
@@ -146,7 +146,7 @@ def test_progress_is_checkpointed_after_every_completed_task(run_task_module, tm
     mas = StubMAS(FakeEnv())
     manager = build_manager(run, tmp_path, tasks, mas, seed=7)
 
-    run.run_task(manager, working_dir=str(tmp_path))
+    run.run_task(manager, working_dir=str(tmp_path), failed_tasks_filename='failed_tasks.csv')
 
     rows = read_csv(tmp_path / "fever-empty-seed_7-progress.csv")
     assert len(rows) == 3, "one row should be appended per completed task, not one at the end"
@@ -163,7 +163,7 @@ def test_a_failing_environment_does_not_stop_the_remaining_tasks(run_task_module
     mas = StubMAS(ExplodingEnv(fail_on=(2,)))
     manager = build_manager(run, tmp_path, tasks, mas)
 
-    run.run_task(manager, working_dir=str(tmp_path))
+    run.run_task(manager, working_dir=str(tmp_path), failed_tasks_filename='failed_tasks.csv')
 
     assert len(mas.scheduled) == 4, "the four healthy tasks should all have run"
     assert [e.reward for e in manager.recorder.episodes] == [1.0] * 4
@@ -175,7 +175,7 @@ def test_a_failing_workflow_does_not_stop_the_remaining_tasks(run_task_module, t
     mas = StubMAS(FakeEnv(), fail_on=(0, 2))
     manager = build_manager(run, tmp_path, tasks, mas)
 
-    run.run_task(manager, working_dir=str(tmp_path))
+    run.run_task(manager, working_dir=str(tmp_path), failed_tasks_filename='failed_tasks.csv')
 
     assert len(mas.scheduled) == 4, "every task should have been attempted"
     assert [e.reward for e in manager.recorder.episodes] == [1.0, 1.0], "only the two that ran are scored"
@@ -187,7 +187,7 @@ def test_a_failed_task_is_recorded_with_its_error(run_task_module, tmp_path):
     mas = StubMAS(ExplodingEnv(fail_on=(1,)))
     manager = build_manager(run, tmp_path, tasks, mas, seed=7)
 
-    run.run_task(manager, working_dir=str(tmp_path))
+    run.run_task(manager, working_dir=str(tmp_path), failed_tasks_filename='failed_tasks.csv')
 
     rows = read_csv(tmp_path / "failed_tasks.csv")
     assert len(rows) == 1
@@ -206,7 +206,7 @@ def test_a_failed_task_is_excluded_from_the_averages_not_scored_as_zero(
     mas = StubMAS(ExplodingEnv(fail_on=(0,)))
     manager = build_manager(run, tmp_path, tasks, mas)
 
-    run.run_task(manager, working_dir=str(tmp_path))
+    run.run_task(manager, working_dir=str(tmp_path), failed_tasks_filename='failed_tasks.csv')
 
     averages = manager.recorder.average_results()
     assert (averages.mean_reward, averages.mean_done) == (1.0, 1.0), (
@@ -222,7 +222,7 @@ def test_the_exclusion_is_stated_loudly(run_task_module, tmp_path, capsys):
     mas = StubMAS(ExplodingEnv(fail_on=(0, 3)))
     manager = build_manager(run, tmp_path, tasks, mas)
 
-    run.run_task(manager, working_dir=str(tmp_path))
+    run.run_task(manager, working_dir=str(tmp_path), failed_tasks_filename='failed_tasks.csv')
 
     assert "2/4 tasks failed" in capsys.readouterr().err
 
@@ -233,7 +233,7 @@ def test_a_dataset_where_every_task_fails_still_finishes(run_task_module, tmp_pa
     mas = StubMAS(ExplodingEnv(fail_on=(0, 1, 2)))
     manager = build_manager(run, tmp_path, tasks, mas)
 
-    run.run_task(manager, working_dir=str(tmp_path))
+    run.run_task(manager, working_dir=str(tmp_path), failed_tasks_filename='failed_tasks.csv')
 
     assert manager.recorder.average_results() == (0, 0, 0, 0)
     assert len(read_csv(tmp_path / "failed_tasks.csv")) == 3
@@ -258,7 +258,7 @@ def test_a_failing_task_is_isolated_whatever_the_task(run_task_module, tmp_path,
     mas = StubMAS(ExplodingEnv(fail_on=(1,)))
     manager = build_manager(run, tmp_path, tasks, mas, task_name=task, recorder=recorder)
 
-    run.run_task(manager, working_dir=str(tmp_path))
+    run.run_task(manager, working_dir=str(tmp_path), failed_tasks_filename='failed_tasks.csv')
 
     assert len(mas.scheduled) == 3, f"[{task}] the three healthy tasks should have run"
     assert len(read_csv(tmp_path / "failed_tasks.csv")) == 1
@@ -283,7 +283,7 @@ def test_a_task_config_a_recorder_rejects_is_isolated_too(
     mas = StubMAS(FakeEnv())
     manager = build_manager(run, tmp_path, tasks, mas, task_name=task, recorder=recorder)
 
-    run.run_task(manager, working_dir=str(tmp_path))
+    run.run_task(manager, working_dir=str(tmp_path), failed_tasks_filename='failed_tasks.csv')
 
     assert len(recorder.episodes) >= 2, (
         f"[{task}] the two well-formed tasks should have been scored"
