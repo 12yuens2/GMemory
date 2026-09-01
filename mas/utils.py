@@ -65,17 +65,28 @@ _EMBEDDING_MODEL_CACHE = {}
 
 @dataclass
 class EmbeddingFunc:
+    """The local embedding model, loaded on first use rather than on construction.
+
+    `device` matters on a GPU node: SentenceTransformer takes cuda:0 when CUDA is
+    there, which is where the vLLM server under test lives. One is constructed
+    per experiment, before the memory module is known, and seven of the twelve
+    registered modules never embed anything - so loading it here would put torch
+    and a model in every worker for nothing.
+    """
 
     model_type: str = "sentence-transformers/all-MiniLM-L6-v2"
+    device: str = "cpu"
 
-    def __post_init__(self):
+    @property
+    def func(self) -> "SentenceTransformer":
         # Imported lazily: sentence_transformers pulls in torch.
         from sentence_transformers import SentenceTransformer
 
-        if self.model_type not in _EMBEDDING_MODEL_CACHE:
-            _EMBEDDING_MODEL_CACHE[self.model_type] = SentenceTransformer(self.model_type)
+        key = (self.model_type, self.device)
+        if key not in _EMBEDDING_MODEL_CACHE:
+            _EMBEDDING_MODEL_CACHE[key] = SentenceTransformer(self.model_type, device=self.device)
 
-        self.func: "SentenceTransformer" = _EMBEDDING_MODEL_CACHE[self.model_type]
+        return _EMBEDDING_MODEL_CACHE[key]
 
     def embed_documents(self, texts: list[str]) -> list[list]:
         return [self.func.encode(text).tolist() for text in texts]

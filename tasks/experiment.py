@@ -122,7 +122,10 @@ def build_mas(
     llm_type: str = None,
 ) -> None:
     
-    embed_func = EmbeddingFunc(CONFIG.get('embedding_model', "sentence-transformers/all-MiniLM-L6-v2")) 
+    embed_func = EmbeddingFunc(
+        CONFIG.get('embedding_model', "sentence-transformers/all-MiniLM-L6-v2"),
+        device=CONFIG.get('embedding_device', 'cpu'),
+    )
     reasoning_module_type, mas_memory_module_type = module_map(reasoning, mas_memory)
 
     llm_model: LLMCallable = GPTChat(model_name=llm_type)
