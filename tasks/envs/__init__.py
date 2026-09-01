@@ -14,54 +14,63 @@ TASKS_PATH = {
     'sciworld': 'data/sciworld/test.jsonl',
 }
 
-## Tasks
-alfworld_tasks: list[dict] = [
-    {
-        'task': f'{row["goal"]}',
-        'env_kwargs': {
-            'config': 'alfworld',
-            "gamefile": row["gamefile"],
-        },
-        'task_type': prefixes[get_env_name_from_gamefile(row["gamefile"])],
-        'env_name': get_env_name_from_gamefile(row["gamefile"])
-    } for row in json.load(open(TASKS_PATH['alfworld'], "r")) 
-]
+PDDL_DOMAINS = ["barman", "blockworld", "gripper", "tyreworld"]
 
-sciworld_tasks: list = []
-with open(TASKS_PATH['sciworld'], 'r+', encoding='utf-8') as f:
-    for item in jsonlines.Reader(f):
-        task_name = item["additional_info"]["env_name"]
-        var = item["additional_info"]["var"]
-        sciworld_tasks.append({
-            "id": item['id'],
-            "task_name": task_name,
-            "var": var,
-            "modified_goal": item["goal"],
-            "subgoals": item['subgoals'],
-            "difficulty": item["difficulty"],
-            "simplification_str": build_simplification_str()
-        })
 
-with open(TASKS_PATH['fever'], 'r') as f:
-    fever_tasks = [
+def load_alfworld_tasks() -> list[dict]:
+    with open(TASKS_PATH['alfworld'], 'r') as reader:
+        rows = json.load(reader)
+
+    return [
         {
-            'task': row['claim'],
-            'answer': row['label'],
-            'env_name': 'fever',
-        }
-        for row in (json.loads(line) for line in f) 
+            'task': f'{row["goal"]}',
+            'env_kwargs': {
+                'config': 'alfworld',
+                "gamefile": row["gamefile"],
+            },
+            'task_type': prefixes[get_env_name_from_gamefile(row["gamefile"])],
+            'env_name': get_env_name_from_gamefile(row["gamefile"])
+        } for row in rows
     ]
 
 
-TASK_NAMES = ["barman", "blockworld", "gripper", "tyreworld"]
-pddl_tasks: list[dict] = get_all_environment_configs(TASK_NAMES, TASKS_PATH['pddl'])
+def load_sciworld_tasks() -> list[dict]:
+    with open(TASKS_PATH['sciworld'], 'r', encoding='utf-8') as reader:
+        return [
+            {
+                "id": item['id'],
+                "task_name": item["additional_info"]["env_name"],
+                "var": item["additional_info"]["var"],
+                "modified_goal": item["goal"],
+                "subgoals": item['subgoals'],
+                "difficulty": item["difficulty"],
+                "simplification_str": build_simplification_str()
+            }
+            for item in jsonlines.Reader(reader)
+        ]
 
 
-TASK_DATA = {
-    'alfworld': alfworld_tasks,
-    'fever': fever_tasks[:200],
-    'sciworld': sciworld_tasks,
-    'pddl': pddl_tasks
+def load_fever_tasks() -> list[dict]:
+    with open(TASKS_PATH['fever'], 'r') as reader:
+        return [
+            {
+                'task': row['claim'],
+                'answer': row['label'],
+                'env_name': 'fever',
+            }
+            for row in (json.loads(line) for line in reader)
+        ]
+
+
+def load_pddl_tasks() -> list[dict]:
+    return get_all_environment_configs(PDDL_DOMAINS, TASKS_PATH['pddl'])
+
+
+TASK_LOADERS = {
+    'alfworld': load_alfworld_tasks,
+    'sciworld': load_sciworld_tasks,
+    'fever': load_fever_tasks,
+    'pddl': load_pddl_tasks,
 }
 
 ENVS = {
@@ -78,6 +87,8 @@ RECORDERS = {
     'pddl': PDDLRecorder
 }
 
+_datasets: dict[str, list[dict]] = {}
+
 
 def get_env(task: str, env_config: dict, max_trials: int) -> BaseEnv:
     
@@ -93,9 +104,18 @@ def get_recorder(task: str, working_dir: str, namespace: str) -> BaseRecorder:
     
     return RECORDERS.get(task)(working_dir=working_dir, namespace=namespace)
 
-def get_task(task: str) -> list[dict]:
+def get_task(task: str, max_tasks: int = None) -> list[dict]:
+    """The dataset for `task`, parsed on first use and kept for the next call.
 
-    if TASK_DATA.get(task) is None:
+    `max_tasks` takes the first n tasks. It is per-task configuration, in
+    tasks/configs.yaml - not a sample, so two runs of the same task cover the
+    same tasks.
+    """
+    if TASK_LOADERS.get(task) is None:
         raise ValueError(f'Unsupported task type: {task}')
-    
-    return TASK_DATA.get(task)
+
+    if task not in _datasets:
+        _datasets[task] = TASK_LOADERS[task]()
+
+    dataset = _datasets[task]
+    return dataset[:max_tasks] if max_tasks is not None else dataset

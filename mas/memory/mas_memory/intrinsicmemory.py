@@ -58,7 +58,7 @@ class IntrinsicMASMemory(MASMemoryBase):
 
         # only summarise after some history has been built up
         if len(mas_message.task_trajectory) > 5:
-            self.agent_intrinsic_memory = self.llm_model(messages)
+            self.agent_intrinsic_memory = self.llm_model(messages, intrinsic=True)
 
         injection = "You can only perform one action. Output in a single line your next action"
 

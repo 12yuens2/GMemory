@@ -12,12 +12,13 @@ import tempfile
 
 import pytest
 
+from mas.agents import Env
 from mas.mas import EpisodeResult
 from mas.memory import MASMemoryBase
 from mas.module_map import MAS_MEMORY_MODULES, module_map
 
-from tasks.envs import RECORDERS
-from tasks.envs.base_env import AggregateResults, aggregate
+from tasks.envs import ENVS, RECORDERS
+from tasks.envs.base_env import AggregateResults, BaseEnv, aggregate
 
 from tasks.mas_workflow import MAS
 from tasks.tests.fakes import (
@@ -284,3 +285,20 @@ def test_the_recorder_keeps_the_episodes_it_was_given(task, working_dir):
         recorder.task_end(episode)
 
     assert recorder.episodes == given
+
+
+# ── the environment interface ─────────────────────────────────────────────────
+
+def test_the_offline_fake_satisfies_the_env_protocol():
+    """What licenses the rest of this suite: the fake answers the real interface.
+
+    `Env` is structural, so FakeEnv does not inherit it and nothing else would
+    notice the two drifting apart.
+    """
+    assert isinstance(FakeEnv(), Env)
+
+
+@pytest.mark.parametrize("task", sorted(ENVS))
+def test_every_registered_environment_is_a_base_env(task):
+    """BaseEnv is where the trial budget and the abstract methods are enforced."""
+    assert issubclass(ENVS[task], BaseEnv), f"{task} would not inherit __init__ or the ABC checks"

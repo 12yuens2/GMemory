@@ -8,16 +8,10 @@ from .base_env import BaseEnv, BaseRecorder
 from .utils import LangChainWiki, match_exactly
 
 class FeverEnv(BaseEnv):
-    def __init__(
-        self, 
-        env_config: dict[str, Any], 
-        max_trials: int = 7
-    ) -> None:
-        
-        self.env_config = env_config
+    def __init__(self, env_config: dict[str, Any], max_trials: int) -> None:
+        super().__init__(env_config, max_trials)
         self.explorer = LangChainWiki()
-        self.max_trials: int = max_trials
-        
+
         self.reset()
         
     def set_env(self, configs: dict) -> tuple[str, str]:

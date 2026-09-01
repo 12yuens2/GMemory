@@ -71,12 +71,8 @@ def get_all_environment_configs(game_names: list[str], label_path: str):
     
 
 class PDDLEnv(BaseEnv):
-    def __init__(
-        self, 
-        env_config: dict[str, Any], 
-        max_trials: int = 50
-    ):     
-        self.max_trials = max_trials
+    def __init__(self, env_config: dict[str, Any], max_trials: int):
+        super().__init__(env_config, max_trials)
         self.last_obs = None
 
     def set_env(self, configs: dict) -> tuple[str, str]: 

@@ -26,16 +26,11 @@ def get_env_name_from_gamefile(gamefile: str) -> Union[str, None]:
 
 
 class AlfworldEnv(BaseEnv):
-    def __init__(
-        self, 
-        env_config: dict[str, Any], 
-        max_trials: int = 50
-    ): 
-        self.env_config = env_config
+    def __init__(self, env_config: dict[str, Any], max_trials: int):
+        super().__init__(env_config, max_trials)
         # TODO: broken - main_env is commented out, so reset() raises AttributeError.
         #self.main_env = get_environment(self.env_config['env']['type'])(self.env_config, train_eval=self.env_config['split'])
-        
-        self.max_trials: int = max_trials
+
         self.reset()
     
     def set_env(self, configs: dict) -> tuple[str, str]:  

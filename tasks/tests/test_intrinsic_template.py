@@ -14,7 +14,7 @@ from mas.memory.mas_memory.intrinsicmemory_llm_structured_template import (
     IntrinsicMASMemoryLLMTemplate,
 )
 from mas.memory.mas_memory.intrinsicmemory import IntrinsicMASMemoryNoTemplate
-from mas.memory.mas_memory.prompt import INTRINSICMEMORY_LLM_TEMPLATE, MEMORY_TEMPLATE_SECTION
+from mas.memory.mas_memory.prompt import INTRINSICMEMORY_LLM_TEMPLATE
 
 from tasks.tests.fakes import FakeEmbeddingFunc, FakeLLM
 
@@ -93,7 +93,9 @@ def test_the_update_prompt_is_the_module_prompt_with_the_template_filled_in():
     assert updates, "no memory-update call followed the template generation"
     expected = memory.memory_update_prompt.format(
         custom_message="",
-        template_instructions=MEMORY_TEMPLATE_SECTION.format(template_instructions=TEMPLATE),
+        template_instructions=INTRINSICMEMORY_LLM_TEMPLATE.memory_template_section.format(
+            template_instructions=TEMPLATE
+        ),
         task_description="a description of the task",
         task_trajectory=TRAJECTORY,
         current_memory="",

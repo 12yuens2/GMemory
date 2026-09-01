@@ -25,6 +25,17 @@ Put secrets into `template/parameters.json`
 - imagePassword can be found in the Azure Portal > Container registry > intrinsic > Settings > Access Keys
 - environmentVariable5 is the Foundry API Key
 
+`template/generate_templates.py` fills the numbered slots, which `entrypoint.sh` reads as named variables:
+
+| Slot | | Slot | |
+|---|---|---|---|
+| 0 | `--task` | 4 | `OPENAI_API_BASE` |
+| 1 | `--mas_memory` | 5 | `OPENAI_API_KEY` (Foundry) |
+| 2 | `--seed` | 6 | storage connection string |
+| 3 | `--model` | 7 | `--mas_type`, currently always `autogen` |
+
+`entrypoint.sh` passes no `--use_validator` and no `--db_dir`, so the container runs the plain configuration into `./.db` inside the image.
+
 Check it works
 
 ```bash
@@ -37,6 +48,109 @@ az deployment group create --resource-group intrinsic-memory --template-file tem
 
 ```
 
+## 🖥️ HPC Usage (Slurm)
+
+Slurm job scripts for running experiments on an HPC cluster (developed against the BriCS/Isambard-AI environment) live in `slurm/`. They follow two patterns:
+
+**Self-contained: serve a model + run experiments in one job**
+`slurm/fever_experiment.sh`, `slurm/pddl_experiment.sh`, `slurm/sciworld_experiment.sh`, `slurm/single_node_serve.sh`
+
+Each of these scripts:
+1. Requests a node with 4 GPUs (`#SBATCH --gpus=4 --exclusive`) and loads cluster modules (`module load brics/nccl`).
+2. Starts a local `vllm serve` process in the background for a model (default `openai/gpt-oss-120b`), polling `/health` until it's ready.
+3. Points `OPENAI_API_BASE` at the local vLLM server (`http://localhost:8000/v1`) and runs `uv run tasks/run.py`, sweeping over every memory module and 10 seeds for one task (fever/pddl/sciworld) or all three at once (`single_node_serve.sh`).
+4. Kills the vLLM process once `run.py` finishes.
+
+Submit one with:
+```bash
+sbatch slurm/fever_experiment.sh
+```
+
+**Attach to an already-running vLLM/Ray cluster**
+`slurm/experiment.sh` doesn't start its own model server. It expects a vLLM/Ray serving job already running elsewhere on the cluster and resolves that job's head node from its Slurm job ID:
+```bash
+sbatch slurm/experiment.sh <ray_jobid>
+```
+It looks up the node running `<ray_jobid>`, resolves its IP, and points `OPENAI_API_BASE` there before running a single `tasks/run.py` experiment (sciworld / autogen / g-memory by default — edit the script to change task, memory, or model).
+
+These scripts hardcode several specific paths and values that need updating for another cluster:
+
+| Where | What it is | How to change it |
+|---|---|---|
+| `cd ~/GMemory` (all scripts) | Path to this repo's checkout, activated with a `uv`-managed `.venv` (`uv run tasks/run.py ...`) rather than the conda env from Setup below | Point at wherever you clone this repo, and switch to `conda activate GMemory` + `python tasks/run.py` if you're not using `uv` |
+| `cd ~/vllm_test` (fever/pddl/sciworld/single_node_serve) | A separate directory/venv used only to launch `vllm serve`, kept apart from the experiment venv above so vLLM's own dependencies don't clash with this repo's | Point at your own vLLM-serving venv, or drop this `cd`/`activate` pair if you serve models a different way |
+| `module load brics/nccl` | Cluster environment module providing NCCL (GPU communication library needed for tensor-parallel vLLM) | Replace with your cluster's NCCL module, or drop it if your cluster's default environment already provides NCCL |
+| `YAML_CONFIG="/projects/public/brics/distributed_vllm/GPT-OSS_Hopper.yaml"` | vLLM server config (tensor-parallel/batch settings) stored in BriCS's shared project space | Replace with your own vLLM config path, or drop `--config $YAML_CONFIG` and pass the equivalent `vllm serve` flags directly |
+| `HF_HOME=/projects/public/brics/hf` | Shared HuggingFace cache directory on BriCS's project space | Point at your own HF cache dir, or unset to fall back to the default `~/.cache/huggingface` |
+| `MODEL_PATH=$HF_HOME/hub/models--openai--gpt-oss-120b/snapshots/<hash>/` | Resolved local snapshot path for the served model's weights inside `HF_HOME` | Update the snapshot hash to match your own cache, or pass a HF Hub model name directly instead of a local path |
+| `MODEL_NAME` (`openai/gpt-oss-120b`, or `Qwen/Qwen3.6-35B-A3B` in `single_node_serve.sh`) | The model tag `vllm serve` registers and the tag `tasks/run.py` requests via the OpenAI-compatible API | Set to whichever model you're serving — note `single_node_serve.sh` currently serves `Qwen/Qwen3.6-35B-A3B` but then queries `openai/gpt-oss-120b`, so double-check this matches before reusing it |
+| `TIKTOKEN_ENCODINGS_BASE="/projects/public/brics/distributed_vllm/etc/encodings"` | Local copy of tiktoken's tokenizer encodings, used to avoid downloading them from the internet on restricted compute nodes | Point at your own local encodings cache, or drop the variable if your compute nodes have internet access |
+
+Beyond this table, `#SBATCH --output=out/...` in every script writes logs to a `out/` directory relative to wherever you run `sbatch` from — create it first (`mkdir -p out`) or change the path.
+
+## ⚙️ tasks/run.py Flags
+
+Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given more than one value sweeps: `run.py` builds the full Cartesian product of experiment configs, and — if `--num_workers` > 1 and there is more than one config — runs them in parallel via a `ProcessPoolExecutor`.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--task` (sweep) | `alfworld` | One or more of `alfworld`, `fever`, `pddl`, `sciworld` |
+| `--mas_type` | **required** | One of `autogen`, `dylan`, `macnet` |
+| `--mas_memory` (sweep) | **required** | One or more memory modules: `empty`, `voyager`, `memorybank`, `chatdev`, `generative`, `metagpt`, `g-memory`, `intrinsicmemory-pddl`, `intrinsicmemory-fever`, `intrinsicmemory-alfworld`, `intrinsicmemory-llm-structured-template`, `intrinsicmemory-notemplate` |
+| `--reasoning` | `io` | Reasoning module |
+| `--model` (sweep) | `gpt-3.5-turbo-0125` | LLM model name, as recognized by your `OPENAI_API_BASE` backend |
+| `--max_trials` | each task's `max_steps` | Trials one episode gets. Unset, the budget comes from that task's entry in `tasks/configs.yaml` (30 for all four); given, it overrides every task in the sweep |
+| `--successful_topk` | `1` | Number of successful trajectories retrieved from memory |
+| `--failed_topk` | `0` | Number of failed trajectories retrieved from memory |
+| `--insights_topk` | `3` | Number of insights retrieved from memory |
+| `--threshold` | `0.0` | Similarity threshold for trajectory retrieval |
+| `--hop` | `1` | Hop count for graph-based trajectory similarity |
+| `--use_projector` | off | Enable the role projector, which tailors retrieved insights per agent. Only `g-memory` implements projection |
+| `--use_validator` | off | Add a validator agent that checks the solver's action format before it is taken, re-prompting the solver on a rejection. Only `autogen` acts on it |
+| `--seed` (sweep) | `42` | One or more random seeds. Each seed gets its own memory persistence directory, so concurrent seeds of one config never share a graph or vector store |
+| `--num_workers` | `os.cpu_count() - 32` (min 1) | Worker processes for running the experiment sweep in parallel |
+| `--db_dir` | `./.db` | Where results, logs and memory persistence for this run go |
+
+Two settings are per-task rather than flags, in `tasks/configs.yaml`: `max_steps` (the trial budget above) and `few_shots_num`. FEVER also has `max_tasks: 200`, which cuts that dataset to its first 200 claims.
+
+Example sweep (2 tasks × 3 memories × 3 seeds = 18 experiments, parallelized across 8 workers):
+```bash
+python tasks/run.py --task fever pddl --mas_type autogen \
+    --mas_memory empty g-memory intrinsicmemory-notemplate \
+    --seed 11 22 33 --model <your model> --num_workers 8
+```
+
+### 📊 What a run writes
+
+Under `--db_dir`, with per-experiment files in `<db_dir>/<model>/<task>/<mas_type>/<mas_memory>/`:
+
+| File | One row is |
+|---|---|
+| `<task>-<memory>-task_results.csv` | one completed task, raw: that episode's own reward, done and trials, and the tokens that episode spent |
+| `<task>-<memory>-seed_<n>-progress.csv` | one completed task, as means over the tasks scored so far. **Deleted once that experiment finishes** — it is a crash backup, and the two files below say everything it did |
+| `overall_results.csv` (at `<db_dir>/`) | one finished experiment |
+| `failed_tasks.csv` | one task that could not be run, with its error |
+| `failed_experiments.csv` (at `<db_dir>/`) | one experiment that could not be run, with its error |
+
+The task file is the raw material — anything the means hide, like variance or cost per task, is computable from it, and the reverse is not true:
+
+```
+model,task,mas_type,mas_memory,use_validator,max_trials,task_id,reward,done,trials,
+completion_tokens,prompt_tokens,intrinsic_completion_tokens,intrinsic_prompt_tokens,seed
+```
+
+`trials` is empty for an episode cut short because an agent could not act — how many turns that task needed was never established, and `0` would read as a task that took no turns. The token columns are that episode's spend, so they sum to the run total unless a task failed part-way, since a task with no row still spent what it spent.
+
+`overall_results.csv` and the progress file share the aggregate schema:
+
+```
+model,task,mas_type,mas_memory,use_validator,max_trials,mean_reward,mean_done,mean_trials,
+tasks_scored,completion_tokens,prompt_tokens,intrinsic_completion_tokens,intrinsic_prompt_tokens,seed
+```
+
+`tasks_scored` is how many episodes the means are over, so a progress row states its own progress. A task whose episode could not run goes in `failed_tasks.csv` and is left out of the means rather than scored as zero. `intrinsic_*_tokens` are the share spent by the memory module's own LLM calls, and are non-zero only for the `intrinsicmemory-*` modules.
+
+Every file opens with the same identity columns and ends with `seed`. Results written before September 2026 use a different, per-file column order and have no header, so don't append a new run to an old `--db_dir`.
 
 ## 👋 Introduction
 This repo is the official implementation of [***G-Memory: Tracing Hierarchical Memory for Multi-Agent Systems***](https://arxiv.org/abs/2506.07398).
@@ -46,11 +160,30 @@ Our method, G-Memory, empowers multi-agent systems with a hierarchical memory ar
 ![alt text](assets/method.png)
 
 ## 🌎 Setup
+
+With `uv` (what the Slurm scripts and the Dockerfile use):
+```
+uv sync
+uv run tasks/run.py ...
+```
+
+With conda:
 ```
 conda create -n GMemory python=3.12
 conda activate GMemory
 pip install -r requirements.txt
 ```
+
+`requirements.txt` and `pyproject.toml` carry the same pins by hand; neither is generated from the other yet.
+
+### ✅ Tests and lint
+
+The test suite runs offline — it stubs the simulators, the vector store and the LLM — in a dev environment without CUDA:
+```
+uv run --only-group dev pytest
+uv run --only-group dev ruff check .
+```
+Plain `uv run pytest` installs the full dependency set, which needs a CUDA platform. Tests marked `network` need a live LLM endpoint and are deselected by default; run them with `-m network`.
 
 ## 🚀 Quick Start
 
@@ -66,10 +199,14 @@ data
 └── alfworld
     └── alfworld_tasks_suffix.json
 └── pddl
-    └── test.json
+    └── test.jsonl
 └── fever
     └── fever_dev.jsonl
+└── sciworld
+    └── test.jsonl
 ```
+
+Each dataset is parsed only when a task asks for it, so a FEVER-only run does not need the other three files present.
 
 ### 🔑 Add API keys in template.env and change its name to .env
 ```
@@ -79,7 +216,9 @@ OPENAI_API_KEY = ""  # for OpenAI LLM backend
 
 ### 🔎 Choices Overview
 - Available memories: ***Empty, ChatDev, MetaGPT, Voyager, Generative, MemoryBank, G-Memory***
+- Added by this fork: ***five intrinsic memory variants*** — `intrinsicmemory-notemplate`, `-pddl`, `-fever`, `-alfworld` and `-llm-structured-template`. Each keeps one agent-authored memory that an LLM rewrites as the episode goes; they differ only in the template their system prompt asks for, which is what the experiments compare.
 - Available MAS: ***AutoGen, DyLAN, MacNet***
+- `--mas_type autogen` also takes `--use_validator`, which adds a third agent reviewing the solver's action format.
 
 ### ▶️ How to Run
 - Option 1: Run with Shell Script. Simply execute the following script:
@@ -90,7 +229,7 @@ OPENAI_API_KEY = ""  # for OpenAI LLM backend
     ```
     python tasks/run.py --task alfworld --reasoning io --mas_memory g-memory --max_trials 30 --mas_type autogen --model <your model here>
     python tasks/run.py --task pddl --reasoning io --mas_memory g-memory --max_trials 30 --mas_type autogen --model <your model here>
-    python tasks/run.py --task fever --reasoning io --mas_memory g-memory --mas_trials 15 --mas_type autogen --model <your model here>
+    python tasks/run.py --task fever --reasoning io --mas_memory g-memory --max_trials 15 --mas_type autogen --model <your model here>
     ```
 
 ## 🫡 Citation

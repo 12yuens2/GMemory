@@ -1,9 +1,7 @@
-from typing import TypeVar
+from typing import Protocol, runtime_checkable
 
 from mas.reasoning import ReasoningBase, ReasoningConfig
 from mas.llm import Message
-
-T = TypeVar("T")
 
 
 class Agent:
@@ -39,16 +37,22 @@ class Agent:
 
 
 
-class Env:
+@runtime_checkable
+class Env(Protocol):
+    """What a workflow needs of an environment, whoever supplies it.
 
-    def __init__(self) -> None:
-        pass
-    
-    def set_env(self, configs: dict) -> None:
-        pass
+    Structural, so the test fakes and the tasks/envs implementations satisfy it
+    without a common base class. `tasks.envs.BaseEnv` is the implementation side.
+    """
 
-    def reset(self) -> None:
-        pass
+    max_trials: int
 
-    def step(self, action: str) -> None:
-        pass
+    def set_env(self, configs: dict) -> tuple[str, str]: ...
+
+    def reset(self) -> None: ...
+
+    def step(self, action: str) -> tuple[str, float, bool]: ...
+
+    def process_action(self, action: str) -> str: ...
+
+    def feedback(self) -> tuple[float, bool, str]: ...
