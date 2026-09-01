@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-import sys
+import logging
 
 from .memory_base import MASMemoryBase
 from .prompt import (
@@ -11,6 +11,8 @@ from .prompt import (
 )
 from ..common import MASMessage # a MASMessage, which is a specific type of message used in MAS
 from mas.llm import Message, GPTChat # a "normal" message, not a MASMessage?
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class IntrinsicMASMemory(MASMemoryBase):
@@ -54,7 +56,7 @@ class IntrinsicMASMemory(MASMemoryBase):
 
         messages = [Message("system", self.system_prompt), Message("user", memory_update_prompt)]
 
-        print(f"==== MEMORY UPDATE PROMPT ==== \n{memory_update_prompt}\n==== END MEMORY UPDATE PROMPT ====\n", file=sys.stderr)
+        logger.debug('MEMORY UPDATE PROMPT\n%s', memory_update_prompt)
 
         # only summarise after some history has been built up
         if len(mas_message.task_trajectory) > 5:

@@ -1,10 +1,12 @@
 from dataclasses import dataclass
-import sys
+import logging
 
 from .prompt import INTRINSICMEMORY_LLM_TEMPLATE
 from .intrinsicmemory import IntrinsicMASMemory
 from ..common import MASMessage # a MASMessage, which is a specific type of message used in MAS
 from mas.llm import Message # a "normal" message, not a MASMessage?
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
@@ -33,13 +35,13 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
         mas_message: MASMessage = self.current_task_context
         if not self.memory_template_flag:
             # Generate initial memory template if this is the first time running summarize
-            print("\n==== Generating initial memory template... ====\n", file=sys.stderr)
+            logger.info('generating the initial memory template')
 
             template_creation_message: str = INTRINSICMEMORY_LLM_TEMPLATE.template_creation_prompt.format(
                 task_description = mas_message.task_description
             )
 
-            print(f"\n==== GENERATE MEMORY TEMPLATE ====\n{template_creation_message}\n==== END GENERATE MEMORY TEMPLATE ====\n")
+            logger.debug('GENERATE MEMORY TEMPLATE\n%s', template_creation_message)
             msg =[Message("system", self.system_prompt), Message("user", template_creation_message)]
 
             self.memory_template = self.llm_model(msg, intrinsic=True)

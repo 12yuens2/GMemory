@@ -35,6 +35,9 @@ class LLMSettings:
         request_timeout: Seconds one request may take before it is abandoned. The
             openai default is 600, which multiplied by that client's retries and
             the retry loops above it lets one action block for over an hour.
+        log_responses: Echo every LLM response and memory-update prompt to
+            stderr. Off by default: one Slurm job writes one .out file, from
+            every worker at once, over the order of 100,000 requests.
     """
 
     api_base: str
@@ -42,6 +45,7 @@ class LLMSettings:
     max_tokens: int = 512
     temperature: float = 0.1
     request_timeout: float = 300.0
+    log_responses: bool = False
 
     @classmethod
     def load(cls, config_path: Optional[Path] = None) -> "LLMSettings":
@@ -80,6 +84,7 @@ class LLMSettings:
             max_tokens=llm_config.get("max_token", 512),
             temperature=llm_config.get("temperature", 0.1),
             request_timeout=llm_config.get("request_timeout", 300.0),
+            log_responses=llm_config.get("log_responses", False),
         )
 
 

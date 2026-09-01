@@ -96,7 +96,7 @@ class BaseRecorder:
         # log file path is unique per experiment, so using it as the logger name
         # guarantees a fresh logger even when the same namespace recurs on a
         # reused multiprocessing worker
-        self.logger = get_file_logger(self.file_path, self.file_path, level=logging.DEBUG, echo_console=True)
+        self.logger = get_file_logger(self.file_path, self.file_path, level=logging.DEBUG)
 
         self.current_task_id: int = None
         self.current_task_config: dict = {}

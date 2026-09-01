@@ -2,3 +2,4 @@ llm_config:
   max_token: 512
   temperature: 0.1
   request_timeout: 300
+  log_responses: false

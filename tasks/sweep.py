@@ -15,6 +15,7 @@ from itertools import product
 from tqdm import tqdm
 
 from mas.llm import check_endpoint
+from mas.logging_utils import log_mas_to_console
 from mas.module_map import MAS_MEMORY_MODULES
 from mas.settings import LLMSettings, default_llm_settings
 
@@ -122,6 +123,9 @@ def main(argv: list[str] = None) -> None:
 
     settings: LLMSettings = default_llm_settings()
     print(f'LLM endpoint: {settings.api_base}, max_tokens: {settings.max_tokens}')
+
+    if settings.log_responses:
+        log_mas_to_console()
 
     if not args.skip_preflight:
         check_endpoint(args.model, settings=settings)

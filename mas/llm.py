@@ -1,3 +1,4 @@
+import logging
 import sys
 
 from typing import (
@@ -12,6 +13,8 @@ from abc import ABC, abstractmethod
 
 from .settings import LLMSettings, default_llm_settings
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 def _refuses_temperature(error: BaseException) -> bool:
@@ -195,7 +198,7 @@ class GPTChat(LLM):
                     print("Error: LLM returned None", file=sys.stderr)
                     continue
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                print(f"==== LLM RESPONSE ====\nTIME: {current_time}\n{answer}\n==== END LLM RESPONSE ====\n", file=sys.stderr)
+                logger.debug('LLM RESPONSE at %s\n%s', current_time, answer)
                 return answer  
 
             except Exception as e:
