@@ -42,7 +42,7 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
             print(f"\n==== GENERATE MEMORY TEMPLATE ====\n{template_creation_message}\n==== END GENERATE MEMORY TEMPLATE ====\n")
             msg =[Message("system", self.system_prompt), Message("user", template_creation_message)]
 
-            self.memory_template = self.llm_model(msg)
+            self.memory_template = self.llm_model(msg, intrinsic=True)
             self.memory_template_flag = True
 
         return super().summarize(
