@@ -168,7 +168,8 @@ def build_config(tmp_path, seed: int) -> dict:
         'task': 'fever', 'mas_type': 'autogen', 'mas_memory': 'empty', 'reasoning': 'io',
         'model': 'fake-model', 'max_trials': 3, 'seed': seed, 'successful_topk': 1,
         'failed_topk': 0, 'insights_topk': 3, 'threshold': 0.0, 'use_projector': False,
-        'use_validator': False, 'hop': 1, 'num_workers': 1, 'db_dir': str(tmp_path),
+        'use_validator': False, 'hop': 1, 'intrinsic_cross_task': False,
+        'num_workers': 1, 'db_dir': str(tmp_path),
         'overall_results_filename': 'overall_results.csv', 'failed_tasks_filename': 'failed_tasks.csv',
         'failed_experiments_filename': 'failed_experiments.csv',
     }

@@ -82,6 +82,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--use_validator', action='store_true',
                         help='add a validator agent that checks the solver\'s action format before it is taken.')
     parser.add_argument('--hop', type=int, default=1, help='hop for traj similarity.')
+    parser.add_argument('--intrinsic_cross_task', action='store_true',
+                        help='keep an intrinsic memory across the tasks of a dataset instead of '
+                             'starting each task from an empty one. No effect on the other memory '
+                             'modules, which accumulate across tasks either way.')
 
     # experiment config
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')

@@ -55,6 +55,7 @@ class TaskManager:
             mas_type=self.mas_type,
             mas_memory=self.memory_type,
             use_validator=self.mas_config.get('use_validator', False),
+            intrinsic_cross_task=self.mem_config.get('intrinsic_cross_task', False),
         )
 
 
@@ -263,6 +264,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     use_projector = experiment_config['use_projector']
     use_validator = experiment_config['use_validator']
     hop = experiment_config['hop']
+    intrinsic_cross_task = experiment_config['intrinsic_cross_task']
     db_dir = experiment_config['db_dir']
     overall_results_filename = experiment_config['overall_results_filename']
     failed_tasks_filename = experiment_config['failed_tasks_filename']
@@ -291,7 +293,8 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
         memory_dir = os.path.join(working_dir, f'seed_{seed}')
         task_configs.mem_config.update(
             working_dir=memory_dir,
-            hop=hop
+            hop=hop,
+            intrinsic_cross_task=intrinsic_cross_task,
         )
 
         build_mas(task_configs, reasoning_type, mas_memory_type, model_type)
@@ -363,6 +366,7 @@ def _write_failed_experiment(
                 mas_type=experiment_config.get('mas_type', ''),
                 mas_memory=experiment_config.get('mas_memory', ''),
                 use_validator=experiment_config.get('use_validator', False),
+                intrinsic_cross_task=experiment_config.get('intrinsic_cross_task', False),
             ),
             'seed': experiment_config.get('seed', ''),
             **results.failure_fields(error),

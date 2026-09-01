@@ -93,7 +93,9 @@ class TaskMeasurements:
 
 
 # Which experiment a row belongs to.
-IDENTITY_COLUMNS: tuple[str, ...] = ('model', 'task', 'mas_type', 'mas_memory', 'use_validator')
+IDENTITY_COLUMNS: tuple[str, ...] = (
+    'model', 'task', 'mas_type', 'mas_memory', 'use_validator', 'intrinsic_cross_task'
+)
 
 MEASUREMENT_COLUMNS: tuple[str, ...] = tuple(field.name for field in fields(Measurements))
 TASK_MEASUREMENT_COLUMNS: tuple[str, ...] = tuple(field.name for field in fields(TaskMeasurements))
@@ -155,6 +157,7 @@ def identity(
     mas_type: str,
     mas_memory: str,
     use_validator: bool,
+    intrinsic_cross_task: bool,
 ) -> dict:
     return {
         'model': model,
@@ -162,6 +165,7 @@ def identity(
         'mas_type': mas_type,
         'mas_memory': mas_memory,
         'use_validator': use_validator,
+        'intrinsic_cross_task': intrinsic_cross_task,
     }
 
 

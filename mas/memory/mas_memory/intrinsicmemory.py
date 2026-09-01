@@ -69,10 +69,15 @@ class IntrinsicMASMemory(MASMemoryBase):
         return summary_message
 
 
-    def save_task_context(self, label: bool, feedback: str = None) -> MASMessage:
-        # Task is finished so wipe current memory
+    def save_task_context(self, label: bool, feedback: str = None) -> None:
+        """End of a task. Returns nothing: this family stores no trajectory.
+
+        The memory itself is wiped unless the experiment asked for it to be
+        carried into the next task.
+        """
         self.counter = 0
-        self.agent_intrinsic_memory = ""
+        if not self.global_config.get('intrinsic_cross_task', False):
+            self.agent_intrinsic_memory = ""
 
         # reset self.llm_model, but keep accounting on the same tracker so
         # per-experiment token totals survive the swap
