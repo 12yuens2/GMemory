@@ -23,6 +23,14 @@ def _refuses_temperature(error: BaseException) -> bool:
     return "temperature" in str(error).lower()
 
 
+class EndpointUnusable(RuntimeError):
+    """The endpoint cannot serve the model a run is about to ask it for.
+
+    Raised before any experiment starts, so a wrong model name or an unreachable
+    server costs a second rather than an allocation.
+    """
+
+
 class LLMCallFailed(RuntimeError):
     """Every retry of an LLM call was exhausted without a usable answer.
 
@@ -204,3 +212,39 @@ class GPTChat(LLM):
             f'{self.model_name} returned no answer after {max_retries} attempts'
         ) from last_error
 
+
+
+def check_endpoint(
+    model_name: str,
+    settings: Optional[LLMSettings] = None,
+    client=None,
+) -> None:
+    """Fail now if the endpoint cannot serve `model_name`.
+
+    Three questions, in the order a cluster gets them wrong: is anything
+    answering, is it serving the model this sweep asked for, and can it generate.
+    `client` is for testing without a server.
+    """
+    chat = GPTChat(model_name=model_name, settings=settings)
+    if client is not None:
+        chat.client = client
+
+    try:
+        served = sorted(model.id for model in chat.client.models.list().data)
+    except Exception as error:
+        raise EndpointUnusable(
+            f'{chat.settings.api_base} answered no model list: {error}'
+        ) from error
+
+    if model_name not in served:
+        raise EndpointUnusable(
+            f"{chat.settings.api_base} does not serve '{model_name}'. "
+            f"It serves: {', '.join(served) or 'nothing'}"
+        )
+
+    try:
+        chat([Message('user', 'ping')], max_tokens=1)
+    except Exception as error:
+        raise EndpointUnusable(
+            f"{chat.settings.api_base} serves '{model_name}' but could not answer: {error}"
+        ) from error

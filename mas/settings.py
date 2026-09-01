@@ -60,6 +60,13 @@ class LLMSettings:
                 f"file at the repository root."
             )
 
+        if not api_base.startswith(("http://", "https://")):
+            raise MissingSettings(
+                f"OPENAI_API_BASE must carry a scheme: 'http://{api_base}', not '{api_base}'. "
+                f"A base URL without one parses as a relative path, with no host, so "
+                f"requests never reach the server."
+            )
+
         llm_config: dict = (load_config(str(config_path or DEFAULT_CONFIG_PATH)) or {}).get(
             "llm_config", {}
         )

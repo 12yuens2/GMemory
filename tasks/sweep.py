@@ -13,6 +13,7 @@ from itertools import product
 
 from tqdm import tqdm
 
+from mas.llm import check_endpoint
 from mas.module_map import MAS_MEMORY_MODULES
 from mas.settings import LLMSettings, default_llm_settings
 
@@ -72,6 +73,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--model', type=str, default='gpt-3.5-turbo-0125', help='Specify the LLM model type')
     parser.add_argument('--max_trials', type=int, default=None,
                         help="Override every task's configured max_steps with this trial budget")
+    parser.add_argument('--max_tasks', type=int, default=None,
+                        help="Override every task's configured max_tasks with this many tasks")
 
     # memory config
     parser.add_argument('--successful_topk', type=int, default=1, help='Number of successful trajs to be retrieved from memory.')
@@ -90,6 +93,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # experiment config
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')
     parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')
+    parser.add_argument('--skip_preflight', action='store_true',
+                        help='Start without checking that the endpoint serves --model.')
 
     # file paths
     parser.add_argument('--db_dir', type=str, default='./.db', help='Directory to store results, logs, and memory persistence for this run.')
@@ -104,6 +109,10 @@ def main(argv: list[str] = None) -> None:
 
     settings: LLMSettings = default_llm_settings()
     print(f'LLM endpoint: {settings.api_base}, max_tokens: {settings.max_tokens}')
+
+    if not args.skip_preflight:
+        check_endpoint(args.model, settings=settings)
+        print(f'endpoint serves {args.model} and answered a one-token request')
 
     experiments = build_experiment_configs(args)
     outcomes = run_experiments(experiments, args.num_workers)

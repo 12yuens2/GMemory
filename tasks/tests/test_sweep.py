@@ -166,7 +166,7 @@ def _refuse_to_be_used(*args, **kwargs):
 def build_config(tmp_path, seed: int) -> dict:
     return {
         'task': 'fever', 'mas_type': 'autogen', 'mas_memory': 'empty', 'reasoning': 'io',
-        'model': 'fake-model', 'max_trials': 3, 'seed': seed, 'successful_topk': 1,
+        'model': 'fake-model', 'max_trials': 3, 'max_tasks': None, 'seed': seed, 'successful_topk': 1,
         'failed_topk': 0, 'insights_topk': 3, 'threshold': 0.0, 'use_projector': False,
         'use_validator': False, 'hop': 1, 'intrinsic_cross_task': False,
         'num_workers': 1, 'db_dir': str(tmp_path),
@@ -177,7 +177,8 @@ def build_config(tmp_path, seed: int) -> dict:
 
 def stub_build_task(experiment, tasks: list[dict] = ()):
     """build_task's signature, over a fake env and workflow."""
-    def build(task, mas_type, memory_type, seed, working_dir, model=None, max_trials=None):
+    def build(task, mas_type, memory_type, seed, working_dir, model=None, max_trials=None,
+              max_tasks=None):
         env = FakeEnv(max_trials=max_trials or 3)
         return experiment.TaskManager(
             task_name=task,

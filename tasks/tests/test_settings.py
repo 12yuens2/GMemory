@@ -53,6 +53,16 @@ def test_only_the_absent_variable_is_named(monkeypatch, tmp_path):
         LLMSettings.load()
 
 
+def test_a_base_url_with_no_scheme_is_refused(monkeypatch, tmp_path):
+    """httpx parses a bare host:port as a relative path, with no host at all."""
+    monkeypatch.setenv("OPENAI_API_BASE", "10.0.0.1:8000")
+    monkeypatch.setenv("OPENAI_API_KEY", "none")
+    monkeypatch.setattr("mas.settings.DEFAULT_ENV_PATH", tmp_path / "absent.env")
+
+    with pytest.raises(MissingSettings, match="http://"):
+        LLMSettings.load()
+
+
 def test_the_llm_config_is_read_from_the_yaml(monkeypatch, tmp_path):
     config = tmp_path / "configs.yaml"
     config.write_text("llm_config:\n  max_token: 128\n  temperature: 0.7\n")

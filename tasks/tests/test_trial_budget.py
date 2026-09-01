@@ -1,7 +1,9 @@
-"""Each task's episode budget comes from its own entry in tasks/configs.yaml.
+"""Each task's size comes from its own entry in tasks/configs.yaml.
 
-`--max_trials` is an override applying to every task in the sweep, so the config
-is the only place a per-task budget can be expressed.
+Two numbers, the same shape: how many trials one episode gets (`max_steps`) and
+how many tasks of the dataset are covered (`max_tasks`). `--max_trials` and
+`--max_tasks` override each for every task in the sweep, so the config is the
+only place a per-task value can be expressed.
 """
 
 from pathlib import Path
@@ -107,3 +109,37 @@ def test_a_task_with_no_configured_budget_says_so(run_module, monkeypatch):
 
     with pytest.raises(KeyError, match="max_steps"):
         run_module.trial_budget("fever")
+
+
+# ── how many tasks, the same shape as the trial budget ────────────────────────
+
+def test_the_configured_number_of_tasks_is_what_resolves(run_module, monkeypatch):
+    monkeypatch.setattr(run_module, "CONFIG", {"fever": {"max_steps": 30, "max_tasks": 5}})
+
+    assert run_module.dataset_size("fever") == 5
+
+
+def test_a_task_with_no_configured_limit_covers_the_whole_dataset(run_module, monkeypatch):
+    monkeypatch.setattr(run_module, "CONFIG", {"pddl": {"max_steps": 30}})
+
+    assert run_module.dataset_size("pddl") is None
+
+
+def test_an_override_wins_over_the_configured_number_of_tasks(run_module):
+    assert run_module.dataset_size("fever", 2) == 2
+
+
+def test_the_override_reaches_the_dataset(run_module, monkeypatch, tmp_path):
+    """The point of it: a smoke run has to be short without editing the config."""
+    asked_for: list = []
+    monkeypatch.setattr(
+        run_module, "get_task",
+        lambda task, **kwargs: asked_for.append(kwargs.get("max_tasks")) or [{"task": "a task"}],
+    )
+
+    run_module.build_task(
+        task="fever", mas_type="autogen", memory_type="empty",
+        seed=42, working_dir=str(tmp_path), max_tasks=2,
+    )
+
+    assert asked_for == [2]

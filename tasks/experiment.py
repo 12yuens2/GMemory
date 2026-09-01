@@ -70,6 +70,17 @@ def trial_budget(task: str, override: int = None) -> int:
     return budget
 
 
+def dataset_size(task: str, override: int = None) -> int:
+    """How many of `task`'s tasks a run covers: its `max_tasks`, or `override`.
+
+    None either way means the whole dataset.
+    """
+    if override is not None:
+        return override
+
+    return CONFIG.get(task, {}).get('max_tasks')
+
+
 def build_task(
     task: str,
     mas_type: str,
@@ -78,6 +89,7 @@ def build_task(
     working_dir: str,
     model: str = None,
     max_trials: int = None,
+    max_tasks: int = None,
 ) -> TaskManager:
 
     with open(repo_path(CONFIG.get(task).get('env_config_path'))) as reader:
@@ -85,7 +97,7 @@ def build_task(
 
     env: BaseEnv = get_env(task, config, trial_budget(task, max_trials))
     recorder: BaseRecorder = get_recorder(task, working_dir=working_dir, namespace=f'total_task-seed_{seed}')
-    tasks: list[dict] = get_task(task, max_tasks=CONFIG.get(task, {}).get('max_tasks'))
+    tasks: list[dict] = get_task(task, max_tasks=dataset_size(task, max_tasks))
     mas_workflow: MetaMAS = get_mas(mas_type)
     mas_config: dict = CONFIG.get(mas_type, {})
 
@@ -256,6 +268,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
     reasoning_type = experiment_config['reasoning']
     model_type = experiment_config['model']
     max_trials = experiment_config['max_trials']
+    max_tasks = experiment_config['max_tasks']
     seed = experiment_config['seed']
     successful_topk = experiment_config['successful_topk']
     failed_topk = experiment_config['failed_topk']
@@ -279,7 +292,7 @@ def run_experiment(experiment_config: dict, output_lock=None) -> dict:
 
         task_configs: TaskManager = build_task(
             task_name, mas_type, mas_memory_type, seed, working_dir,
-            model=model_type, max_trials=max_trials,
+            model=model_type, max_trials=max_trials, max_tasks=max_tasks,
         )
         task_configs.mas_config['successful_topk'] = successful_topk
         task_configs.mas_config['failed_topk'] = failed_topk
