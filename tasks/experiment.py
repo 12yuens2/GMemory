@@ -83,7 +83,7 @@ def build_task(
 
     env: BaseEnv = get_env(task, config, trial_budget(task, max_trials))
     recorder: BaseRecorder = get_recorder(task, working_dir=working_dir, namespace=f'total_task-seed_{seed}')
-    tasks: list[dict] = get_task(task)
+    tasks: list[dict] = get_task(task, max_tasks=CONFIG.get(task, {}).get('max_tasks'))
     mas_workflow: MetaMAS = get_mas(mas_type)
     mas_config: dict = CONFIG.get(mas_type, {})
 

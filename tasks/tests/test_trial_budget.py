@@ -39,7 +39,7 @@ def run_module(monkeypatch):
         return FakeEnv(max_trials=max_trials)
 
     monkeypatch.setattr(module, "get_env", fake_get_env)
-    monkeypatch.setattr(module, "get_task", lambda task: [{"task": "a task"}])
+    monkeypatch.setattr(module, "get_task", lambda task, **kwargs: [{"task": "a task"}])
     module.built = built
     return module
 
