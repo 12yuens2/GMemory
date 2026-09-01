@@ -251,8 +251,5 @@ select = ["E4", "E7", "E9", "F"]
 "tasks/envs/pddl_env/pddl_env.py" = ["F601", "E402"]
 
 # Imports sit after the credentials skip guard on purpose.
-"tasks/tests/test_autogen_mas_integration.py" = ["E402"]
+"tasks/tests/test_autogen_validator_integration.py" = ["E402"]
 
-# Dead files with broken bodies. Phase 4 deletes both.
-"tasks/mas_workflow/autogen/autogen_hotpot.py" = ["F821", "F841"]
-"mas/memory/mas_memory/intrinsicmemory_deprecated.py" = ["F841"]

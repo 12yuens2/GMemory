@@ -1,9 +1,9 @@
 """
-Test suite for tasks/mas_workflow/autogen/autogen_mas.py and
-mas/memory/mas_memory/intrinsicmemory_notemplate.py.
+Test suite for tasks/mas_workflow/autogen/autogen.py with `use_validator: True`,
+and mas/memory/mas_memory/intrinsicmemory.py.
 
 Run from GMemory root:
-    python -m pytest tasks/tests/test_autogen_pddl.py -v --tb=short
+    python -m pytest tasks/tests/test_autogen_validator.py -v --tb=short
 """
 
 import pytest
@@ -12,10 +12,10 @@ from unittest.mock import MagicMock, patch
 # ── path setup ────────────────────────────────────────────────────────────────
 # Env vars and dependency stubs are handled by conftest.py in this directory.
 
-from mas.memory.mas_memory.intrinsicmemory_notemplate import IntrinsicMASMemoryNoTemplate
+from mas.memory.mas_memory.intrinsicmemory import IntrinsicMASMemoryNoTemplate
 from mas.reasoning import ReasoningBase
 
-from tasks.mas_workflow.autogen.autogen_mas import AutoGen
+from tasks.mas_workflow.autogen.autogen import AutoGen
 from tasks.mas_workflow.autogen.autogen_prompt import AUTOGEN_PROMPT
 from tasks.mas_workflow.format import format_task_prompt_with_insights as _orig_fmt
 
@@ -79,6 +79,7 @@ def make_autogen(reasoning, memory, env) -> AutoGen:
             "insights_topk": 3,
             "threshold": 0.0,
             "use_projector": False,
+            "use_validator": True,
         },
     )
     return ag
@@ -148,9 +149,9 @@ class TestSummarize:
         assert "UNIQUE_SOLVER_TAG_XYZ" in user_content
 
     def test_notemplate_system_prompt_is_nonempty(self, tmp_path):
-        """NoTemplate memory_system_prompt is non-empty (base IntrinsicMASMemory uses '')."""
+        """NoTemplate system_prompt is non-empty (base IntrinsicMASMemory uses '')."""
         mem, _ = make_memory(tmp_path)
-        assert mem.memory_system_prompt.strip() != ""
+        assert mem.system_prompt.strip() != ""
 
     def test_notemplate_system_prompt_sent_to_llm(self, tmp_path):
         """System Message in the LLM call matches the NoTemplate system prompt."""
@@ -160,7 +161,7 @@ class TestSummarize:
         mem.summarize(solver_message="sys")
 
         system_content = next(m.content for m in llm.call_args[0][0] if m.role == "system")
-        assert system_content == mem.memory_system_prompt
+        assert system_content == mem.system_prompt
 
     def test_update_prompt_contains_required_format_vars(self, tmp_path):
         """memory_update_prompt contains all four expected format placeholders."""
@@ -675,13 +676,13 @@ class TestSolverStuck:
 class TestAdditionalGaps:
 
     def test_solver_and_validator_have_distinct_memory_objects(self, tmp_path):
-        """After build_system, meta_memory_solver and meta_memory_validator are distinct objects."""
+        """After build_system, meta_memory and meta_memory_validator are distinct objects."""
         reasoning = StubReasoning()
         memory, _ = make_memory(tmp_path)
         env = make_env()
         ag = make_autogen(reasoning, memory, env)
 
-        assert ag.meta_memory_solver is not ag.meta_memory_validator
+        assert ag.meta_memory is not ag.meta_memory_validator
 
     def test_validator_memory_has_different_namespace(self, tmp_path):
         """Validator memory namespace is derived from solver memory namespace + '_validator'."""
@@ -690,7 +691,7 @@ class TestAdditionalGaps:
         env = make_env()
         ag = make_autogen(reasoning, memory, env)
 
-        assert ag.meta_memory_validator.namespace == ag.meta_memory_solver.namespace + "_validator"
+        assert ag.meta_memory_validator.namespace == ag.meta_memory.namespace + "_validator"
 
     def test_schedule_raises_if_build_system_not_called(self):
         """Calling schedule() before build_system() raises AttributeError."""
@@ -722,7 +723,7 @@ class TestAdditionalGaps:
         assert "You picked up the block." in mem.current_task_context.task_trajectory
 
     def test_tries_incremented_on_invalid_limits_to_three(self, tmp_path):
-        """tries IS incremented on each INVALID response (line 207 in autogen_mas.py).
+        """tries IS incremented on each INVALID response.
         After 3 INVALID evaluations the while loop exits and env.step is called with
         the last solver action regardless — total reasoning calls = 3 solver + 3 validator.
         """
@@ -745,7 +746,7 @@ class TestAdditionalGaps:
 
 # ── I. Pipeline ordering ───────────────────────────────────────────────────────
 
-_FMT_PATCH = "tasks.mas_workflow.autogen.autogen_mas.format_task_prompt_with_insights"
+_FMT_PATCH = "tasks.mas_workflow.autogen.autogen.format_task_prompt_with_insights"
 
 
 class TestPipelineOrdering:

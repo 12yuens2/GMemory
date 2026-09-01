@@ -1,8 +1,7 @@
 from dataclasses import dataclass
-import os
 import sys
 
-from .prompt import INTRINSICMEMORYLLMTEMPLATE
+from .prompt import INTRINSICMEMORY_LLM_TEMPLATE
 from .intrinsicmemory import IntrinsicMASMemory
 from ..common import MASMessage # a MASMessage, which is a specific type of message used in MAS
 from mas.llm import Message # a "normal" message, not a MASMessage?
@@ -18,16 +17,12 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
     A separate memory is used to store the agent's memory, which is updated with the latest information from the agent's messages.
     
     """
+    system_prompt = INTRINSICMEMORY_LLM_TEMPLATE.system_prompt
+
     def __post_init__(self):
         super().__post_init__()
-        os.makedirs(self.persist_dir, exist_ok=True)
-        self.counter: int = 0
-        self.agent_intrinsic_memory: str = ""
         self.memory_template: str = ""
         self.memory_template_flag: bool = False
-
-        self.memory_update_prompt = INTRINSICMEMORYLLMTEMPLATE.memory_update_prompt
-        self.memory_system_prompt = INTRINSICMEMORYLLMTEMPLATE.memory_system_prompt
 
 
     def summarize(self, *, solver_message: str = "", template_instructions: str = "") -> str:
@@ -40,17 +35,20 @@ class IntrinsicMASMemoryLLMTemplate(IntrinsicMASMemory):
             # Generate initial memory template if this is the first time running summarize
             print("\n==== Generating initial memory template... ====\n", file=sys.stderr)
 
-            template_creation_message: str = INTRINSICMEMORYLLMTEMPLATE.template_creation_prompt.format(
+            template_creation_message: str = INTRINSICMEMORY_LLM_TEMPLATE.template_creation_prompt.format(
                 task_description = mas_message.task_description
             )
 
             print(f"\n==== GENERATE MEMORY TEMPLATE ====\n{template_creation_message}\n==== END GENERATE MEMORY TEMPLATE ====\n")
-            msg =[Message("system", self.memory_system_prompt), Message("user", template_creation_message)]
+            msg =[Message("system", self.system_prompt), Message("user", template_creation_message)]
 
             self.memory_template = self.llm_model(msg)
             self.memory_template_flag = True
 
         return super().summarize(
-            solver_message=solver_message, template_instructions=self.memory_template
+            solver_message=solver_message,
+            template_instructions=INTRINSICMEMORY_LLM_TEMPLATE.memory_template_section.format(
+                template_instructions=self.memory_template
+            ),
         )
 

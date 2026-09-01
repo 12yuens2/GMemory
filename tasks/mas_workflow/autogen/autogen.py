@@ -1,11 +1,10 @@
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 
 from mas.agents import Agent
 from mas.memory.common import MASMessage, AgentMessage
 from mas.mas import AgentCallFailed, EpisodeResult, MetaMAS
 from mas.reasoning import ReasoningBase, ReasoningConfig
-from mas.memory import MASMemoryBase, SupportsProjection
+from mas.memory import MASMemoryBase
 from mas.agents import Env
 
 from .autogen_prompt import AUTOGEN_PROMPT 
@@ -15,11 +14,22 @@ import sys
 
 
 @dataclass
-class AutoGen(MetaMAS):   
+class AutoGen(MetaMAS):
+    """A solver agent acting in the environment, with a ground-truth agent as backstop.
+
+    With `use_validator`, a third agent reviews each proposed action for format
+    only - it answers `VALID`, or `INVALID: <reason>` - and a rejection re-prompts
+    the solver with that feedback, spending one try from the episode's shared
+    budget. If the budget runs out while the validator is still refusing, the last
+    rejected action is taken anyway: a disputed but well-formed action can reach
+    the environment where an empty one cannot. The validator keeps its own memory
+    instance, so the two agents' updates cannot overwrite each other.
+    """
 
     def __post_init__(self):
 
         self.solver_name: str = 'solver'
+        self.validator_name: str = 'validator'
         self.ground_truth_name: str = 'ground_truth'
         self.observers = []   
 
@@ -34,11 +44,13 @@ class AutoGen(MetaMAS):
         self._insights_topk: int = config.get('insights_topk', 3)
         self._threshold: float = config.get('threshold', 0)
         self._use_projector: bool = config.get('use_projector', False)
+        self._use_validator: bool = config.get('use_validator', False)
         self.notify_observers(f"Successful Topk   : {self._successful_topk}")
         self.notify_observers(f"Failed Topk       : {self._failed_topk}")
         self.notify_observers(f"Insights Topk     : {self._insights_topk}")
         self.notify_observers(f"Retrieve Threshold: {self._threshold}")
         self.notify_observers(f"Use Role Projector: {self._use_projector}")
+        self.notify_observers(f"Use Validator     : {self._use_validator}")
 
         if not isinstance(reasoning, ReasoningBase):
             raise TypeError("reasoning module must be an instance of ReasoningBase")
@@ -61,13 +73,28 @@ class AutoGen(MetaMAS):
             memory_module=None           
         )
 
-        env_executor = env
-        
-        self.hire([
-            solver_agent,
-            ground_truth_agent
-        ])
-        self.set_env(env_executor)
+        team: list[Agent] = [solver_agent, ground_truth_agent]
+        self.meta_memory_validator: MASMemoryBase = None
+
+        if self._use_validator:
+            team.append(Agent(
+                name=self.validator_name,
+                role='validator',
+                system_instruction=AUTOGEN_PROMPT.validator_system_prompt,
+                reasoning_module=reasoning,
+                memory_module=None
+            ))
+            # Its own instance, so solver and validator updates cannot overwrite
+            # each other.
+            self.meta_memory_validator = mas_memory.__class__(
+                namespace=mas_memory.namespace + "_validator",
+                global_config=mas_memory.global_config,
+                llm_model=mas_memory.llm_model,
+                embedding_func=mas_memory.embedding_func,
+            )
+
+        self.hire(team)
+        self.set_env(env)
         self.meta_memory = mas_memory
         
     
@@ -95,10 +122,13 @@ class AutoGen(MetaMAS):
         # Initialize environment and agents
         env: Env = self.env
         solver: Agent = self.get_agent(self.solver_name)
+        validator: Agent = self.get_agent(self.validator_name)
         ground_truth: Agent = self.get_agent(self.ground_truth_name)
         env.reset()
         
         self.meta_memory.init_task_context(task_main, task_description) 
+        if self._use_validator:
+            self.meta_memory_validator.init_task_context(task_main, task_description)
         
         # Retrieve successful trajectories and insights from memory
         successful_trajectories: list[MASMessage]
@@ -140,9 +170,45 @@ class AutoGen(MetaMAS):
             )
             print(f"\n==== SOLVER AGENT PROMPT ====\n{user_prompt}\n==== END SOLVER AGENT PROMPT ====\n", file=sys.stderr)
 
+            def solve() -> str:
+                return env.process_action(solver.response(user_prompt, self.reasoning_config))
+
+            attempt = solve
+
+            if self._use_validator:
+
+                def propose(rejected: tuple[str, str]) -> str:
+                    if rejected is None:
+                        return solver.response(user_prompt, self.reasoning_config)
+
+                    refused, verdict = rejected
+                    revision: str = AUTOGEN_PROMPT.solver_revision_prompt.format(
+                        action=refused, evaluation=verdict
+                    )
+                    print(f'==== SOLVER INSTRUCTION FOR REVISION ====\n{revision}\n==== END SOLVER INSTRUCTION FOR REVISION ====\n', file=sys.stderr)
+                    return solver.response(f"{revision}{user_prompt}", self.reasoning_config)
+
+                def review(action: str) -> str:
+                    validator_prompt: str = AUTOGEN_PROMPT.validator_user_prompt.format(
+                        action=action,
+                        task_description=task_config.get('task_description'),
+                        few_shots="\n".join(few_shots),
+                    )
+                    print(f'==== VALIDATOR PROMPT ====\n{validator_prompt}\n==== END VALIDATOR PROMPT ====\n', file=sys.stderr)
+
+                    evaluation: str = validator.response(validator_prompt, self.reasoning_config)
+                    print(f'==== VALIDATOR EVALUATION ====\n{evaluation}\n==== END VALIDATOR EVALUATION ====\n', file=sys.stderr)
+
+                    self.meta_memory_validator.summarize(
+                        solver_message=f"## Your latest evaluation: \n {evaluation}"
+                    )
+                    return evaluation
+
+                attempt = self._reviewed_attempt(propose, review, env.process_action)
+
             try:
                 action: str = self._call_agent_with_retries(
-                    lambda: env.process_action(solver.response(user_prompt, self.reasoning_config)),
+                    attempt,
                     description='solver agent',
                 )
             except AgentCallFailed as failure:
@@ -201,63 +267,11 @@ class AutoGen(MetaMAS):
         final_reward, final_done, final_feedback = self.env.feedback()
         self.notify_observers(final_feedback)
         self.meta_memory.save_task_context(label=final_done, feedback=final_feedback)  
+        if self._use_validator:
+            self.meta_memory_validator.save_task_context(label=final_done, feedback=final_feedback)
         self.meta_memory.backward(final_done)    
 
         return EpisodeResult(reward=final_reward, done=final_done, trials=trials)
     
-    def _solver_stuck(self, current_action: str, action_history: list[str]) -> bool:
-        """
-        Determines whether the agent is stuck by repeating the same action.
-
-        If the current action is identical to the last two actions in the history,
-        the agent is considered to be stuck in a loop.
-
-        Args:
-            current_action (str): The action currently being executed by the agent.
-            action_history (list[str]): A chronological list of previously taken actions.
-
-        Returns:
-            bool: True if the last two actions are the same as the current action; False otherwise.
-        """
-        identical = len(action_history) >= 2 and current_action == action_history[-1] and current_action == action_history[-2]
-
-        double_think = len(action_history) >= 3 and "think" in current_action and "think" in action_history[-1] and "think" in action_history[-2]
-
-        similar = False
-        if len(action_history) >= 3:
-            similarity_12 = SequenceMatcher(None, current_action, action_history[-1]).ratio()
-            similarity_13 = SequenceMatcher(None, current_action, action_history[-2]).ratio()
-            similarity_23 = SequenceMatcher(None, action_history[-1], action_history[-2]).ratio()
-
-            threshold = 0.8
-            similar =  all(similarity > threshold for similarity in [similarity_12, similarity_13, similarity_23])
-
-        return identical or double_think or similar
-    def _project_insights(self, insights: list[str]) -> dict[str, list[str]]:
-        """
-        Process insights to generate a dictionary matching roles to insights, based on whether a projector is used.
-
-        Args:
-            insights (list[str]): A list of insight strings.
-
-        Returns:
-            dict[str, list[str]]: A dictionary with roles as keys and lists of insights as values.
-        """
-
-        roles_rules: dict[str, list[str]] = {}
-        roles = set([agent.profile for agent in self.agents_team.values()])
-
-        memory = self.meta_memory
-        if not self._use_projector or not isinstance(memory, SupportsProjection):
-            for role in roles:
-                roles_rules[role] = insights
-        else:
-            for role in roles:
-                roles_rules[role] = memory.project_insights(insights, role)
-        
-        # Limit the number of insights per role to self._insights_topk
-        for role, insights in roles_rules.items():
-            roles_rules[role] = insights[:self._insights_topk]
-        return roles_rules
         
             

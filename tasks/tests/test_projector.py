@@ -1,7 +1,7 @@
 """`--use_projector` reaches the memory, and each role gets its own insights.
 
-Parametrised over the workflows in use. DyLAN, MacNet and the dead
-`autogen_hotpot` hold their own copies of this method and are out of scope.
+Parametrised over every registered workflow: `_project_insights` lives on
+`MetaMAS`, so all of them resolve to one implementation.
 """
 
 import inspect
@@ -16,7 +16,7 @@ from tasks.mas_workflow import MAS
 from tasks.tests.fakes import FakeEnv
 from tasks.tests.test_contracts import build_workflow
 
-WORKFLOWS = ["autogen", "autogen_mas"]
+WORKFLOWS = sorted(MAS)
 INSIGHTS = ["keep the goal in view", "check the room first", "put it down gently"]
 
 
@@ -34,7 +34,7 @@ class ProjectingMemory(MASMemoryBase):
 
 def memory_of(workflow):
     """The memory the projector consults, whichever field the workflow keeps it in."""
-    return getattr(workflow, "meta_memory", None) or workflow.meta_memory_solver
+    return workflow.meta_memory
 
 
 # ── the protocol is the contract ──────────────────────────────────────────────
@@ -82,22 +82,34 @@ def test_the_flag_reaches_the_memory(mas_type):
 
 
 @pytest.mark.parametrize("mas_type", WORKFLOWS)
-def test_each_role_gets_its_own_insights(mas_type):
+def test_each_role_receives_insights_projected_for_it(mas_type):
     workflow = build_workflow(
         mas_type, FakeEnv(), memory_cls=ProjectingMemory, use_projector=True
     )
 
     projected = workflow._project_insights(INSIGHTS)
 
-    assert len(projected) > 1, f"{mas_type} has only one role, so this asserts nothing"
-    distinct = {tuple(rules) for rules in projected.values()}
-    assert len(distinct) == len(projected), (
-        f"{mas_type}: every role received identical insights, so nothing was projected"
-    )
+    assert projected, f"{mas_type}: no role received any insights"
     for role, rules in projected.items():
         assert all(rule.startswith(role) for rule in rules), (
             f"{mas_type}: {role} received insights projected for someone else"
         )
+
+
+@pytest.mark.parametrize("mas_type", WORKFLOWS)
+def test_roles_that_differ_receive_insights_that_differ(mas_type):
+    """Only `autogen` distinguishes roles: DyLAN's nine agents and MacNet's three
+    all carry the profile `solver`, so there is one role to project onto."""
+    workflow = build_workflow(
+        mas_type, FakeEnv(), memory_cls=ProjectingMemory, use_projector=True
+    )
+
+    projected = workflow._project_insights(INSIGHTS)
+
+    distinct = {tuple(rules) for rules in projected.values()}
+    assert len(distinct) == len(projected), (
+        f"{mas_type}: {len(projected)} roles received {len(distinct)} distinct insight lists"
+    )
 
 
 @pytest.mark.parametrize("mas_type", WORKFLOWS)

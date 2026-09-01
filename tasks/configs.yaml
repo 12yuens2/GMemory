@@ -26,6 +26,7 @@ pddl:
 # mas_type is `macnet`.
 autogen:
   autogen:  True
+  use_validator: False
 
 graph:
   graph_type: Random

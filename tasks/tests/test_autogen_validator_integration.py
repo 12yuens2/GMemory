@@ -1,5 +1,5 @@
 """
-Integration tests for autogen_mas.py that require a live LLM endpoint.
+Integration tests for autogen with use_validator, requiring a live LLM endpoint.
 
 What is tested
 --------------
@@ -58,7 +58,7 @@ pytestmark = [
 # ── imports (only reached when credentials are present) ───────────────────────
 from mas.llm import GPTChat
 from mas.reasoning import ReasoningIO, ReasoningConfig
-from mas.memory.mas_memory.intrinsicmemory_notemplate import IntrinsicMASMemoryNoTemplate
+from mas.memory.mas_memory.intrinsicmemory import IntrinsicMASMemoryNoTemplate
 from mas.agents import Agent
 from tasks.mas_workflow.autogen.autogen_prompt import AUTOGEN_PROMPT
 
@@ -94,7 +94,7 @@ def _build_validator_prompt(
     task_description: str,
     few_shots: list[str],
 ) -> str:
-    """Replicates the validator_prompt built inside autogen_mas.schedule()."""
+    """Replicates the validator_prompt built inside AutoGen.schedule()."""
     return (
         f"You are evaluating whether a solver agent's response follows the expected format.\n\n"
         f"Solver's latest response:\n{solver_action}\n\n"
