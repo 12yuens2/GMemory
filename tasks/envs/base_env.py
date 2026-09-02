@@ -10,32 +10,95 @@ from mas.logging_utils import get_file_logger
 from mas.mas import EpisodeResult
 
 _LABEL = re.compile(r'^(?:action|command)\s*:\s*', re.IGNORECASE)
+_LIST_MARKER = re.compile(r'^(?:[-+\u2022]|\(?\d+[.)])\s+')
+_FENCE = re.compile(r'^\s*```')
+# A leading marker is allowed because the few shots show `> think:` and an
+# agent that copies them copies the marker too.
+_THOUGHT = re.compile(r'^[\s>*\u2022`\-\'"]*(?:think|thought)\s*\d*\s*:', re.IGNORECASE)
+
+# Quotes a model wraps a whole line in, straight and curly.
+_QUOTE_PAIRS = (('"', '"'), ("'", "'"), ('\u201c', '\u201d'), ('\u2018', '\u2019'))
 
 
 def _mean(values: list) -> float:
     return sum(values) / len(values) if values else 0
 
 
-def clean_action_line(action: str) -> str:
-    """The command out of a line of model output: one line, no decoration.
+def is_thought_line(line: str) -> bool:
+    """Whether a line is a reasoning step rather than something to act on.
 
-    Strips the prompt marker, a `Action:` label, markdown emphasis and trailing
-    punctuation. A line that is nothing but the acknowledgement `OK.` comes back
-    empty, which spends a retry rather than a trial.
+    Matches `think:`, `Think:`, `THINK:`, `Thought:` and `Thought 1:`, since a
+    model asked for `think:` supplies any of them, and tolerates the `> ` marker
+    the few shots are written with.
 
-    Note it strips `OK.` only as the whole line. Substring-replacing it, which
+    The colon is required. `think` on its own is a verb some interactive fiction
+    games accept as a command, and treating that as a reasoning step would
+    swallow a real action.
+    """
+    return _THOUGHT.match(line) is not None
+
+
+def _undecorate(line: str) -> str:
+    """One line of model output with the formatting taken off.
+
+    Returns empty for a line carrying nothing to act on - a code fence, or the
+    bare acknowledgement `OK.`.
+    """
+    if _FENCE.match(line):
+        return ''
+
+    for decoration in ('<', '>', '*', '`', '#'):
+        line = line.replace(decoration, '')
+
+    line = _LIST_MARKER.sub('', line.strip())
+    line = _LABEL.sub('', line.strip()).strip()
+    if line.upper() in ('OK', 'OK.'):
+        return ''
+
+    # Punctuation and wrapping quotes come off together, since either can be
+    # outside the other: `"north".` and `"north."` are both seen.
+    previous = None
+    while previous != line:
+        previous = line
+        line = line.strip(' .!?,;:')
+        for opening, closing in _QUOTE_PAIRS:
+            if len(line) > 1 and line.startswith(opening) and line.endswith(closing):
+                line = line[1:-1]
+                break
+
+    return line.strip()
+
+
+def clean_action_line(action: str, recognises=None) -> str:
+    """The action out of what a model wrote, however it dressed it up.
+
+    Every trial costs a turn of the episode's budget, so a reply that plainly
+    says what to do should not be thrown away over a list marker or a pair of
+    quotes.
+
+    Where the model wrote a thought and then the action - which the prompts ask
+    it not to, and which it does anyway - the action is preferred: the
+    environment can only do one of the two, and taking the thought would spend
+    the trial achieving nothing. `recognises` is how a caller with a fixed set of
+    actions says which later lines qualify; without it, any line that is not a
+    thought does.
+
+    Note `OK.` is stripped only as a whole line. Substring-replacing it, which
     the older environments do, turns the interactive fiction command `LOOK` into
     `LO`.
     """
-    action = action.strip().split('\n')[0]
-    for decoration in ('<', '>', '*', '`', '#'):
-        action = action.replace(decoration, '')
-
-    action = _LABEL.sub('', action.strip()).strip()
-    if action.upper() in ('OK', 'OK.'):
+    lines = [line for line in (_undecorate(raw) for raw in action.splitlines()) if line]
+    if not lines:
         return ''
 
-    return action.strip(' .!?,;:').strip()
+    if not is_thought_line(lines[0]):
+        return lines[0]
+
+    for line in lines[1:]:
+        if not is_thought_line(line) and (recognises is None or recognises(line)):
+            return line
+
+    return lines[0]
 
 class BaseEnv(ABC):
     """The Env protocol, implemented over a config and a trial budget.

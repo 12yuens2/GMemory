@@ -102,6 +102,65 @@ def test_the_command_is_taken_out_of_a_decorated_line(raw, expected):
     assert ENVS['jericho'].process_action(raw) == expected
 
 
+@pytest.mark.parametrize(
+    'raw, expected',
+    [
+        ('1. north', 'north'),
+        ('(1) north', 'north'),
+        ('- north', 'north'),
+        ('"north"', 'north'),
+        ("'north'", 'north'),
+        ('\u201cnorth\u201d', 'north'),
+        ('"north".', 'north'),
+        ('"north."', 'north'),
+        ('```\nnorth\n```', 'north'),
+        ('```text\nnorth\n```', 'north'),
+        ('\n\nnorth', 'north'),
+        ('OK.\nnorth', 'north'),
+    ],
+)
+def test_a_command_is_found_through_a_list_marker_a_fence_or_quotes(raw, expected):
+    """Each of these forms cost a trial before, and each is ordinary model output.
+
+    Quotes and punctuation come off together because either can be outside the
+    other - `"north".` and `"north."` both occur.
+    """
+    assert ENVS['jericho'].process_action(raw) == expected
+
+
+def test_a_quote_that_is_part_of_the_command_is_kept():
+    """Only quotes wrapping the whole line are decoration. Interactive fiction
+    has commands that carry their own."""
+    assert ENVS['jericho'].process_action('say "hello"') == 'say "hello"'
+
+
+def test_the_command_is_taken_before_an_invented_observation():
+    """Models answer with the command and then guess what the game will print.
+
+    The first line is the command; the rest is invention and must not be sent.
+    """
+    assert ENVS['jericho'].process_action('take mailbox\nTaken.') == 'take mailbox'
+    assert ENVS['jericho'].process_action(
+        'east\n<< Temple >>\nYou are back in the Temple.'
+    ) == 'east'
+
+
+def test_the_action_is_preferred_when_a_thought_precedes_it():
+    """A reply carrying both can only be done one way round, and taking the
+    thought spends the trial achieving nothing.
+
+    This is the failure #31 described for the ReAct environments, where a
+    combined line was classified a thought and the action in it discarded.
+    """
+    assert ENVS['jericho'].process_action('think: the gun is worth taking\ntake gun') == 'take gun'
+
+
+def test_a_thought_alone_is_still_a_thought():
+    processed = ENVS['jericho'].process_action('think: I should look around first')
+
+    assert ENVS['jericho'].is_thought(processed)
+
+
 def test_a_line_that_is_only_an_acknowledgement_comes_back_empty():
     """An empty action spends a retry rather than a trial, so the model gets
     another turn instead of the parser being handed `OK.`."""
@@ -111,12 +170,31 @@ def test_a_line_that_is_only_an_acknowledgement_comes_back_empty():
 
 # ── the reasoning marker the prompt and the environment have to agree on ──────
 
-def test_a_thought_is_told_from_a_command():
-    env = ENVS['jericho']
+@pytest.mark.parametrize(
+    'line',
+    [
+        'think: the paper is worth taking',
+        'Think: the paper is worth taking',
+        'THINK: the paper is worth taking',
+        'Thought: the paper is worth taking',
+        'Thought 1: the paper is worth taking',
+        '> think: the paper is worth taking',
+    ],
+)
+def test_every_spelling_a_model_uses_for_a_thought_is_recognised(line):
+    """A model asked for `think:` writes `Think:` and `Thought 1:` too.
 
-    assert env.is_thought('think: the paper is worth taking') is True
-    assert env.is_thought('take paper') is False
-    assert env.is_thought('north') is False
+    An unrecognised thought is sent to the parser as a command, which costs a
+    trial and tells the agent only that the game does not know the word.
+    """
+    assert ENVS['jericho'].is_thought(line) is True
+
+
+@pytest.mark.parametrize('line', ['take paper', 'north', 'look', 'think'])
+def test_a_command_is_not_mistaken_for_a_thought(line):
+    """`think` without a colon is a command some games accept, so the colon is
+    what distinguishes a reasoning step - otherwise a real action is swallowed."""
+    assert ENVS['jericho'].is_thought(line) is False
 
 
 def test_the_prompt_teaches_the_marker_the_environment_recognises():

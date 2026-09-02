@@ -221,12 +221,75 @@ def test_a_line_that_is_only_an_acknowledgement_comes_back_empty():
     assert ENVS['babyai'].process_action('OK.') == ''
 
 
-def test_a_thought_is_told_from_an_action():
-    env = ENVS['babyai']
+@pytest.mark.parametrize(
+    'line',
+    [
+        'think: the ball is to my left',
+        'Think: the ball is to my left',
+        'THINK: the ball is to my left',
+        'Thought: the ball is to my left',
+        'Thought 1: the ball is to my left',
+        '> think: the ball is to my left',
+    ],
+)
+def test_every_spelling_a_model_uses_for_a_thought_is_recognised(line):
+    """A model asked for `think:` writes `Think:` too - the 0.5B model used to
+    check this alternated between the two within one episode."""
+    assert ENVS['babyai'].is_thought(line) is True
 
-    assert env.is_thought('think: the ball is to my left') is True
-    assert env.is_thought('turn left') is False
-    assert env.is_thought('pick up') is False
+
+@pytest.mark.parametrize('line', ['turn left', 'pick up', 'done'])
+def test_an_action_is_not_mistaken_for_a_thought(line):
+    assert ENVS['babyai'].is_thought(line) is False
+
+
+@pytest.mark.parametrize(
+    'raw, expected',
+    [
+        ('1. turn left', 'left'),
+        ('(1) turn left', 'left'),
+        ('- turn left', 'left'),
+        ('"turn left"', 'left'),
+        ('\u201cturn left\u201d', 'left'),
+        ('"turn left".', 'left'),
+        ('```\nturn left\n```', 'left'),
+        ('```text\nturn left\n```', 'left'),
+        ('\n\nturn left', 'left'),
+        ('OK.\nturn left', 'left'),
+    ],
+)
+def test_an_action_is_found_through_a_list_marker_a_fence_or_quotes(raw, expected):
+    """Each of these forms cost a trial before, and each is ordinary model output."""
+    assert parse_action(ENVS['babyai'].process_action(raw)) == expected
+
+
+def test_the_action_is_taken_before_an_invented_observation():
+    """Models answer with the action and then guess what the view will become."""
+    processed = ENVS['babyai'].process_action(
+        'pick up\nYou see a grey ball 1 step forward and 1 step to the right.'
+    )
+
+    assert parse_action(processed) == 'pickup'
+
+
+def test_the_action_is_preferred_when_a_thought_precedes_it():
+    """A reply carrying both can only be done one way round, and taking the
+    thought spends the trial achieving nothing."""
+    processed = ENVS['babyai'].process_action('think: the ball is to my left\nturn left')
+
+    assert parse_action(processed) == 'left'
+
+
+def test_a_thought_followed_by_prose_stays_a_thought():
+    """The seven actions are a closed set, so a line after a thought is only
+    preferred over it when it is one of them. Prose is not, and a thought at
+    least costs nothing.
+    """
+    processed = ENVS['babyai'].process_action(
+        'think: the ball is to my left\nI will now proceed carefully'
+    )
+
+    assert ENVS['babyai'].is_thought(processed)
 
 
 # ── what it refuses to do ─────────────────────────────────────────────────────

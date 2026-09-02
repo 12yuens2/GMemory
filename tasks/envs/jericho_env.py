@@ -15,7 +15,7 @@ from jericho import FrotzEnv
 
 from mas.utils import repo_path
 
-from .base_env import BaseEnv, BaseRecorder, clean_action_line
+from .base_env import BaseEnv, BaseRecorder, clean_action_line, is_thought_line
 
 DEFAULT_ROM_DIR = 'data/jericho/roms'
 
@@ -126,7 +126,7 @@ class JerichoEnv(BaseEnv):
 
     @staticmethod
     def is_thought(action: str) -> bool:
-        return 'think:' in action
+        return is_thought_line(action)
 
     @staticmethod
     def process_action(action: str) -> str:

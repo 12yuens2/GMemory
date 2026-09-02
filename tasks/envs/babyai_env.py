@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import gymnasium as gym
 from minigrid.core.actions import Actions
 
-from .base_env import BaseEnv, BaseRecorder, clean_action_line
+from .base_env import BaseEnv, BaseRecorder, clean_action_line, is_thought_line
 
 # Our command vocabulary onto minigrid's action names. The values are strings
 # rather than `Actions` members so a wrong one raises KeyError at the call.
@@ -187,11 +187,11 @@ class BabyAIEnv(BaseEnv):
 
     @staticmethod
     def is_thought(action: str) -> bool:
-        return 'think:' in action
+        return is_thought_line(action)
 
     @staticmethod
     def process_action(action: str) -> str:
-        return clean_action_line(action)
+        return clean_action_line(action, recognises=parse_action)
 
     def feedback(self) -> tuple[float, bool, str]:
         """Pass or fail: a BabyAI mission has no partial credit."""
