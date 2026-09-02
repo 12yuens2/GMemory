@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from mas.mas import EpisodeResult
 
-from .base_env import BaseEnv, BaseRecorder
+from .base_env import BaseEnv, BaseRecorder, clean_action_line, is_thought_line
 from .utils import LangChainWiki, match_exactly
 
 
@@ -62,15 +62,12 @@ class WikiReActEnv(BaseEnv):
                 return observation, 0, True
 
         elif action_type == 'Search':
-            while True:
-                try:
-                    observation = self.explorer.search(argument).strip('\n').strip()
-                    self.summary = observation
-                    break
-                except Exception as e:
-                    print(e)
-                    observation = 'Cannot find corresponding pages.'
-                    break
+            # A page that does not exist comes back as text naming similar
+            # titles; only being unable to reach Wikipedia raises, and that is
+            # left to propagate. run_task records the task as failed, which is
+            # what it is - scoring it zero would look like a weak agent.
+            observation = self.explorer.search(argument).strip('\n').strip()
+            self.summary = observation
         elif action_type == 'Lookup':
             try:
                 observation = self.explorer.lookup(argument).strip('\n').strip()
@@ -87,23 +84,31 @@ class WikiReActEnv(BaseEnv):
 
     @staticmethod
     def is_thought(action: str) -> bool:
-        return 'thought' in action.lower()
+        return is_thought_line(action)
 
     @classmethod
     def _parse_action_type(cls, action: str) -> Literal['action', 'thought']:
         return 'thought' if cls.is_thought(action) else 'action'
 
     @staticmethod
+    def looks_like_an_action(line: str) -> bool:
+        """Whether a line has the shape of a ReAct action: `Verb[argument]`.
+
+        The three verbs are a closed set, so this is what lets an action be
+        preferred over a thought it was written alongside.
+        """
+        return WikiReActEnv._parse_action(line.strip())[0] is not None
+
+    @staticmethod
     def process_action(action: str) -> str:
-        action = action.strip().replace('<', '').split('\n')[0]
-        action = action.replace('>', '').replace('OK.', '').replace('OK', '').strip()
+        """The `Verb[argument]` from the model's line.
 
-        if WikiReActEnv._parse_action_type(action) == 'thought':
-            return action
-        if ':' in action:
-            action = action.split(':')[1].strip()
-
-        return action
+        The `Action N:` prefix comes off through the shared label rule rather
+        than by splitting on the first colon, which destroyed any argument
+        carrying one of its own - `Search[Star Wars: A New Hope]` became
+        `Search[Star Wars`, which parses as nothing and scores -1.
+        """
+        return clean_action_line(action, recognises=WikiReActEnv.looks_like_an_action)
 
     @staticmethod
     def _parse_action(string: str) -> tuple[str, str]:

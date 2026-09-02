@@ -330,3 +330,81 @@ def test_every_env_knows_a_reasoning_step_from_an_action(task):
 
     assert ENVS[task].is_thought(thought) is True, f"{task} calls {thought!r} an action"
     assert ENVS[task].is_thought(action) is False, f"{task} calls {action!r} a thought"
+
+
+def _respellings(thought: str) -> list[str]:
+    """The same reasoning step as a model variously writes it.
+
+    A model asked for `think:` supplies `Think:` and `THINK:`, and copies the
+    `> ` marker out of the few shots along with it.
+    """
+    marker, _, rest = thought.partition(":")
+
+    return [
+        thought,
+        f"{marker.capitalize()}:{rest}",
+        f"{marker.upper()}:{rest}",
+        f"> {thought}",
+        f"**{thought}**",
+    ]
+
+
+@pytest.mark.parametrize("task", sorted(ENVS))
+def test_a_reasoning_step_is_recognised_however_the_model_capitalises_it(task):
+    """Case cost a trial on every dataset: a thought the env does not recognise is
+    sent to the simulator as an action, and rejected.
+
+    Asserted per registry key rather than per environment, so no dataset can be
+    added or changed back into the strict form without this failing.
+    """
+    thought, _ = THOUGHT_VOCABULARY[task]
+
+    for spelling in _respellings(thought):
+        assert ENVS[task].is_thought(spelling) is True, (
+            f"{task} would send {spelling!r} to the simulator as an action"
+        )
+
+
+def test_pddl_accepts_the_second_form_its_own_prompt_offers():
+    """PDDL's instructions give `think xxx:` alongside `think: xxx`, so a model
+    following them writes the marker without a colon after it.
+
+    Jericho is the one environment that cannot allow this, because `think` is a
+    verb its parser accepts as a command - so it asks for the colon and the rest
+    do not.
+    """
+    assert ENVS["pddl"].is_thought("think I should move block A first:") is True
+    assert ENVS["pddl"].is_thought("think") is True
+
+    assert ENVS["jericho"].is_thought("think") is False, (
+        "interactive fiction takes `think` as a command, so it cannot be a marker"
+    )
+
+
+# How a model dresses up the same action. Each has to survive to the same command.
+DECORATIONS = ('{}', '"{}"', "'{}'", '{}.', '1. {}', '- {}', '**{}**', '```\n{}\n```')
+
+
+@pytest.mark.parametrize("task", sorted(ENVS))
+@pytest.mark.parametrize("decoration", DECORATIONS)
+def test_an_action_survives_the_way_a_model_formats_it(task, decoration):
+    """Each of these forms cost a trial, on every dataset."""
+    _, action = THOUGHT_VOCABULARY[task]
+    plain = ENVS[task].process_action(action)
+
+    assert ENVS[task].process_action(decoration.format(action)) == plain, (
+        f"{task} loses the action out of {decoration.format(action)!r}"
+    )
+
+
+@pytest.mark.parametrize("task", sorted(ENVS))
+def test_an_action_written_after_a_thought_is_the_one_taken(task):
+    """A reply carrying both can only be done one way round, and taking the
+    thought spends the trial achieving nothing - the shape issue #31 described.
+    """
+    thought, action = THOUGHT_VOCABULARY[task]
+
+    taken = ENVS[task].process_action(f"{thought}\n{action}")
+
+    assert taken == ENVS[task].process_action(action), f"{task} took the thought, not {action!r}"
+    assert not ENVS[task].is_thought(taken)
