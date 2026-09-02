@@ -86,11 +86,12 @@ class WikiReActEnv(BaseEnv):
         return observation, processed_reward, False
 
     @staticmethod
-    def _parse_action_type(action: str) -> Literal['action', 'thought']:
-        if 'thought' in action.lower():
-            return 'thought'
-        else:
-            return 'action'
+    def is_thought(action: str) -> bool:
+        return 'thought' in action.lower()
+
+    @classmethod
+    def _parse_action_type(cls, action: str) -> Literal['action', 'thought']:
+        return 'thought' if cls.is_thought(action) else 'action'
 
     @staticmethod
     def process_action(action: str) -> str:

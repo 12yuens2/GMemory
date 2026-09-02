@@ -64,9 +64,13 @@ class SciworldEnv(BaseEnv):
             return action[7:].strip() 
         return action
 
+    @staticmethod
+    def is_thought(action: str) -> bool:
+        return 'think' in action
+
     def step(self, action: str) -> tuple[str, float, bool]:
 
-        if 'think' in action:  
+        if self.is_thought(action):
             self.think_counts += 1
             think_feedback: str = 'OK.'
             reward = 0

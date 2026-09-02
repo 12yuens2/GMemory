@@ -62,12 +62,13 @@ def make_env(max_trials=3, step_returns=None, feedback_return=(0.5, True, "done"
     env = MagicMock()
     env.max_trials = max_trials
     env.process_action.side_effect = lambda a: a.strip()
+    env.is_thought.side_effect = lambda a: 'think' in a.lower() or 'thought' in a.lower()
     env.step.side_effect = step_returns or [("obs", 1.0, True)]
     env.feedback.return_value = feedback_return
     return env
 
 
-def make_autogen(reasoning, memory, env) -> AutoGen:
+def make_autogen(reasoning, memory, env, use_validator: bool = True) -> AutoGen:
     ag = AutoGen()
     ag.build_system(
         reasoning,
@@ -79,10 +80,33 @@ def make_autogen(reasoning, memory, env) -> AutoGen:
             "insights_topk": 3,
             "threshold": 0.0,
             "use_projector": False,
-            "use_validator": True,
+            "use_validator": use_validator,
         },
     )
     return ag
+
+
+def script_agents(ag: AutoGen, replies: dict[str, list[str]]) -> list[str]:
+    """Give each named agent its own queue of replies; return the log of who was asked.
+
+    The agents share one reasoning module, so a flat response list cannot say
+    which of them produced an action.
+    """
+    asked: list[str] = []
+
+    def scripted(name: str, queue: list[str]):
+        remaining = list(queue)
+
+        def respond(user_prompt, reason_config=None) -> str:
+            asked.append(name)
+            return remaining.pop(0) if remaining else queue[-1]
+
+        return respond
+
+    for name, queue in replies.items():
+        ag.get_agent(name).response = scripted(name, queue)
+
+    return asked
 
 
 PATCH_GPTCHAT = "mas.memory.mas_memory.intrinsicmemory.GPTChat"
@@ -604,6 +628,50 @@ class TestScheduleLifecycle:
         # With 3 solver+validator pairs + 1 ground_truth call = at least 7 calls
         assert reasoning.call_count >= 7
 
+    def test_ground_truth_acts_when_the_solver_only_thinks(self, tmp_path):
+        """What the ground truth agent contributes to a thought loop is an action.
+
+        It is asked in the solver's place for that trial - with a system prompt
+        telling it not to continue the approach the solver has been repeating -
+        and its answer is what reaches the environment, so an agent that has been
+        reasoning without acting takes a step.
+
+        The solver is still asked first on every trial and the check needs three
+        entries in the history, so the loop is caught as a fourth consecutive
+        thought is proposed, and three of them reach the environment first.
+        """
+        thoughts = [
+            "Thought 1: I need to search Milhouse and find who he is named after.",
+            "Thought 2: The first paragraph does not say who he is named after.",
+            "Thought 3: Perhaps a keyword lookup would surface the sentence.",
+            "Thought 4: The answer should be a person's name, so I will keep looking.",
+        ]
+        memory, _ = make_memory(tmp_path)
+        env = make_env(
+            max_trials=4,
+            step_returns=[("OK.", 0.0, False)] * 3 + [("Richard Nixon", 1.0, True)],
+        )
+        ag = make_autogen(StubReasoning(), memory, env, use_validator=False)
+        asked = script_agents(ag, {
+            "solver": thoughts,
+            "ground_truth": ["Lookup[named after]"],
+        })
+
+        with patch(PATCH_GPTCHAT):
+            ag.schedule({"task_main": "t", "task_description": "d"})
+
+        assert asked == ["solver"] * 4 + ["ground_truth"], (
+            f"the ground truth agent should be asked once, after the fourth thought: {asked}"
+        )
+
+        acted = [call.args[0] for call in env.step.call_args_list]
+        assert acted[:3] == thoughts[:3], f"the first three trials were thoughts: {acted[:3]}"
+        assert acted[3] == "Lookup[named after]", (
+            f"the ground truth agent's action should reach the environment, not a "
+            f"fourth thought: {acted[3]!r}"
+        )
+        assert not env.is_thought(acted[3]), "the loop was not broken"
+
     def test_agent_message_records_ground_truth_name_when_stuck(self, tmp_path):
         """AgentMessage recorded when solver is stuck has agent_name == 'ground_truth'."""
         responses = ["same action", "VALID"] * 3 + ["gt action"]
@@ -637,7 +705,10 @@ class TestSolverStuck:
 
     @pytest.fixture
     def ag(self):
-        return AutoGen()
+        """Needs an environment: which outputs are reasoning steps is its answer."""
+        workflow = AutoGen()
+        workflow.set_env(make_env())
+        return workflow
 
     def test_not_stuck_empty_history(self, ag):
         assert ag._solver_stuck("action", []) is False
@@ -657,6 +728,27 @@ class TestSolverStuck:
 
     def test_think_loop_requires_three_items(self, ag):
         assert ag._solver_stuck("think: x", ["go north", "think: y"]) is False
+
+    def test_detects_a_react_thought_loop(self, ag):
+        """ReAct spells a reasoning step `Thought N:`, not `think:`.
+
+        Under `stop_strs=['\n']` the solver emits one line a turn, so the rhythm is
+        strictly thought, action, thought, action. Three thoughts running means no
+        action has reached the environment for three of the episode's trials.
+        """
+        thoughts = [
+            "Thought 1: I need to search Milhouse.",
+            "Thought 2: The paragraph does not say who he is named after.",
+            "Thought 3: Maybe I should look up 'named after'.",
+        ]
+
+        assert ag._solver_stuck(thoughts[2], [thoughts[0], thoughts[0], thoughts[1]]) is True
+
+    def test_a_react_thought_between_actions_is_not_a_loop(self, ag):
+        """Alternating thought and action is the protocol, not a stuck agent."""
+        history = ["Search[Milhouse]", "Thought 1: It does not say.", "Lookup[named after]"]
+
+        assert ag._solver_stuck("Thought 2: So the answer is Richard Nixon.", history) is False
 
     def test_detects_similar_actions(self, ag):
         # similar check also requires len(action_history) >= 3

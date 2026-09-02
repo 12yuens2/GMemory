@@ -60,6 +60,17 @@ def test_a_wrong_finish_ends_the_episode_unscored(task):
     assert env.feedback()[:2] == (0, False)
 
 
+@pytest.mark.parametrize('task', sorted(WIKI_TASKS))
+def test_a_reasoning_step_costs_a_trial_but_reaches_no_action(task):
+    """One classifier per env: `step` and `_solver_stuck` must read the same one."""
+    _, question, answer = WIKI_TASKS[task]
+    env = build(task)
+    env.set_env({'task': question, 'answer': answer})
+
+    assert env.is_thought('Thought 1: I should search first.') is True
+    assert env.step('Thought 1: I should search first.') == ('OK.', 0, False)
+
+
 def test_a_hotpotqa_answer_matches_up_to_case_articles_and_punctuation():
     """FEVER's three labels never needed normalising; a free-text span does."""
     env = build('hotpotqa')

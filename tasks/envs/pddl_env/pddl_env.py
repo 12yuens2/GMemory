@@ -111,9 +111,13 @@ class PDDLEnv(BaseEnv):
         self.done = False
         self.won = False
     
+    @staticmethod
+    def is_thought(action: str) -> bool:
+        return 'think' in action
+
     def step(self, action: str) -> tuple[str, float, bool]:
 
-        if 'think' in action:
+        if self.is_thought(action):
             return 'Ok. But you should not think too much!', -1, self.done
 
         if "check" in action.lower():

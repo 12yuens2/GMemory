@@ -62,7 +62,7 @@ class AlfworldEnv(BaseEnv):
 
         self.done = done[0]
 
-        if 'think:' in action:
+        if self.is_thought(action):
             observation = 'OK.' 
             processed_reward = -1
         elif observation == 'Nothing happens.':
@@ -72,6 +72,10 @@ class AlfworldEnv(BaseEnv):
         
         return observation, processed_reward, self.done
     
+    @staticmethod
+    def is_thought(action: str) -> bool:
+        return 'think:' in action
+
     def feedback(self) -> tuple[float, bool, str]:
         success = self.done
         reward = 1.0 if success else 0.0

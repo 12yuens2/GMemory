@@ -40,6 +40,17 @@ class BaseEnv(ABC):
     def process_action(cls, action: str) -> str:
         pass
 
+    @classmethod
+    @abstractmethod
+    def is_thought(cls, action: str) -> bool:
+        """Whether this action is a reasoning step rather than one to act on.
+
+        The datasets spell it differently - `think:` for the embodied ones,
+        `Thought N:` for the ReAct ones - and a workflow that guesses gets one
+        family wrong silently, so each environment answers for its own.
+        """
+        pass
+
     @abstractmethod
     def feedback(self) -> tuple[float, bool, str]:
         pass
