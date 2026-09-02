@@ -24,3 +24,21 @@ Get the test.jsonl from data/pddl/test.jsonl
 
 ## FEVER
 curl -L -o train.jsonl https://fever.ai/download/fever/train.jsonl
+
+## HotpotQA
+
+The original `hotpot_dev_distractor_v1.json` host (`curtis.ml.cmu.edu`) no longer
+answers, so the dev split comes from the HuggingFace mirror. Only the question and
+the answer are used - the agent searches live Wikipedia rather than a supplied
+context - so the manifest keeps the five scalar fields and drops `context` and
+`supporting_facts`, which are 45 MB of the 46.
+
+```
+for off in $(seq 0 100 7400); do
+  curl -s "https://datasets-server.huggingface.co/rows?dataset=hotpotqa%2Fhotpot_qa&config=distractor&split=validation&offset=$off&length=100" \
+    | jq -c '.rows[].row | {id, question, answer, level, type}'
+done > hotpotqa/hotpotqa_dev.jsonl
+```
+
+7405 questions, all `level: hard` (5918 `bridge`, 1487 `comparison`). The API rate
+limits partway through, so re-run any offset whose response is not JSON.

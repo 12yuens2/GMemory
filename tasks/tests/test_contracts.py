@@ -36,6 +36,7 @@ MEMORY_CONFIG_KEYS = ("successful_topk", "failed_topk", "insights_topk", "thresh
 TASK_CONFIGS = {
     "alfworld": {"env_kwargs": {"gamefile": "/data/pick_and_place_simple-1/game.tw-pw"}},
     "fever": {},
+    "hotpotqa": {},
     "pddl": {"game_name": "blockworld"},
     "sciworld": {},
 }

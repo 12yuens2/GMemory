@@ -18,6 +18,7 @@ from mas.memory.mas_memory.prompt import (
     INTRINSICMEMORY_ALFWORLD,
     INTRINSICMEMORY_DEFAULT,
     INTRINSICMEMORY_FEVER,
+    INTRINSICMEMORY_HOTPOTQA,
     INTRINSICMEMORY_LLM_TEMPLATE,
     INTRINSICMEMORY_NOTEMPLATE,
     INTRINSICMEMORY_PDDL,
@@ -29,6 +30,7 @@ from tasks.tests.fakes import FakeEmbeddingFunc, FakeLLM
 SYSTEM_PROMPT_OWNER = {
     'intrinsicmemory-pddl': INTRINSICMEMORY_PDDL,
     'intrinsicmemory-fever': INTRINSICMEMORY_FEVER,
+    'intrinsicmemory-hotpotqa': INTRINSICMEMORY_HOTPOTQA,
     'intrinsicmemory-alfworld': INTRINSICMEMORY_ALFWORLD,
     'intrinsicmemory-sciworld': INTRINSICMEMORY_SCIWORLD,
     'intrinsicmemory-notemplate': INTRINSICMEMORY_NOTEMPLATE,
@@ -81,15 +83,23 @@ def test_the_system_prompt_is_not_empty(key):
     assert build(key).system_prompt, f"{key} has an empty system_prompt"
 
 
-def test_the_task_specific_modules_each_have_their_own_system_prompt():
-    """The template is what these three differ by, so no two may share one.
+# Neither of these carries a fixed template, so they share the generic summariser
+# prompt and differ by behaviour instead. Every other intrinsic module is named
+# for a dataset and must have a template of its own.
+TEMPLATELESS = ('intrinsicmemory-notemplate', 'intrinsicmemory-llm-structured-template')
 
-    `-notemplate` and `-llm-structured-template` are excluded deliberately: neither
-    carries a fixed template, so they share the generic summariser prompt and
-    differ by behaviour instead.
+TASK_SPECIFIC_KEYS = [key for key in INTRINSIC_KEYS if key not in TEMPLATELESS]
+
+
+def test_the_task_specific_modules_each_have_their_own_system_prompt():
+    """The template is what these differ by, so no two may share one.
+
+    Whether a hand-written template beats the one an LLM writes is the experiment,
+    so two datasets sharing a template would compare the wrong thing while looking
+    like a full result. Derived from the registry rather than listed, so a new
+    dataset's module is covered by being registered.
     """
-    task_specific = ['intrinsicmemory-pddl', 'intrinsicmemory-fever', 'intrinsicmemory-alfworld']
-    prompts = {key: build(key).system_prompt for key in task_specific}
+    prompts = {key: build(key).system_prompt for key in TASK_SPECIFIC_KEYS}
 
     collisions = [
         (a, b) for a in prompts for b in prompts if a < b and prompts[a] == prompts[b]
