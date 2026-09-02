@@ -9,6 +9,7 @@ from .intrinsicmemory import (
     IntrinsicMASMemory,
     IntrinsicMASMemoryALFWORLD,
     IntrinsicMASMemoryFEVER,
+    IntrinsicMASMemoryHOTPOTQA,
     IntrinsicMASMemoryNoTemplate,
     IntrinsicMASMemoryPDDL,
     IntrinsicMASMemorySCIWORLD,
@@ -28,6 +29,7 @@ __all__ = [
     'IntrinsicMASMemoryLLMTemplate',
     'IntrinsicMASMemoryNoTemplate',
     'IntrinsicMASMemoryFEVER',
+    'IntrinsicMASMemoryHOTPOTQA',
     'IntrinsicMASMemoryALFWORLD',
     'IntrinsicMASMemorySCIWORLD',
     'IntrinsicMASMemory'

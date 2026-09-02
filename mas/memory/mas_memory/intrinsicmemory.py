@@ -6,6 +6,7 @@ from .prompt import (
     INTRINSICMEMORY_ALFWORLD,
     INTRINSICMEMORY_DEFAULT,
     INTRINSICMEMORY_FEVER,
+    INTRINSICMEMORY_HOTPOTQA,
     INTRINSICMEMORY_NOTEMPLATE,
     INTRINSICMEMORY_PDDL,
     INTRINSICMEMORY_SCIWORLD,
@@ -95,6 +96,11 @@ class IntrinsicMASMemoryPDDL(IntrinsicMASMemory):
 @dataclass
 class IntrinsicMASMemoryFEVER(IntrinsicMASMemory):
     system_prompt = INTRINSICMEMORY_FEVER.system_prompt
+
+
+@dataclass
+class IntrinsicMASMemoryHOTPOTQA(IntrinsicMASMemory):
+    system_prompt = INTRINSICMEMORY_HOTPOTQA.system_prompt
 
 
 @dataclass

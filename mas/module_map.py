@@ -17,6 +17,7 @@ MAS_MEMORY_MODULES: dict[str, Type[MASMemoryBase]] = {
     'g-memory': GMemory,
     'intrinsicmemory-pddl': IntrinsicMASMemoryPDDL,
     'intrinsicmemory-fever': IntrinsicMASMemoryFEVER,
+    'intrinsicmemory-hotpotqa': IntrinsicMASMemoryHOTPOTQA,
     'intrinsicmemory-alfworld': IntrinsicMASMemoryALFWORLD,
     'intrinsicmemory-sciworld': IntrinsicMASMemorySCIWORLD,
     'intrinsicmemory-llm-structured-template': IntrinsicMASMemoryLLMTemplate,

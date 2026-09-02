@@ -69,14 +69,10 @@ echo "results -> ${DB_DIR}"
 # read the flag, and the same --db_dir as the baseline is deliberate - the two arms are
 # told apart by the intrinsic_cross_task column, not by the file they are in.
 
-# There is no intrinsicmemory-hotpotqa arm on purpose. The hand-written templates are
-# one per dataset, so a new dataset with no template of its own is where
-# intrinsicmemory-llm-structured-template has something to prove: it writes the template
-# instead, against notemplate as the floor.
 uv run tasks/run.py \
 	--task hotpotqa \
 	--mas_type autogen \
-	--mas_memory intrinsicmemory-notemplate \
+	--mas_memory intrinsicmemory-notemplate intrinsicmemory-hotpotqa \
 	             intrinsicmemory-llm-structured-template \
 	--seed 11 22 33 44 55 66 77 88 99 111 \
 	--intrinsic_cross_task \

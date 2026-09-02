@@ -67,15 +67,9 @@ Each `*_experiment.sh` script has a `*_crosstask.sh` twin: the same intrinsic mo
 export DB_DIR=/projects/<project>/results/sweep-2026-09
 sbatch slurm/fever_experiment.sh      # 10 arms x 10 seeds
 sbatch slurm/fever_crosstask.sh       # the 3 intrinsic arms again, cross-task
-sbatch slurm/hotpotqa_experiment.sh   # 9 arms x 10 seeds
-sbatch slurm/hotpotqa_crosstask.sh    # the 2 intrinsic arms again, cross-task
+sbatch slurm/hotpotqa_experiment.sh   # 10 arms x 10 seeds
+sbatch slurm/hotpotqa_crosstask.sh    # the 3 intrinsic arms again, cross-task
 ```
-
-The HotpotQA scripts carry one fewer arm than FEVER's on purpose: there is no
-`intrinsicmemory-hotpotqa`. The hand-written templates are one per dataset, so a dataset
-with no template of its own is where `intrinsicmemory-llm-structured-template` has
-something to prove — it writes the template instead, against `intrinsicmemory-notemplate`
-as the floor. Add a hand-written variant if you want the third comparison as well.
 
 `DB_DIR` defaults to `$HOME/GMemory/.db/sweep`, and every script echoes where it is writing. Use a directory no earlier run wrote to: a run refuses to append to a results file whose header is not its schema.
 
@@ -117,7 +111,7 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 |---|---|---|
 | `--task` (sweep) | `alfworld` | One or more of `alfworld`, `fever`, `hotpotqa`, `pddl`, `sciworld` |
 | `--mas_type` | **required** | One of `autogen`, `dylan`, `macnet` |
-| `--mas_memory` (sweep) | **required** | One or more memory modules: `empty`, `voyager`, `memorybank`, `chatdev`, `generative`, `metagpt`, `g-memory`, `intrinsicmemory-pddl`, `intrinsicmemory-fever`, `intrinsicmemory-sciworld`, `intrinsicmemory-alfworld`, `intrinsicmemory-llm-structured-template`, `intrinsicmemory-notemplate` |
+| `--mas_memory` (sweep) | **required** | One or more memory modules: `empty`, `voyager`, `memorybank`, `chatdev`, `generative`, `metagpt`, `g-memory`, `intrinsicmemory-pddl`, `intrinsicmemory-fever`, `intrinsicmemory-hotpotqa`, `intrinsicmemory-sciworld`, `intrinsicmemory-alfworld`, `intrinsicmemory-llm-structured-template`, `intrinsicmemory-notemplate` |
 | `--reasoning` | `io` | Reasoning module |
 | `--model` (sweep) | `gpt-3.5-turbo-0125` | LLM model name, as recognized by your `OPENAI_API_BASE` backend |
 | `--max_trials` | each task's `max_steps` | Trials one episode gets. Unset, the budget comes from that task's entry in `tasks/configs.yaml` (30 for all five); given, it overrides every task in the sweep |
@@ -260,7 +254,7 @@ OPENAI_API_KEY = ""  # for OpenAI LLM backend
 
 ### 🔎 Choices Overview
 - Available memories: ***Empty, ChatDev, MetaGPT, Voyager, Generative, MemoryBank, G-Memory***
-- Added by this fork: ***six intrinsic memory variants*** — `intrinsicmemory-notemplate`, `-pddl`, `-fever`, `-sciworld`, `-alfworld` and `-llm-structured-template`. Each keeps one agent-authored memory that an LLM rewrites as the episode goes; they differ only in the template their system prompt asks for, which is what the experiments compare.
+- Added by this fork: ***seven intrinsic memory variants*** — `intrinsicmemory-notemplate`, `-pddl`, `-fever`, `-hotpotqa`, `-sciworld`, `-alfworld` and `-llm-structured-template`. Each keeps one agent-authored memory that an LLM rewrites as the episode goes; they differ only in the template their system prompt asks for, which is what the experiments compare.
 - Available MAS: ***AutoGen, DyLAN, MacNet***
 - `--mas_type autogen` also takes `--use_validator`, which adds a third agent reviewing the solver's action format.
 
