@@ -4,9 +4,11 @@ import logging
 from .memory_base import MASMemoryBase
 from .prompt import (
     INTRINSICMEMORY_ALFWORLD,
+    INTRINSICMEMORY_BABYAI,
     INTRINSICMEMORY_DEFAULT,
     INTRINSICMEMORY_FEVER,
     INTRINSICMEMORY_HOTPOTQA,
+    INTRINSICMEMORY_JERICHO,
     INTRINSICMEMORY_NOTEMPLATE,
     INTRINSICMEMORY_PDDL,
     INTRINSICMEMORY_SCIWORLD,
@@ -106,6 +108,16 @@ class IntrinsicMASMemoryHOTPOTQA(IntrinsicMASMemory):
 @dataclass
 class IntrinsicMASMemoryALFWORLD(IntrinsicMASMemory):
     system_prompt = INTRINSICMEMORY_ALFWORLD.system_prompt
+
+
+@dataclass
+class IntrinsicMASMemoryBABYAI(IntrinsicMASMemory):
+    system_prompt = INTRINSICMEMORY_BABYAI.system_prompt
+
+
+@dataclass
+class IntrinsicMASMemoryJERICHO(IntrinsicMASMemory):
+    system_prompt = INTRINSICMEMORY_JERICHO.system_prompt
 
 
 @dataclass
