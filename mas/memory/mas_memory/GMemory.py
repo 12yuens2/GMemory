@@ -429,7 +429,6 @@ class TaskLayer:
         This method extracts all nodes from the graph, computes embeddings for each node using the
         task storage's embedding function, and applies the FINCH clustering algorithm with cosine similarity.
         """
-        # TODO: broken - labels is None unless req_clust is passed to FINCH.
         nodes = list(self.graph.nodes)
 
         embeddings = []
@@ -446,9 +445,12 @@ class TaskLayer:
 
         try: 
             X = np.vstack(embeddings)
-            _,_,labels = FINCH(X,distance='cosine')
-
-            #labels = fin.fit_predict(X)
+            # FINCH returns one column per partition, finest first, and None for its
+            # third value unless req_clust asks for a cluster count. The finest
+            # partition is the one that keeps a cluster to tasks that resemble each
+            # other, which is what merging insights per cluster is for.
+            partitions, _, _ = FINCH(X, distance='cosine')
+            labels = partitions[:, 0]
         except Exception as e:   
             print(f"Finch clustering failed: {e}")
             labels = np.zeros(len(valid_nodes), dtype=int)

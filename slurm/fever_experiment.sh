@@ -12,6 +12,11 @@ module reset
 module load brics/nccl
 module list
 
+# Every job of one experiment set must point at the same directory: they append to
+# one overall_results.csv under a lock on the file. Override at submit time with
+#   DB_DIR=/projects/<project>/results/sweep-2026-09 sbatch slurm/fever_experiment.sh
+DB_DIR=${DB_DIR:-$HOME/GMemory/.db/sweep}
+
 cd ~/vllm_test
 
 source .venv/bin/activate
@@ -58,15 +63,16 @@ source .venv/bin/activate
 
 sleep 100
 
-#memory:
-#empty, voyager, memorybank, chatdev, generative, metagpt, g-memory
-#intrinsicmemory-pddl, intrinsicmemory-fever, intrinsicmemory-llm-structured-template, intrinsicmemory-notemplate
+echo "results -> ${DB_DIR}"
 
 uv run tasks/run.py \
 	--task fever \
 	--mas_type autogen \
-	--mas_memory empty voyager g-memory memorybank chatdev generative metagpt intrinsicmemory-notemplate intrinsicmemory-llm-structured-template \
+	--mas_memory empty chatdev voyager memorybank generative metagpt g-memory \
+	             intrinsicmemory-notemplate intrinsicmemory-fever \
+	             intrinsicmemory-llm-structured-template \
 	--seed 11 22 33 44 55 66 77 88 99 111 \
+	--db_dir ${DB_DIR} \
 	--model ${MODEL_NAME}
 
 # cleanup

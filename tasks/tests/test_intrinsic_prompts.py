@@ -21,6 +21,7 @@ from mas.memory.mas_memory.prompt import (
     INTRINSICMEMORY_LLM_TEMPLATE,
     INTRINSICMEMORY_NOTEMPLATE,
     INTRINSICMEMORY_PDDL,
+    INTRINSICMEMORY_SCIWORLD,
 )
 
 from tasks.tests.fakes import FakeEmbeddingFunc, FakeLLM
@@ -29,6 +30,7 @@ SYSTEM_PROMPT_OWNER = {
     'intrinsicmemory-pddl': INTRINSICMEMORY_PDDL,
     'intrinsicmemory-fever': INTRINSICMEMORY_FEVER,
     'intrinsicmemory-alfworld': INTRINSICMEMORY_ALFWORLD,
+    'intrinsicmemory-sciworld': INTRINSICMEMORY_SCIWORLD,
     'intrinsicmemory-notemplate': INTRINSICMEMORY_NOTEMPLATE,
     'intrinsicmemory-llm-structured-template': INTRINSICMEMORY_LLM_TEMPLATE,
 }

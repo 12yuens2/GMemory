@@ -8,6 +8,7 @@ from .prompt import (
     INTRINSICMEMORY_FEVER,
     INTRINSICMEMORY_NOTEMPLATE,
     INTRINSICMEMORY_PDDL,
+    INTRINSICMEMORY_SCIWORLD,
 )
 from ..common import MASMessage # a MASMessage, which is a specific type of message used in MAS
 from mas.llm import Message, GPTChat # a "normal" message, not a MASMessage?
@@ -99,6 +100,11 @@ class IntrinsicMASMemoryFEVER(IntrinsicMASMemory):
 @dataclass
 class IntrinsicMASMemoryALFWORLD(IntrinsicMASMemory):
     system_prompt = INTRINSICMEMORY_ALFWORLD.system_prompt
+
+
+@dataclass
+class IntrinsicMASMemorySCIWORLD(IntrinsicMASMemory):
+    system_prompt = INTRINSICMEMORY_SCIWORLD.system_prompt
 
 
 @dataclass

@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=vllm-serve
+#SBATCH --job-name=vllm-sciworld-cross
 #SBATCH --nodes=1
 #SBATCH --gpus=4
 #SBATCH --time=24:00:00
 #SBATCH --exclusive
-#SBATCH --output=out/sciworld-%x.%j.%t.out
+#SBATCH --output=out/sciworld-cross-%x.%j.%t.out
 
 echo SERVING ON $HOSTNAME
 
@@ -14,7 +14,7 @@ module list
 
 # Every job of one experiment set must point at the same directory: they append to
 # one overall_results.csv under a lock on the file. Override at submit time with
-#   DB_DIR=/projects/<project>/results/sweep-2026-09 sbatch slurm/sciworld_experiment.sh
+#   DB_DIR=/projects/<project>/results/sweep-2026-09 sbatch slurm/sciworld_crosstask.sh
 DB_DIR=${DB_DIR:-$HOME/GMemory/.db/sweep}
 
 cd ~/vllm_test
@@ -54,7 +54,6 @@ echo "vLLM started!"
 deactivate
 
 # experiment setup
-export MODEL_NAME="openai/gpt-oss-120b"
 export OPENAI_API_BASE=http://localhost:8000/v1
 export OPENAI_API_KEY="none"
 
@@ -65,13 +64,18 @@ sleep 100
 
 echo "results -> ${DB_DIR}"
 
+# The cross-task arm: an intrinsic memory is kept across the tasks of the dataset
+# instead of starting each task from an empty one. Only the intrinsicmemory-* modules
+# read the flag, and the same --db_dir as the baseline is deliberate - the two arms are
+# told apart by the intrinsic_cross_task column, not by the file they are in.
+
 uv run tasks/run.py \
 	--task sciworld \
 	--mas_type autogen \
-	--mas_memory empty chatdev voyager memorybank generative metagpt g-memory \
-	             intrinsicmemory-notemplate intrinsicmemory-sciworld \
+	--mas_memory intrinsicmemory-notemplate intrinsicmemory-sciworld \
 	             intrinsicmemory-llm-structured-template \
 	--seed 11 22 33 44 55 66 77 88 99 111 \
+	--intrinsic_cross_task \
 	--db_dir ${DB_DIR} \
 	--model ${MODEL_NAME}
 
