@@ -64,6 +64,29 @@ manifest: Jericho reports a maximum score of 0 for it and knows no walkthrough, 
 neither the progress rate nor a victory could ever be scored. The other 56 all
 load and report a score range.
 
+### The trial budget
+
+`max_steps` for Jericho is 100 rather than the 30 every other task uses. The
+number comes from walking each game's own walkthrough - an oracle, so a ceiling
+no agent can beat - and recording the progress rate reached at each budget:
+
+| budget | mean progress | median | games won | games still on zero |
+|---|---|---|---|---|
+| 30 | 18.0% | 10.0% | 2/56 | 7/56 |
+| 50 | 30.4% | 19.2% | 5/56 | 4/56 |
+| 75 | 47.6% | 30.0% | 13/56 | 0/56 |
+| 100 | 56.2% | 42.4% | 19/56 | 0/56 |
+| 150 | 66.5% | 71.7% | 24/56 | 0/56 |
+
+At 30 moves seven games cannot score at all, so those tasks contribute nothing
+whatever the memory module does, and `done` is near-dead with 2 of 56 winnable
+by a perfect player. The zero floor disappears at 75. 100 clears it with margin,
+makes 19 games winnable so `done` carries signal again, and leaves the median
+game at 42% so the score has room to move in both directions.
+
+The cost is linear in the budget: 100 trials over 56 games, 10 seeds and 10 arms
+is about 560k agent turns against 168k at 30.
+
 Four of the games open above zero — `advent` on 36 of 350, `detective` on 10 of
 360, `deephome` on 1 of 300 and `ludicorp` on 1 of 150 — which is why the progress
 rate is measured from the opening score rather than from nothing.
@@ -95,3 +118,23 @@ with open('babyai/babyai_levels.jsonl', 'w') as out:
 ```
 
 The full list of registered levels is `sorted(k for k in gym.registry if k.startswith('BabyAI-'))`.
+
+### The trial budget
+
+BabyAI stays at 30, unlike Jericho. A mission is pass/fail, so the only question
+is whether a perfect player fits in the budget; `minigrid.utils.baby_ai_bot`
+solves 190 of the 200 tasks and needs a median of 9 actions, so 30 leaves most
+tasks about three times the oracle's budget.
+
+The tail is long, though, and four levels carry nearly all of it - `Unlock`
+(median 72 actions), `GoTo` (60), `UnblockPickup` (24, up to 193) and
+`SynthS5R2` (13, up to 168). They are large mazes where even the oracle wanders,
+so they measure exploration rather than memory. Raising the budget does not fix
+them: 30 trials puts 74% of tasks within a perfect player's reach and 50 trials
+only 86%, for two thirds more compute. Replacing those four levels would buy more
+than raising the budget.
+
+The 10 tasks the oracle does not solve are all `PutNextS5N2Carrying`, where the
+agent starts already holding something and the bot asserts it is empty-handed.
+The level itself is solvable - dropping first and then handing over to the bot
+completes it - so this is a limitation of the measurement, not of the task.

@@ -118,7 +118,7 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 | `--mas_memory` (sweep) | **required** | One or more memory modules: `empty`, `voyager`, `memorybank`, `chatdev`, `generative`, `metagpt`, `g-memory`, `intrinsicmemory-pddl`, `intrinsicmemory-fever`, `intrinsicmemory-hotpotqa`, `intrinsicmemory-jericho`, `intrinsicmemory-babyai`, `intrinsicmemory-sciworld`, `intrinsicmemory-alfworld`, `intrinsicmemory-llm-structured-template`, `intrinsicmemory-notemplate` |
 | `--reasoning` | `io` | Reasoning module |
 | `--model` (sweep) | `gpt-3.5-turbo-0125` | LLM model name, as recognized by your `OPENAI_API_BASE` backend |
-| `--max_trials` | each task's `max_steps` | Trials one episode gets. Unset, the budget comes from that task's entry in `tasks/configs.yaml` (30 for all seven); given, it overrides every task in the sweep |
+| `--max_trials` | each task's `max_steps` | Trials one episode gets. Unset, the budget comes from that task's entry in `tasks/configs.yaml` (30 for all but Jericho, which is 100); given, it overrides every task in the sweep |
 | `--max_tasks` | each task's `max_tasks` | How many tasks of the dataset a run covers. Unset, from `tasks/configs.yaml` (only FEVER and HotpotQA set one, both at 200) and otherwise the whole dataset — 56 games for Jericho and 200 level-and-seed pairs for BabyAI; given, it overrides every task in the sweep. `--max_tasks 2` is what makes a smoke run short |
 | `--successful_topk` | `1` | Number of successful trajectories retrieved from memory |
 | `--failed_topk` | `0` | Number of failed trajectories retrieved from memory |
@@ -137,7 +137,8 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 | `--failed_experiments_filename` | `failed_experiments.csv` | Name of the failed-experiment file, in `--db_dir` |
 
 Two settings are per-task rather than flags, in `tasks/configs.yaml`: `max_steps` (the trial budget above) and `few_shots_num`. FEVER and HotpotQA also have `max_tasks: 200`, which cuts each to its first 200 claims or questions.
-BabyAI's manifest is ordered seed-major, so a `--max_tasks` prefix of it is a spread across the levels rather than many seeds of the easiest one. `tasks/configs.yaml` also holds `embedding_model` and `embedding_device`, which is `cpu`: left to itself the embedding model takes `cuda:0`, and on a node serving vLLM every GPU is the server's.
+BabyAI's manifest is ordered seed-major, so a `--max_tasks` prefix of it is a spread across the levels rather than many seeds of the easiest one.
+Jericho's `max_steps` is 100 rather than 30, because its games score over a much longer arc than one 30-move episode covers — `data/data.md` has the measurements behind the number. `tasks/configs.yaml` also holds `embedding_model` and `embedding_device`, which is `cpu`: left to itself the embedding model takes `cuda:0`, and on a node serving vLLM every GPU is the server's.
 
 `configs/configs.yaml` holds the settings for the LLM calls themselves:
 
