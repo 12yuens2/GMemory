@@ -68,6 +68,16 @@ else
   echo "flock: REFUSED - jobs writing to one results file may interleave"
 fi
 
+# FEVER's Search action goes to live Wikipedia, so the task needs outbound network
+# from the compute node. Without it every claim fails and the run still writes rows -
+# which is why the assertion below is on tasks_scored, not just on the row count.
+echo -n "wikipedia reachable: "
+curl -s -o /dev/null -w '%{http_code}\n' --max-time 20 \
+  https://en.wikipedia.org/api/rest_v1/page/summary/Water || echo "unreachable"
+
+# ScienceWorld runs a JVM through py4j, so the sciworld jobs need java on PATH.
+echo -n "java: "; java -version 2>&1 | head -1 || echo "absent - sciworld will not start"
+
 uv run tasks/run.py \
 	--task fever \
 	--mas_type autogen \
@@ -88,6 +98,20 @@ rows=$(($(wc -l < ${DB_DIR}/overall_results.csv) - 1))
 if [ "$rows" -ne 2 ]; then
   echo "SMOKE TEST FAILED: expected 2 result rows, got ${rows}"
   cat ${DB_DIR}/failed_experiments.csv 2>/dev/null
+  kill $VLLM_PID 2>/dev/null
+  exit 1
+fi
+
+# An experiment whose every task failed still writes a row, with tasks_scored 0 - the
+# shape of a task that cannot reach what it needs, rather than of a broken sweep.
+unscored=$(python3 -c '
+import csv, sys
+rows = list(csv.DictReader(open(sys.argv[1])))
+print(sum(1 for r in rows if int(r["tasks_scored"]) == 0))
+' ${DB_DIR}/overall_results.csv)
+if [ "$unscored" -ne 0 ]; then
+  echo "SMOKE TEST FAILED: ${unscored} experiments scored no tasks at all"
+  find ${DB_DIR} -name 'failed_tasks.csv' -exec cat {} +
   kill $VLLM_PID 2>/dev/null
   exit 1
 fi

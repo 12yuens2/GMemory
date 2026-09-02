@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=vllm-serve
+#SBATCH --job-name=vllm-calibrate
 #SBATCH --nodes=1
 #SBATCH --gpus=4
-#SBATCH --time=24:00:00
+#SBATCH --time=02:00:00
 #SBATCH --exclusive
-#SBATCH --output=out/sciworld-%x.%j.%t.out
+#SBATCH --output=out/calibrate-%x.%j.%t.out
 
 echo SERVING ON $HOSTNAME
 
@@ -14,7 +14,7 @@ module list
 
 # Every job of one experiment set must point at the same directory: they append to
 # one overall_results.csv under a lock on the file. Override at submit time with
-#   DB_DIR=/projects/<project>/results/sweep-2026-09 sbatch slurm/sciworld_experiment.sh
+#   DB_DIR=/projects/<project>/results/sweep-2026-09 sbatch slurm/calibrate.sh
 DB_DIR=${DB_DIR:-$HOME/GMemory/.db/sweep}
 
 cd ~/vllm_test
@@ -54,7 +54,6 @@ echo "vLLM started!"
 deactivate
 
 # experiment setup
-export MODEL_NAME="openai/gpt-oss-120b"
 export OPENAI_API_BASE=http://localhost:8000/v1
 export OPENAI_API_KEY="none"
 
@@ -65,15 +64,35 @@ sleep 100
 
 echo "results -> ${DB_DIR}"
 
+# One dataset, every arm, one seed, twenty tasks at the full trial budget. This is the
+# run that says whether a 24-hour job fits: the result rows carry the token spend, so
+#   tokens / elapsed = throughput, and episodes x tokens-per-task / throughput = wall clock.
+# It also exercises g-memory past its twentieth task, where merge_insights runs.
+
 uv run tasks/run.py \
-	--task sciworld \
+	--task fever \
 	--mas_type autogen \
 	--mas_memory empty chatdev voyager memorybank generative metagpt g-memory \
-	             intrinsicmemory-notemplate intrinsicmemory-sciworld \
+	             intrinsicmemory-notemplate intrinsicmemory-fever \
 	             intrinsicmemory-llm-structured-template \
-	--seed 11 22 33 44 55 66 77 88 99 111 \
-	--db_dir ${DB_DIR} \
+	--seed 11 \
+	--max_tasks 20 \
+	--db_dir ${DB_DIR}/calibration \
 	--model ${MODEL_NAME}
+
+echo "==== calibration ===="
+column -s, -t < ${DB_DIR}/calibration/overall_results.csv
+
+python3 -c '
+import csv, sys
+rows = list(csv.DictReader(open(sys.argv[1])))
+tokens = sum(int(r["completion_tokens"]) + int(r["prompt_tokens"]) for r in rows)
+scored = sum(int(r["tasks_scored"]) for r in rows)
+print(f"{len(rows)} arms, {scored} tasks scored, {tokens:,} tokens")
+print(f"{tokens/max(scored, 1):,.0f} tokens per task")
+' ${DB_DIR}/calibration/overall_results.csv
+
+cat ${DB_DIR}/calibration/*/*/*/*/failed_tasks.csv 2>/dev/null
 
 # cleanup
 kill $VLLM_PID 2>/dev/null

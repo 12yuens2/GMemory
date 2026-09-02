@@ -61,13 +61,21 @@ Each of these scripts:
 3. Points `OPENAI_API_BASE` at the local vLLM server (`http://localhost:8000/v1`) and runs `uv run tasks/run.py`, sweeping over every memory module and 10 seeds for one task (fever/pddl/sciworld) or all three at once (`single_node_serve.sh`).
 4. Kills the vLLM process once `run.py` finishes.
 
-Submit one with:
+Each of the three `*_experiment.sh` scripts has a `*_crosstask.sh` twin: the same intrinsic modules, run with `--intrinsic_cross_task` so the memory is kept across the tasks of the dataset instead of starting each task from nothing. Point both at the same results directory — the two arms are told apart by the `intrinsic_cross_task` column, not by the file they land in.
+
 ```bash
-sbatch slurm/fever_experiment.sh
+export DB_DIR=/projects/<project>/results/sweep-2026-09
+sbatch slurm/fever_experiment.sh      # 10 arms x 10 seeds
+sbatch slurm/fever_crosstask.sh       # the 3 intrinsic arms again, cross-task
 ```
+
+`DB_DIR` defaults to `$HOME/GMemory/.db/sweep`, and every script echoes where it is writing. Use a directory no earlier run wrote to: a run refuses to append to a results file whose header is not its schema.
 
 **Check the whole path in half an hour first**
 `slurm/smoke_test.sh` has the same shape as those - serve, then run - but for one task, two memory modules, one seed and two tasks of the dataset (`--max_tasks 2 --max_trials 3`). It then prints what the run wrote and fails if the two result rows are not there — including a wrong `--model`, which otherwise fails once per experiment rather than once. It also probes whether the filesystem grants `flock`, which is what the results file's append lock needs. Worth a submission before any 24-hour job, and after any change to the cluster, the model or the environment.
+
+**Size the real jobs before submitting them**
+`slurm/calibrate.sh` sits between the smoke test and a 24-hour job: one dataset, every arm, one seed, twenty tasks at the full trial budget, in a 2-hour allocation. It prints the result table, the tokens per task and any failed tasks. That is what sizes the real jobs — every experiment in a job runs concurrently against one throughput-bound server, so the wall clock is total tokens divided by what the server sustains, and `tokens_per_task x episodes / throughput` is the estimate. Twenty tasks also takes `g-memory` past its twentieth, where `merge_insights` runs.
 
 **Attach to an already-running vLLM/Ray cluster**
 `slurm/experiment.sh` doesn't start its own model server. It expects a vLLM/Ray serving job already running elsewhere on the cluster and resolves that job's head node from its Slurm job ID:
@@ -101,7 +109,7 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 |---|---|---|
 | `--task` (sweep) | `alfworld` | One or more of `alfworld`, `fever`, `pddl`, `sciworld` |
 | `--mas_type` | **required** | One of `autogen`, `dylan`, `macnet` |
-| `--mas_memory` (sweep) | **required** | One or more memory modules: `empty`, `voyager`, `memorybank`, `chatdev`, `generative`, `metagpt`, `g-memory`, `intrinsicmemory-pddl`, `intrinsicmemory-fever`, `intrinsicmemory-alfworld`, `intrinsicmemory-llm-structured-template`, `intrinsicmemory-notemplate` |
+| `--mas_memory` (sweep) | **required** | One or more memory modules: `empty`, `voyager`, `memorybank`, `chatdev`, `generative`, `metagpt`, `g-memory`, `intrinsicmemory-pddl`, `intrinsicmemory-fever`, `intrinsicmemory-sciworld`, `intrinsicmemory-alfworld`, `intrinsicmemory-llm-structured-template`, `intrinsicmemory-notemplate` |
 | `--reasoning` | `io` | Reasoning module |
 | `--model` (sweep) | `gpt-3.5-turbo-0125` | LLM model name, as recognized by your `OPENAI_API_BASE` backend |
 | `--max_trials` | each task's `max_steps` | Trials one episode gets. Unset, the budget comes from that task's entry in `tasks/configs.yaml` (30 for all four); given, it overrides every task in the sweep |
@@ -239,7 +247,7 @@ OPENAI_API_KEY = ""  # for OpenAI LLM backend
 
 ### 🔎 Choices Overview
 - Available memories: ***Empty, ChatDev, MetaGPT, Voyager, Generative, MemoryBank, G-Memory***
-- Added by this fork: ***five intrinsic memory variants*** — `intrinsicmemory-notemplate`, `-pddl`, `-fever`, `-alfworld` and `-llm-structured-template`. Each keeps one agent-authored memory that an LLM rewrites as the episode goes; they differ only in the template their system prompt asks for, which is what the experiments compare.
+- Added by this fork: ***six intrinsic memory variants*** — `intrinsicmemory-notemplate`, `-pddl`, `-fever`, `-sciworld`, `-alfworld` and `-llm-structured-template`. Each keeps one agent-authored memory that an LLM rewrites as the episode goes; they differ only in the template their system prompt asks for, which is what the experiments compare.
 - Available MAS: ***AutoGen, DyLAN, MacNet***
 - `--mas_type autogen` also takes `--use_validator`, which adds a third agent reviewing the solver's action format.
 
