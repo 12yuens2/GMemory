@@ -5,15 +5,19 @@ from mas.utils import repo_path
 
 from .base_env import BaseEnv, BaseRecorder
 from .alfworld_env import AlfworldEnv, AlfworldRecorder, get_env_name_from_gamefile, prefixes
+from .babyai_env import BabyAIEnv, BabyAIRecorder
 from .sciworld_env import SciworldEnv, SciworldRecorder, build_simplification_str
 from .fever_env import FeverEnv, FeverRecorder
 from .hotpotqa_env import HotpotQAEnv, HotpotQARecorder
+from .jericho_env import JerichoEnv, JerichoRecorder
 from .pddl_env.pddl_env import PDDLEnv, PDDLRecorder, get_all_environment_configs
 
 TASKS_PATH = {
     'alfworld': repo_path('data/alfworld/alfworld_tasks_suffix.json'),
+    'babyai': repo_path('data/babyai/babyai_levels.jsonl'),
     'fever': repo_path('data/fever/fever_dev.jsonl'),
     'hotpotqa': repo_path('data/hotpotqa/hotpotqa_dev.jsonl'),
+    'jericho': repo_path('data/jericho/jericho_games.jsonl'),
     'pddl': repo_path('data/pddl/test.jsonl'),
     'sciworld': repo_path('data/sciworld/test.jsonl'),
 }
@@ -78,31 +82,64 @@ def load_hotpotqa_tasks() -> list[dict]:
         ]
 
 
+def load_babyai_tasks() -> list[dict]:
+    """One task per (level, seed): the seed is what fixes the gridworld."""
+    with open(TASKS_PATH['babyai'], 'r') as reader:
+        return [
+            {
+                'id': row['id'],
+                'level': row['level'],
+                'seed': row['seed'],
+                'env_name': 'babyai',
+            }
+            for row in (json.loads(line) for line in reader)
+        ]
+
+
+def load_jericho_tasks() -> list[dict]:
+    """One task per game. The rom itself is not in the repo; see data/data.md."""
+    with open(TASKS_PATH['jericho'], 'r') as reader:
+        return [
+            {
+                'id': row['id'],
+                'rom': row['rom'],
+                'env_name': 'jericho',
+            }
+            for row in (json.loads(line) for line in reader)
+        ]
+
+
 def load_pddl_tasks() -> list[dict]:
     return get_all_environment_configs(PDDL_DOMAINS, TASKS_PATH['pddl'])
 
 
 TASK_LOADERS = {
     'alfworld': load_alfworld_tasks,
+    'babyai': load_babyai_tasks,
     'sciworld': load_sciworld_tasks,
     'fever': load_fever_tasks,
     'hotpotqa': load_hotpotqa_tasks,
+    'jericho': load_jericho_tasks,
     'pddl': load_pddl_tasks,
 }
 
 ENVS = {
     'alfworld': AlfworldEnv,
+    'babyai': BabyAIEnv,
     'sciworld': SciworldEnv,
     'fever': FeverEnv,
     'hotpotqa': HotpotQAEnv,
+    'jericho': JerichoEnv,
     'pddl': PDDLEnv
 }
 
 RECORDERS = {
     'alfworld': AlfworldRecorder,
+    'babyai': BabyAIRecorder,
     'sciworld': SciworldRecorder,
     'fever': FeverRecorder,
     'hotpotqa': HotpotQARecorder,
+    'jericho': JerichoRecorder,
     'pddl': PDDLRecorder
 }
 

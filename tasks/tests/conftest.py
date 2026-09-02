@@ -39,9 +39,14 @@ def _stub_module_exporting(name: str, *exports: str):
 # The task environments import their simulators at module scope, so the env and
 # recorder registries need these stubbed to be importable offline.
 for _mod in (
+    "gymnasium",
+    "jericho",
     "langchain_chroma",
     "langchain_core",
     "langchain_core.documents",
+    "minigrid",
+    "minigrid.core",
+    "minigrid.core.actions",
     "nltk",
     "pddlgym",
     "pddlgym.structs",

@@ -35,8 +35,10 @@ MEMORY_CONFIG_KEYS = ("successful_topk", "failed_topk", "insights_topk", "thresh
 # out of current_task_config in task_end.
 TASK_CONFIGS = {
     "alfworld": {"env_kwargs": {"gamefile": "/data/pick_and_place_simple-1/game.tw-pw"}},
+    "babyai": {},
     "fever": {},
     "hotpotqa": {},
+    "jericho": {"id": "detective"},
     "pddl": {"game_name": "blockworld"},
     "sciworld": {},
 }
@@ -308,10 +310,12 @@ def test_every_registered_environment_is_a_base_env(task):
 # ── every env classifies its own reasoning steps ──────────────────────────────
 
 # One reasoning step and one real action per task, in that task's own vocabulary.
-# The four families spell a reasoning step three different ways, which is why the
+# The families spell a reasoning step two different ways, which is why the
 # workflow has to ask the environment rather than match a substring itself.
 THOUGHT_VOCABULARY = {
     "alfworld": ("think: I need to find a mug.", "go to shelf 1"),
+    "babyai": ("think: the red ball is off to my left.", "turn left"),
+    "jericho": ("think: the chief handed me a sheet of paper.", "take paper"),
     "sciworld": ("think: I should heat the water.", "focus on the thermometer"),
     "pddl": ("think: I should stack the blocks.", "stack block_a block_b"),
     "fever": ("Thought 1: I need to search Telemundo.", "Search[Telemundo]"),

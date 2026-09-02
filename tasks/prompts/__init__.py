@@ -1,15 +1,19 @@
 from .alfworld_prompt import alfworld_solver_system_prompt, alfworld_few_shots
+from .babyai_prompt import babyai_solver_system_prompt, babyai_few_shots
 from .sciworld_prompt import sciworld_solver_system_prompt, sciworld_few_shots
 from .fever_prompt import fever_solver_system_prompt, fever_few_shots
 from .hotpotqa_prompt import hotpotqa_solver_system_prompt, hotpotqa_few_shots
+from .jericho_prompt import jericho_solver_system_prompt, jericho_few_shots
 from .pddl_prompt import pddl_prompts
 
 def get_dataset_system_prompt(task: str, task_config: dict) -> str:
     prompt_map: dict = {
         'alfworld': alfworld_solver_system_prompt,
+        'babyai': babyai_solver_system_prompt,
         'sciworld': sciworld_solver_system_prompt,
         'fever': fever_solver_system_prompt,
         'hotpotqa': hotpotqa_solver_system_prompt,
+        'jericho': jericho_solver_system_prompt,
         'pddl': pddl_prompts
     }
 
@@ -32,6 +36,12 @@ def get_task_few_shots(dataset: str, task_config: dict, few_shots_num: int) -> l
             raise ValueError('The task config must have the `task_type` attribute.')
         return [alfworld_few_shots[f'react_{task_type}_2'], alfworld_few_shots[f'react_{task_type}_0']][:few_shots_num]
     
+    elif dataset == 'babyai':
+        return babyai_few_shots[:few_shots_num]
+
+    elif dataset == 'jericho':
+        return jericho_few_shots[:few_shots_num]
+
     elif dataset == 'sciworld':
         return sciworld_few_shots[:few_shots_num]
     
