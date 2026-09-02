@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import gymnasium as gym
 from minigrid.core.actions import Actions
 
-from .base_env import BaseEnv, BaseRecorder
+from .base_env import BaseEnv, BaseRecorder, clean_action_line
 
 # Our command vocabulary onto minigrid's action names. The values are strings
 # rather than `Actions` members so a wrong one raises KeyError at the call.
@@ -28,9 +28,30 @@ ACTION_ALIASES = {
     'done': 'done',
 }
 
-# Terrain rather than things to interact with. Walls are summarised instead of
-# listed - most of a view is wall, and only the one straight ahead is a decision.
-SCENERY = ('wall', 'empty', 'unseen', 'floor')
+# Terrain rather than things to interact with. Walls are handled before this,
+# summarised instead of listed: most of a view is wall, and only the one straight
+# ahead is a decision.
+SCENERY = ('empty', 'unseen', 'floor')
+
+
+def parse_action(action: str) -> str:
+    """The simulator's name for the action a line asks for, or None.
+
+    Matched exactly where it can be, and otherwise by longest prefix, so
+    `pick up the green key` is the `pick up` the agent plainly meant rather than
+    a wasted trial. None of the seven takes an argument, so a trailing object
+    phrase carries nothing to lose - and `done` is a no-op in BabyAI, where a
+    mission ends by being accomplished, so matching it loosely ends nothing.
+    """
+    cleaned = action.strip().lower()
+    if cleaned in ACTION_ALIASES:
+        return ACTION_ALIASES[cleaned]
+
+    for command in sorted(ACTION_ALIASES, key=len, reverse=True):
+        if cleaned.startswith(command):
+            return ACTION_ALIASES[command]
+
+    return None
 
 
 def relative_position(column: int, row: int, width: int, height: int) -> tuple[int, int]:
@@ -108,6 +129,8 @@ class BabyAIEnv(BaseEnv):
             raise ValueError('A babyai task config needs a `level` and a `seed`.')
 
         self.level, self.seed = level, seed
+        if self.env is not None:
+            self.env.close()  # one simulator per level, and 200 levels per experiment
         self.env = gym.make(level)
 
         observation = self.reset()
@@ -120,6 +143,10 @@ class BabyAIEnv(BaseEnv):
         every run and across memory modules.
         """
         observation, _ = self.env.reset(seed=self.seed)
+        # A level carries its own step limit, as low as 49, which would truncate
+        # an episode before its trial budget was spent. `max_trials` is the
+        # budget. Set after the reset, which is where the level computes it.
+        self.env.unwrapped.max_steps = self.max_trials
         self.mission = observation['mission']
         self.done = False
 
@@ -131,7 +158,7 @@ class BabyAIEnv(BaseEnv):
         if self.is_thought(action):
             return 'OK.', 0, False
 
-        name = ACTION_ALIASES.get(action.lower())
+        name = parse_action(action)
         if name is None:
             return (
                 f'"{action}" is not an action here. Choose one of: '
@@ -164,9 +191,7 @@ class BabyAIEnv(BaseEnv):
 
     @staticmethod
     def process_action(action: str) -> str:
-        action = action.strip().replace('<', '').split('\n')[0]
-
-        return action.replace('>', '').replace('OK.', '').replace('OK', '').strip()
+        return clean_action_line(action)
 
     def feedback(self) -> tuple[float, bool, str]:
         """Pass or fail: a BabyAI mission has no partial credit."""

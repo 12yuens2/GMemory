@@ -62,6 +62,53 @@ def test_a_missing_rom_names_the_file_it_wanted():
         build(rom_dir='nowhere').set_env({'id': 'detective', 'rom': 'detective.z5'})
 
 
+# ── getting the command out of a line of model output ─────────────────────────
+
+@pytest.mark.parametrize(
+    'raw, expected',
+    [
+        ('LOOK', 'LOOK'),
+        ('TAKE BOOK', 'TAKE BOOK'),
+        ('SMOKE', 'SMOKE'),
+        ('BROKEN LOCK', 'BROKEN LOCK'),
+    ],
+)
+def test_an_uppercase_command_survives_intact(raw, expected):
+    """The older environments strip `OK` as a substring, which mangles these.
+
+    Interactive fiction commands are conventionally uppercase - every walkthrough
+    in the suite is - and `LOOK` is among the commonest commands in the genre. A
+    parser given `LO` answers that it does not know the word.
+    """
+    assert ENVS['jericho'].process_action(raw) == expected
+
+
+@pytest.mark.parametrize(
+    'raw, expected',
+    [
+        ('> north', 'north'),
+        ('Action: north', 'north'),
+        ('ACTION: take paper', 'take paper'),
+        ('**take paper**', 'take paper'),
+        ('take paper.', 'take paper'),
+        ('read leaflet!', 'read leaflet'),
+        ('north\nsouth', 'north'),
+        ('  north  ', 'north'),
+    ],
+)
+def test_the_command_is_taken_out_of_a_decorated_line(raw, expected):
+    """A trailing `!` matters: the parser folds it into the noun and then reports
+    it does not know the word `leaflet!`."""
+    assert ENVS['jericho'].process_action(raw) == expected
+
+
+def test_a_line_that_is_only_an_acknowledgement_comes_back_empty():
+    """An empty action spends a retry rather than a trial, so the model gets
+    another turn instead of the parser being handed `OK.`."""
+    assert ENVS['jericho'].process_action('OK.') == ''
+    assert ENVS['jericho'].process_action('OK') == ''
+
+
 # ── the reasoning marker the prompt and the environment have to agree on ──────
 
 def test_a_thought_is_told_from_a_command():

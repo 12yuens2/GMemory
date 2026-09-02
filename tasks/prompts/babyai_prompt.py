@@ -25,7 +25,7 @@ The only actions are these seven, written exactly as shown:
 (4) `pick up` - pick up the object on the square directly in front of you. You can carry only one thing at a time.
 (5) `drop` - put down what you are carrying, onto the square directly in front of you.
 (6) `toggle` - open or close the door directly in front of you. This is also how a locked door is unlocked, while you are carrying a key of the same colour.
-(7) `done` - declare the task complete.
+(7) `done` - signal that you believe the task is finished. It does not end the episode: a mission ends by being accomplished.
 
 A thought is a line beginning `think:` followed by your reasoning. Use one when you need to plan, and then act on the next turn. Output exactly one line, and nothing else.
 

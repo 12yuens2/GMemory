@@ -2,15 +2,40 @@ from dataclasses import dataclass
 from typing import NamedTuple
 import os
 import logging
+import re
 import time
 from abc import ABC, abstractmethod
 
 from mas.logging_utils import get_file_logger
 from mas.mas import EpisodeResult
 
+_LABEL = re.compile(r'^(?:action|command)\s*:\s*', re.IGNORECASE)
+
 
 def _mean(values: list) -> float:
     return sum(values) / len(values) if values else 0
+
+
+def clean_action_line(action: str) -> str:
+    """The command out of a line of model output: one line, no decoration.
+
+    Strips the prompt marker, a `Action:` label, markdown emphasis and trailing
+    punctuation. A line that is nothing but the acknowledgement `OK.` comes back
+    empty, which spends a retry rather than a trial.
+
+    Note it strips `OK.` only as the whole line. Substring-replacing it, which
+    the older environments do, turns the interactive fiction command `LOOK` into
+    `LO`.
+    """
+    action = action.strip().split('\n')[0]
+    for decoration in ('<', '>', '*', '`', '#'):
+        action = action.replace(decoration, '')
+
+    action = _LABEL.sub('', action.strip()).strip()
+    if action.upper() in ('OK', 'OK.'):
+        return ''
+
+    return action.strip(' .!?,;:').strip()
 
 class BaseEnv(ABC):
     """The Env protocol, implemented over a config and a trial budget.

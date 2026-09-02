@@ -15,7 +15,7 @@ from jericho import FrotzEnv
 
 from mas.utils import repo_path
 
-from .base_env import BaseEnv, BaseRecorder
+from .base_env import BaseEnv, BaseRecorder, clean_action_line
 
 DEFAULT_ROM_DIR = 'data/jericho/roms'
 
@@ -62,6 +62,8 @@ class JerichoEnv(BaseEnv):
             )
 
         self.game = game
+        if self.env is not None:
+            self.env.close()  # one interpreter per game, and 56 games per experiment
         self.env = FrotzEnv(str(rom_path))
 
         opening = self.reset()
@@ -128,9 +130,13 @@ class JerichoEnv(BaseEnv):
 
     @staticmethod
     def process_action(action: str) -> str:
-        action = action.strip().replace('<', '').split('\n')[0]
+        """The command to type, out of the model's line.
 
-        return action.replace('>', '').replace('OK.', '').replace('OK', '').strip()
+        Unlike the older environments this does not strip `OK` as a substring:
+        interactive fiction commands are conventionally uppercase, and `LOOK`,
+        `TAKE BOOK`, `SMOKE` and `BROKEN LOCK` all contain it.
+        """
+        return clean_action_line(action)
 
     def feedback(self) -> tuple[float, bool, str]:
         """The share of the game's score range reached, and whether it was won.

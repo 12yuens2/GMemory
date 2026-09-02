@@ -16,6 +16,7 @@ from tasks.envs.babyai_env import (
     ACTION_ALIASES,
     describe_view,
     name_object,
+    parse_action,
     phrase_position,
     relative_position,
 )
@@ -176,6 +177,48 @@ def test_the_few_shot_only_ever_uses_offered_actions():
 
     assert commands, 'the few shot is what shows the format'
     assert not unknown, f'the few shot demonstrates actions the environment rejects: {unknown}'
+
+
+@pytest.mark.parametrize(
+    'raw, expected',
+    [
+        ('go forward', 'forward'),
+        ('go forward.', 'forward'),
+        ('Action: go forward', 'forward'),
+        ('**go forward**', 'forward'),
+        ('Go Forward', 'forward'),
+        ('> turn left', 'left'),
+        ('turn left!', 'left'),
+    ],
+)
+def test_an_action_is_recognised_through_the_model_s_decoration(raw, expected):
+    """An unrecognised action costs a trial, so punctuation must not cost one."""
+    assert parse_action(ENVS['babyai'].process_action(raw)) == expected
+
+
+@pytest.mark.parametrize(
+    'raw, expected',
+    [
+        ('pick up the green key', 'pickup'),
+        ('drop it next to the box', 'drop'),
+        ('toggle the red door', 'toggle'),
+    ],
+)
+def test_an_action_with_the_object_named_is_still_that_action(raw, expected):
+    """None of the seven takes an argument, and the mission text names objects, so
+    a model that writes `pick up the green key` plainly means `pick up`."""
+    assert parse_action(ENVS['babyai'].process_action(raw)) == expected
+
+
+@pytest.mark.parametrize('raw', ['fly to the ball', 'jump', 'go backward', ''])
+def test_an_action_the_simulator_does_not_have_is_not_guessed_at(raw):
+    """Rejecting it returns the seven to the agent; guessing would act on something
+    it never asked for."""
+    assert parse_action(raw) is None
+
+
+def test_a_line_that_is_only_an_acknowledgement_comes_back_empty():
+    assert ENVS['babyai'].process_action('OK.') == ''
 
 
 def test_a_thought_is_told_from_an_action():
