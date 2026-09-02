@@ -7,11 +7,13 @@ from .base_env import BaseEnv, BaseRecorder
 from .alfworld_env import AlfworldEnv, AlfworldRecorder, get_env_name_from_gamefile, prefixes
 from .sciworld_env import SciworldEnv, SciworldRecorder, build_simplification_str
 from .fever_env import FeverEnv, FeverRecorder
+from .hotpotqa_env import HotpotQAEnv, HotpotQARecorder
 from .pddl_env.pddl_env import PDDLEnv, PDDLRecorder, get_all_environment_configs
 
 TASKS_PATH = {
     'alfworld': repo_path('data/alfworld/alfworld_tasks_suffix.json'),
     'fever': repo_path('data/fever/fever_dev.jsonl'),
+    'hotpotqa': repo_path('data/hotpotqa/hotpotqa_dev.jsonl'),
     'pddl': repo_path('data/pddl/test.jsonl'),
     'sciworld': repo_path('data/sciworld/test.jsonl'),
 }
@@ -64,6 +66,18 @@ def load_fever_tasks() -> list[dict]:
         ]
 
 
+def load_hotpotqa_tasks() -> list[dict]:
+    with open(TASKS_PATH['hotpotqa'], 'r') as reader:
+        return [
+            {
+                'task': row['question'],
+                'answer': row['answer'],
+                'env_name': 'hotpotqa',
+            }
+            for row in (json.loads(line) for line in reader)
+        ]
+
+
 def load_pddl_tasks() -> list[dict]:
     return get_all_environment_configs(PDDL_DOMAINS, TASKS_PATH['pddl'])
 
@@ -72,6 +86,7 @@ TASK_LOADERS = {
     'alfworld': load_alfworld_tasks,
     'sciworld': load_sciworld_tasks,
     'fever': load_fever_tasks,
+    'hotpotqa': load_hotpotqa_tasks,
     'pddl': load_pddl_tasks,
 }
 
@@ -79,6 +94,7 @@ ENVS = {
     'alfworld': AlfworldEnv,
     'sciworld': SciworldEnv,
     'fever': FeverEnv,
+    'hotpotqa': HotpotQAEnv,
     'pddl': PDDLEnv
 }
 
@@ -86,6 +102,7 @@ RECORDERS = {
     'alfworld': AlfworldRecorder,
     'sciworld': SciworldRecorder,
     'fever': FeverRecorder,
+    'hotpotqa': HotpotQARecorder,
     'pddl': PDDLRecorder
 }
 

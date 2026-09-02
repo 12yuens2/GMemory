@@ -5,9 +5,10 @@ dataset_begin, task_begin, schedule, task_end, average_results, dataset_end -
 with the real recorder, prompt module and tasks/configs.yaml, and a fake
 environment and LLM in place of a simulator and an endpoint.
 
-The environments cannot be constructed offline (ALFWorld's is commented out,
-ScienceWorld needs a server, PDDL's needs pddlgym), so their side of the contract
-is asserted against the classes rather than instances.
+Three of the environments cannot be constructed offline (ALFWorld's is commented
+out, ScienceWorld needs a server, PDDL's needs pddlgym), so their side of the
+contract is asserted against the classes rather than instances. The two
+Wikipedia ones are exercised as instances in test_wiki_react_envs.
 """
 
 import inspect
@@ -32,12 +33,14 @@ with open("tasks/configs.yaml") as reader:
 SMOKE_TASK_CONFIGS = {
     "alfworld": {**TASK_CONFIGS["alfworld"], "task_type": "put"},
     "fever": {**TASK_CONFIGS["fever"], "task": "Ada Lovelace wrote the first program."},
+    "hotpotqa": {**TASK_CONFIGS["hotpotqa"],
+                 "task": "Who wrote the first program?"},
     "pddl": {**TASK_CONFIGS["pddl"]},
     "sciworld": {**TASK_CONFIGS["sciworld"]},
 }
 
 
-# ── all four envs share one signature ─────────────────────────────────────────
+# ── every env shares one signature ─────────────────────────────────────────
 
 @pytest.mark.parametrize("task", sorted(ENVS))
 def test_every_env_is_a_base_env(task):
