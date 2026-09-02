@@ -53,21 +53,29 @@ az deployment group create --resource-group intrinsic-memory --template-file tem
 Slurm job scripts for running experiments on an HPC cluster (developed against the BriCS/Isambard-AI environment) live in `slurm/`. They follow two patterns:
 
 **Self-contained: serve a model + run experiments in one job**
-`slurm/fever_experiment.sh`, `slurm/pddl_experiment.sh`, `slurm/sciworld_experiment.sh`, `slurm/single_node_serve.sh`
+`slurm/fever_experiment.sh`, `slurm/hotpotqa_experiment.sh`, `slurm/pddl_experiment.sh`, `slurm/sciworld_experiment.sh`, `slurm/single_node_serve.sh`
 
 Each of these scripts:
 1. Requests a node with 4 GPUs (`#SBATCH --gpus=4 --exclusive`) and loads cluster modules (`module load brics/nccl`).
 2. Starts a local `vllm serve` process in the background for a model (default `openai/gpt-oss-120b`), polling `/health` until it's ready.
-3. Points `OPENAI_API_BASE` at the local vLLM server (`http://localhost:8000/v1`) and runs `uv run tasks/run.py`, sweeping over every memory module and 10 seeds for one task (fever/pddl/sciworld) or all three at once (`single_node_serve.sh`).
+3. Points `OPENAI_API_BASE` at the local vLLM server (`http://localhost:8000/v1`) and runs `uv run tasks/run.py`, sweeping over every memory module and 10 seeds for one task (fever/hotpotqa/pddl/sciworld) or fever, pddl and sciworld at once (`single_node_serve.sh`).
 4. Kills the vLLM process once `run.py` finishes.
 
-Each of the three `*_experiment.sh` scripts has a `*_crosstask.sh` twin: the same intrinsic modules, run with `--intrinsic_cross_task` so the memory is kept across the tasks of the dataset instead of starting each task from nothing. Point both at the same results directory — the two arms are told apart by the `intrinsic_cross_task` column, not by the file they land in.
+Each `*_experiment.sh` script has a `*_crosstask.sh` twin: the same intrinsic modules, run with `--intrinsic_cross_task` so the memory is kept across the tasks of the dataset instead of starting each task from nothing. Point both at the same results directory — the two arms are told apart by the `intrinsic_cross_task` column, not by the file they land in.
 
 ```bash
 export DB_DIR=/projects/<project>/results/sweep-2026-09
 sbatch slurm/fever_experiment.sh      # 10 arms x 10 seeds
 sbatch slurm/fever_crosstask.sh       # the 3 intrinsic arms again, cross-task
+sbatch slurm/hotpotqa_experiment.sh   # 9 arms x 10 seeds
+sbatch slurm/hotpotqa_crosstask.sh    # the 2 intrinsic arms again, cross-task
 ```
+
+The HotpotQA scripts carry one fewer arm than FEVER's on purpose: there is no
+`intrinsicmemory-hotpotqa`. The hand-written templates are one per dataset, so a dataset
+with no template of its own is where `intrinsicmemory-llm-structured-template` has
+something to prove — it writes the template instead, against `intrinsicmemory-notemplate`
+as the floor. Add a hand-written variant if you want the third comparison as well.
 
 `DB_DIR` defaults to `$HOME/GMemory/.db/sweep`, and every script echoes where it is writing. Use a directory no earlier run wrote to: a run refuses to append to a results file whose header is not its schema.
 
@@ -107,13 +115,13 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 
 | Flag | Default | Description |
 |---|---|---|
-| `--task` (sweep) | `alfworld` | One or more of `alfworld`, `fever`, `pddl`, `sciworld` |
+| `--task` (sweep) | `alfworld` | One or more of `alfworld`, `fever`, `hotpotqa`, `pddl`, `sciworld` |
 | `--mas_type` | **required** | One of `autogen`, `dylan`, `macnet` |
 | `--mas_memory` (sweep) | **required** | One or more memory modules: `empty`, `voyager`, `memorybank`, `chatdev`, `generative`, `metagpt`, `g-memory`, `intrinsicmemory-pddl`, `intrinsicmemory-fever`, `intrinsicmemory-sciworld`, `intrinsicmemory-alfworld`, `intrinsicmemory-llm-structured-template`, `intrinsicmemory-notemplate` |
 | `--reasoning` | `io` | Reasoning module |
 | `--model` (sweep) | `gpt-3.5-turbo-0125` | LLM model name, as recognized by your `OPENAI_API_BASE` backend |
-| `--max_trials` | each task's `max_steps` | Trials one episode gets. Unset, the budget comes from that task's entry in `tasks/configs.yaml` (30 for all four); given, it overrides every task in the sweep |
-| `--max_tasks` | each task's `max_tasks` | How many tasks of the dataset a run covers. Unset, from `tasks/configs.yaml` (only FEVER sets one, at 200) and otherwise the whole dataset; given, it overrides every task in the sweep. `--max_tasks 2` is what makes a smoke run short |
+| `--max_trials` | each task's `max_steps` | Trials one episode gets. Unset, the budget comes from that task's entry in `tasks/configs.yaml` (30 for all five); given, it overrides every task in the sweep |
+| `--max_tasks` | each task's `max_tasks` | How many tasks of the dataset a run covers. Unset, from `tasks/configs.yaml` (only FEVER and HotpotQA set one, both at 200) and otherwise the whole dataset; given, it overrides every task in the sweep. `--max_tasks 2` is what makes a smoke run short |
 | `--successful_topk` | `1` | Number of successful trajectories retrieved from memory |
 | `--failed_topk` | `0` | Number of failed trajectories retrieved from memory |
 | `--insights_topk` | `3` | Number of insights retrieved from memory |
@@ -130,7 +138,7 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 | `--failed_tasks_filename` | `failed_tasks.csv` | Name of the failed-task file, in each experiment's own directory |
 | `--failed_experiments_filename` | `failed_experiments.csv` | Name of the failed-experiment file, in `--db_dir` |
 
-Two settings are per-task rather than flags, in `tasks/configs.yaml`: `max_steps` (the trial budget above) and `few_shots_num`. FEVER also has `max_tasks: 200`, which cuts that dataset to its first 200 claims. `tasks/configs.yaml` also holds `embedding_model` and `embedding_device`, which is `cpu`: left to itself the embedding model takes `cuda:0`, and on a node serving vLLM every GPU is the server's.
+Two settings are per-task rather than flags, in `tasks/configs.yaml`: `max_steps` (the trial budget above) and `few_shots_num`. FEVER and HotpotQA also have `max_tasks: 200`, which cuts each to its first 200 claims or questions. `tasks/configs.yaml` also holds `embedding_model` and `embedding_device`, which is `cpu`: left to itself the embedding model takes `cuda:0`, and on a node serving vLLM every GPU is the server's.
 
 `configs/configs.yaml` holds the settings for the LLM calls themselves:
 
@@ -223,6 +231,7 @@ Please download the ALFWorld, PDDL, FEVER datasets and place it in the data fold
 - 🏠 [ALFWorld](https://github.com/alfworld/alfworld)
 - 🐹 [PDDL](https://github.com/hkust-nlp/AgentBoard)
 - 🌡️ [FEVER](https://github.com/awslabs/fever)
+- 🔎 [HotpotQA](https://hotpotqa.github.io/)
 
 The file structure should be organized as follows:
 ```
@@ -233,11 +242,15 @@ data
     └── test.jsonl
 └── fever
     └── fever_dev.jsonl
+└── hotpotqa
+    └── hotpotqa_dev.jsonl
 └── sciworld
     └── test.jsonl
 ```
 
-Each dataset is parsed only when a task asks for it, so a FEVER-only run does not need the other three files present.
+Each dataset is parsed only when a task asks for it, so a FEVER-only run does not need the other four files present.
+
+FEVER and HotpotQA both drive live Wikipedia through their `Search` and `Lookup` actions, so those two need outbound network from wherever the run happens; the other three are self-contained once their simulator is installed.
 
 ### 🔑 Add API keys in template.env and change its name to .env
 ```
