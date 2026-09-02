@@ -36,14 +36,71 @@ def _stub_module_exporting(name: str, *exports: str):
     sys.modules[name] = module
 
 
+def _stub_langchain_documents():
+    """A `Document` that is a real class, because the code type-checks against it.
+
+    `LangChainWiki.search` decides whether a search succeeded with
+    `isinstance(result, Document)`, and isinstance against a MagicMock raises
+    TypeError - so the whole function is unreachable in a test without this.
+    """
+    if "langchain_core.documents" in sys.modules:
+        return
+
+    class Document:
+        def __init__(self, page_content: str = "", metadata: dict = None):
+            self.page_content = page_content
+            self.metadata = metadata or {}
+
+    core = sys.modules.get("langchain_core") or ModuleType("langchain_core")
+    documents = ModuleType("langchain_core.documents")
+    documents.Document = Document
+    core.documents = documents
+
+    sys.modules["langchain_core"] = core
+    sys.modules["langchain_core.documents"] = documents
+
+
+def _stub_wikipedia():
+    """A `wikipedia` stub with real exception classes and a settable module.
+
+    A MagicMock cannot stand in here: `LangChainWiki.search` names the package's
+    exceptions in an `except` clause, which raises TypeError on anything that is
+    not an exception class, and it sets `wikipedia.wikipedia.USER_AGENT`. So the
+    error paths that decide whether a failed search is reported or masked are
+    only reachable in a test against a stub shaped like this.
+    """
+    if "wikipedia" in sys.modules:
+        return
+
+    module = ModuleType("wikipedia")
+
+    class PageError(Exception):
+        pass
+
+    class DisambiguationError(Exception):
+        pass
+
+    module.PageError = PageError
+    module.DisambiguationError = DisambiguationError
+    module.page = MagicMock(name="wikipedia.page")
+    module.search = MagicMock(name="wikipedia.search")
+
+    # the package keeps its settings on an inner module of the same name
+    settings = ModuleType("wikipedia.wikipedia")
+    settings.USER_AGENT = "wikipedia (https://github.com/goldsmith/Wikipedia/)"
+    settings.API_URL = "http://en.wikipedia.org/w/api.php"
+    module.wikipedia = settings
+
+    sys.modules["wikipedia"] = module
+    sys.modules["wikipedia.wikipedia"] = settings
+
+
 # The task environments import their simulators at module scope, so the env and
 # recorder registries need these stubbed to be importable offline.
 for _mod in (
     "gymnasium",
     "jericho",
     "langchain_chroma",
-    "langchain_core",
-    "langchain_core.documents",
     "minigrid",
     "minigrid.core",
     "minigrid.core.actions",
@@ -51,9 +108,11 @@ for _mod in (
     "pddlgym",
     "pddlgym.structs",
     "scienceworld",
-    "wikipedia",
 ):
     _stub_module(_mod)
+
+_stub_langchain_documents()
+_stub_wikipedia()
 
 # finch-clust's whole public surface is one function.
 _stub_module_exporting("finch", "FINCH")
