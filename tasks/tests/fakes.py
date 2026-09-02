@@ -80,6 +80,11 @@ class FakeEnv:
     def process_action(cls, action: str) -> str:
         return action.strip()
 
+    @staticmethod
+    def is_thought(action: str) -> bool:
+        """Both spellings, so one fake serves every task's vocabulary."""
+        return 'think' in action.lower() or 'thought' in action.lower()
+
     def feedback(self) -> tuple[float, bool, str]:
         return (
             (self.reward, True, "You successfully finished this task!")

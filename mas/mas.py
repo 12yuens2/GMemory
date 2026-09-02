@@ -134,11 +134,21 @@ class MetaMAS:
         ) from last_error
 
     def _solver_stuck(self, current_action: str, action_history: list[str]) -> bool:
-        """Whether the agent is going round in circles: the same action, two
-        consecutive `think` steps, or three mutually near-identical actions."""
+        """Whether the agent is going round in circles: the same action three
+        times, three consecutive reasoning steps, or three mutually near-identical
+        actions.
+
+        Which outputs are reasoning steps is the environment's to answer: the
+        embodied datasets spell one `think:` and the ReAct ones `Thought N:`.
+        """
         identical = len(action_history) >= 2 and current_action == action_history[-1] and current_action == action_history[-2]
 
-        double_think = len(action_history) >= 3 and "think" in current_action and "think" in action_history[-1] and "think" in action_history[-2]
+        repeated_thought = (
+            len(action_history) >= 3
+            and self.env.is_thought(current_action)
+            and self.env.is_thought(action_history[-1])
+            and self.env.is_thought(action_history[-2])
+        )
 
         similar = False
         if len(action_history) >= 3:
@@ -149,7 +159,7 @@ class MetaMAS:
             threshold = 0.8
             similar = all(similarity > threshold for similarity in [similarity_12, similarity_13, similarity_23])
 
-        return identical or double_think or similar
+        return identical or repeated_thought or similar
 
     @property
     def _projection_memory(self) -> Optional[MASMemoryBase]:

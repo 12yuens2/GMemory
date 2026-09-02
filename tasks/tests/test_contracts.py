@@ -303,3 +303,26 @@ def test_the_offline_fake_satisfies_the_env_protocol():
 def test_every_registered_environment_is_a_base_env(task):
     """BaseEnv is where the trial budget and the abstract methods are enforced."""
     assert issubclass(ENVS[task], BaseEnv), f"{task} would not inherit __init__ or the ABC checks"
+
+
+# ── every env classifies its own reasoning steps ──────────────────────────────
+
+# One reasoning step and one real action per task, in that task's own vocabulary.
+# The four families spell a reasoning step three different ways, which is why the
+# workflow has to ask the environment rather than match a substring itself.
+THOUGHT_VOCABULARY = {
+    "alfworld": ("think: I need to find a mug.", "go to shelf 1"),
+    "sciworld": ("think: I should heat the water.", "focus on the thermometer"),
+    "pddl": ("think: I should stack the blocks.", "stack block_a block_b"),
+    "fever": ("Thought 1: I need to search Telemundo.", "Search[Telemundo]"),
+    "hotpotqa": ("Thought 1: I need to search Milhouse.", "Lookup[named after]"),
+}
+
+
+@pytest.mark.parametrize("task", sorted(ENVS))
+def test_every_env_knows_a_reasoning_step_from_an_action(task):
+    """`_solver_stuck` asks the env this, so a wrong answer is a loop it never breaks."""
+    thought, action = THOUGHT_VOCABULARY[task]
+
+    assert ENVS[task].is_thought(thought) is True, f"{task} calls {thought!r} an action"
+    assert ENVS[task].is_thought(action) is False, f"{task} calls {action!r} a thought"

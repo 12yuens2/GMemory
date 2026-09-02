@@ -62,6 +62,7 @@ def make_env(max_trials=3, step_returns=None, feedback_return=(0.5, True, "done"
     env = MagicMock()
     env.max_trials = max_trials
     env.process_action.side_effect = lambda a: a.strip()
+    env.is_thought.side_effect = lambda a: 'think' in a.lower() or 'thought' in a.lower()
     env.step.side_effect = step_returns or [("obs", 1.0, True)]
     env.feedback.return_value = feedback_return
     return env
@@ -637,7 +638,10 @@ class TestSolverStuck:
 
     @pytest.fixture
     def ag(self):
-        return AutoGen()
+        """Needs an environment: which outputs are reasoning steps is its answer."""
+        workflow = AutoGen()
+        workflow.set_env(make_env())
+        return workflow
 
     def test_not_stuck_empty_history(self, ag):
         assert ag._solver_stuck("action", []) is False
@@ -657,6 +661,27 @@ class TestSolverStuck:
 
     def test_think_loop_requires_three_items(self, ag):
         assert ag._solver_stuck("think: x", ["go north", "think: y"]) is False
+
+    def test_detects_a_react_thought_loop(self, ag):
+        """ReAct spells a reasoning step `Thought N:`, not `think:`.
+
+        Under `stop_strs=['\n']` the solver emits one line a turn, so the rhythm is
+        strictly thought, action, thought, action. Three thoughts running means no
+        action has reached the environment for three of the episode's trials.
+        """
+        thoughts = [
+            "Thought 1: I need to search Milhouse.",
+            "Thought 2: The paragraph does not say who he is named after.",
+            "Thought 3: Maybe I should look up 'named after'.",
+        ]
+
+        assert ag._solver_stuck(thoughts[2], [thoughts[0], thoughts[0], thoughts[1]]) is True
+
+    def test_a_react_thought_between_actions_is_not_a_loop(self, ag):
+        """Alternating thought and action is the protocol, not a stuck agent."""
+        history = ["Search[Milhouse]", "Thought 1: It does not say.", "Lookup[named after]"]
+
+        assert ag._solver_stuck("Thought 2: So the answer is Richard Nixon.", history) is False
 
     def test_detects_similar_actions(self, ag):
         # similar check also requires len(action_history) >= 3
