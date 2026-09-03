@@ -1,7 +1,9 @@
-from typing import Optional, Union
+from typing import Any, Optional, Union
 import logging
+import random
 import string
 import re
+import time
 
 from langchain_core.documents import Document
 import wikipedia
@@ -18,6 +20,64 @@ wikipedia.wikipedia.USER_AGENT = (
 )
 # The package still defaults to http, which Wikimedia redirects.
 wikipedia.wikipedia.API_URL = "https://en.wikipedia.org/w/api.php"
+
+WIKIPEDIA_ATTEMPTS = 3
+WIKIPEDIA_RETRY_SECONDS = 2.0
+
+# Every worker of a sweep meets the same burst and is handed the same wait, so
+# the waits are jittered apart. This generator is its own: the global one carries
+# the experiment's seed.
+_backoff = random.Random()
+
+
+class WikipediaThrottled(RuntimeError):
+    """The API refused a request for now, and asked for `retry_after` seconds."""
+
+    def __init__(self, retry_after: float) -> None:
+        super().__init__(f"Wikimedia asked for {retry_after}s before the next request")
+        self.retry_after = retry_after
+
+
+class StatusAwareRequests:
+    """`wikipedia`'s `requests`, with a refusal raised rather than parsed as JSON.
+
+    The package hands every response to `r.json()` whatever its status, so
+    Wikimedia's 429 - an HTML error page carrying `Retry-After` - reached the
+    caller as a bare JSONDecodeError with both the status and the wait it asked
+    for discarded. There is nowhere else to read them: the response never leaves
+    `_wiki_request`.
+    """
+
+    def __init__(self, delegate: Any) -> None:
+        self.delegate = delegate
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.delegate, name)
+
+    def get(self, *args: Any, **kwargs: Any) -> Any:
+        response = self.delegate.get(*args, **kwargs)
+        if response.status_code == 429 or response.status_code >= 500:
+            raise WikipediaThrottled(_retry_after(response))
+        return response
+
+
+def _retry_after(response: Any) -> float:
+    """The wait `response` asked for, or the default if it named none in seconds.
+
+    The header may be an HTTP-date instead, which is not worth parsing to learn
+    the same thing the backoff already assumes.
+    """
+    try:
+        return float(response.headers.get("Retry-After"))
+    except (TypeError, ValueError):
+        return WIKIPEDIA_RETRY_SECONDS
+
+
+# `tasks/` is on the path as well as the repo root, so this module is imported
+# once as `envs.utils` and once as `tasks.envs.utils`. `delegate` is the marker
+# that the first copy already wrapped the package's fetcher.
+if not hasattr(wikipedia.wikipedia.requests, "delegate"):
+    wikipedia.wikipedia.requests = StatusAwareRequests(wikipedia.wikipedia.requests)
 
 
 class WikipediaUnavailable(RuntimeError):
@@ -38,17 +98,13 @@ class LangChainWiki:
 
     def search(self, search: str) -> Union[str, Document]:
         try:
-            page = wikipedia.page(search)
+            page = self._page(search)
             result: Union[str, Document] = Document(
                 page_content=page.content, metadata={"page": page.url}
             )
         except (wikipedia.PageError, wikipedia.DisambiguationError):
             result = f"Could not find [{search}]. Similar: {self._similar(search)}"
         except Exception as unreachable:
-            logger.warning(
-                "Wikipedia lookup of %r failed: %s: %s",
-                search, type(unreachable).__name__, unreachable,
-            )
             raise WikipediaUnavailable(
                 f"Wikipedia could not be reached while searching for {search!r}: "
                 f"{type(unreachable).__name__}: {unreachable}"
@@ -60,6 +116,34 @@ class LangChainWiki:
         else:
             self.document = None
             return result
+
+    @staticmethod
+    def _page(search: str) -> Any:
+        """`search`'s page, retrying the transport faults that arrive in bursts.
+
+        A page that does not exist is an answer and is not retried; anything else
+        is the API refusing to answer, and it says for how long.
+
+        `auto_suggest` is off because the package's default is to replace the
+        title asked for with Wikipedia's spelling suggestion and fetch that,
+        which reports existing pages as absent.
+        """
+        for attempt in range(1, WIKIPEDIA_ATTEMPTS + 1):
+            try:
+                return wikipedia.page(search, auto_suggest=False)
+            except (wikipedia.PageError, wikipedia.DisambiguationError):
+                raise
+            except Exception as unreachable:
+                logger.warning(
+                    "Wikipedia lookup of %r failed (attempt %d/%d): %s: %s",
+                    search, attempt, WIKIPEDIA_ATTEMPTS,
+                    type(unreachable).__name__, unreachable,
+                )
+                if attempt == WIKIPEDIA_ATTEMPTS:
+                    raise
+                asked = getattr(unreachable, "retry_after", 0)
+                backoff = WIKIPEDIA_RETRY_SECONDS * 2 ** (attempt - 1)
+                time.sleep(asked + _backoff.uniform(backoff / 2, backoff))
 
     @staticmethod
     def _similar(search: str) -> list:
