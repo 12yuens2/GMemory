@@ -95,8 +95,8 @@ def clean_action_line(action: str, recognises=None) -> str:
     which candidates qualify; without it, any line that is not a thought does.
 
     Note `OK.` is stripped only as a whole line. Substring-replacing it, which
-    the older environments do, turns the interactive fiction command `LOOK` into
-    `LO`.
+    every environment here used to do, turns the interactive fiction command
+    `LOOK` into `LO`.
     """
     lines = [line for line in (_undecorate(raw) for raw in action.splitlines()) if line]
     if not lines:
@@ -109,6 +109,9 @@ def clean_action_line(action: str, recognises=None) -> str:
         if not is_thought_line(line) and (recognises is None or recognises(line)):
             return line
 
+    # The thought and the action on one line, which is how a model that has seen
+    # ReAct writes them: `Thought 1: I should look. Action 1: Search[Zork]` keeps
+    # the `Search[Zork]` rather than spending the trial on the thought.
     embedded = _EMBEDDED_ACTION.split(lines[0], maxsplit=1)
     if len(embedded) == 2 and embedded[1].strip():
         candidate = _undecorate(embedded[1])
@@ -140,21 +143,28 @@ class BaseEnv(ABC):
     def step(self, action: str) -> tuple[str, float, bool]:
         pass
 
-    @classmethod
-    @abstractmethod
-    def process_action(cls, action: str) -> str:
-        pass
+    @staticmethod
+    def process_action(action: str) -> str:
+        """The action out of what a model wrote, however it dressed it up.
 
-    @classmethod
-    @abstractmethod
-    def is_thought(cls, action: str) -> bool:
-        """Whether this action is a reasoning step rather than one to act on.
-
-        The datasets spell it differently - `think:` for the embodied ones,
-        `Thought N:` for the ReAct ones - and a workflow that guesses gets one
-        family wrong silently, so each environment answers for its own.
+        Overridden only where an environment can say which candidates are
+        actions, which lets one be preferred over a thought written alongside it.
         """
-        pass
+        return clean_action_line(action)
+
+    @staticmethod
+    def is_thought(action: str) -> bool:
+        """Whether this is a reasoning step rather than something to act on.
+
+        A workflow that guessed would get a whole family wrong in silence, so it
+        asks the environment. The datasets spell the marker differently - `think:`
+        for the embodied ones, `Thought N:` for the ReAct ones - and
+        `is_thought_line` takes all of them.
+
+        Overridden only by Jericho, whose parser accepts `think` as a command, so
+        it is the one environment that needs the colon to tell them apart.
+        """
+        return is_thought_line(action)
 
     @abstractmethod
     def feedback(self) -> tuple[float, bool, str]:

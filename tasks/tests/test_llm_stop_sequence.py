@@ -47,10 +47,60 @@ def test_the_drop_is_remembered_so_it_costs_one_request_not_one_per_call():
 
 
 def test_a_none_answer_without_reasoning_content_is_not_treated_as_truncation():
-    """The fallback must not mask a genuinely empty answer as a stop-sequence quirk."""
+    """The fallback must not mask a genuinely empty answer as a stop-sequence quirk.
+
+    Spending the retry budget is only half of it: what would really be lost is the
+    stop sequence, dropped for the life of the client on the strength of an empty
+    answer that had nothing to do with it. So every attempt still has to carry it.
+    """
     chat, completions = chat_over_fake_completions([None])
 
     with pytest.raises(LLMCallFailed):
         chat(PROMPT, stop_strs=["\n"])
 
     assert len(completions.calls) == 5, "a genuinely empty answer should spend the retry budget"
+    assert [call["stop"] for call in completions.calls] == [["\n"]] * 5, (
+        "the stop sequence was abandoned over an empty answer that never involved it"
+    )
+
+
+class AlwaysTruncates(StopTruncatesReasoningCompletions):
+    """Reasoning with no content whatever the request asks for.
+
+    What too small a `max_completion_tokens` looks like: dropping the stop
+    sequence cannot help, because the budget itself is the wall.
+    """
+
+    def create(self, **kwargs):
+        return super().create(**dict(kwargs, stop=['\n']))
+
+
+def test_reasoning_with_no_answer_is_told_from_an_endpoint_that_said_nothing(capsys):
+    """The two are different problems and the log has to tell them apart.
+
+    Once the stop sequence is out of the picture, reasoning present with no
+    content means the token budget went on reasoning and left nothing to answer
+    with - not that the endpoint returned an empty answer.
+    """
+    chat, _ = chat_over_fake_completions(None, completions=AlwaysTruncates([]))
+    chat._sends_stop = False   # already learned, so the fallback cannot fire again
+
+    with pytest.raises(LLMCallFailed):
+        chat(PROMPT, stop_strs=['\n'])
+
+    reported = capsys.readouterr().err
+    assert 'max_completion_tokens' in reported, (
+        f'the cause is not named, so the fix is not obvious from the log: {reported[:200]}'
+    )
+    assert 'Full response' in reported, 'the response is the evidence and is not shown'
+
+
+def test_an_endpoint_that_answers_nothing_at_all_says_so_instead(capsys):
+    chat, _ = chat_over_fake_completions([None])
+
+    with pytest.raises(LLMCallFailed):
+        chat(PROMPT, stop_strs=['\n'])
+
+    reported = capsys.readouterr().err
+    assert 'no content and no reasoning' in reported
+    assert 'max_completion_tokens' not in reported, 'this is not a token budget problem'

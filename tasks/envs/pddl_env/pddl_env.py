@@ -12,7 +12,7 @@ from pddlgym.structs import Literal, Predicate
 
 from mas.mas import EpisodeResult
 
-from ..base_env import BaseEnv, BaseRecorder, aggregate, clean_action_line, is_thought_line
+from ..base_env import BaseEnv, BaseRecorder, aggregate
 
 _PUNKT_READY = False
 
@@ -111,10 +111,6 @@ class PDDLEnv(BaseEnv):
         self.done = False
         self.won = False
     
-    @staticmethod
-    def is_thought(action: str) -> bool:
-        return is_thought_line(action)
-
     def step(self, action: str) -> tuple[str, float, bool]:
 
         if self.is_thought(action):
@@ -159,10 +155,6 @@ class PDDLEnv(BaseEnv):
     def feedback(self) -> tuple[float, bool, str]:
         
         return self.reward, self.done, ''
-
-    @staticmethod
-    def process_action(action: str) -> str:
-        return clean_action_line(action)
 
     def _get_info(self):
         return self.infos

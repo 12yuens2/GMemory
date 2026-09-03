@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from mas.mas import EpisodeResult
 
-from .base_env import BaseEnv, BaseRecorder, clean_action_line, is_thought_line
+from .base_env import BaseEnv, BaseRecorder
 
 def build_simplification_str():
     simplifications = list()
@@ -56,14 +56,6 @@ class SciworldEnv(BaseEnv):
     def inventory(self):
         return self.env.inventory()
     
-    @staticmethod
-    def process_action(action: str):
-        return clean_action_line(action)
-
-    @staticmethod
-    def is_thought(action: str) -> bool:
-        return is_thought_line(action)
-
     def step(self, action: str) -> tuple[str, float, bool]:
 
         if self.is_thought(action):

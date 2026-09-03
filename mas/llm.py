@@ -200,7 +200,20 @@ class GPTChat(LLM):
                             file=sys.stderr,
                         )
                     else:
-                        print("Error: LLM returned None", file=sys.stderr)
+                        # Reasoning present with no content, once the stop sequence
+                        # is already out of the picture, is what too small a
+                        # `max_completion_tokens` looks like: the budget went on
+                        # reasoning and left nothing to answer with.
+                        cause = (
+                            f'its reasoning did not reach an answer within '
+                            f'max_completion_tokens={max_tokens}'
+                            if reasoning else 'it sent no content and no reasoning'
+                        )
+                        print(
+                            f'Error: {self.model_name} returned no answer - {cause}. '
+                            f'Full response:\n{response}',
+                            file=sys.stderr,
+                        )
                     continue
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 logger.debug('LLM RESPONSE at %s\n%s', current_time, answer)

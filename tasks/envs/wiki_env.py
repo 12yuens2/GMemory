@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from mas.mas import EpisodeResult
 
-from .base_env import BaseEnv, BaseRecorder, clean_action_line, is_thought_line
+from .base_env import BaseEnv, BaseRecorder, clean_action_line
 from .utils import LangChainWiki, match_exactly
 
 
@@ -81,10 +81,6 @@ class WikiReActEnv(BaseEnv):
         else:
             processed_reward = 0
         return observation, processed_reward, False
-
-    @staticmethod
-    def is_thought(action: str) -> bool:
-        return is_thought_line(action)
 
     @classmethod
     def _parse_action_type(cls, action: str) -> Literal['action', 'thought']:

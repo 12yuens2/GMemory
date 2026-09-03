@@ -6,7 +6,7 @@ import re
 #from alfworld.agents.environment import get_environment
 from mas.mas import EpisodeResult
 
-from .base_env import BaseEnv, BaseRecorder, aggregate, clean_action_line, is_thought_line
+from .base_env import BaseEnv, BaseRecorder, aggregate
 
 prefixes = {  # tasks: task_type
     'pick_and_place': 'put',
@@ -72,20 +72,12 @@ class AlfworldEnv(BaseEnv):
         
         return observation, processed_reward, self.done
     
-    @staticmethod
-    def is_thought(action: str) -> bool:
-        return is_thought_line(action)
-
     def feedback(self) -> tuple[float, bool, str]:
         success = self.done
         reward = 1.0 if success else 0.0
         message = "You successfully finished this task!" if success else "You failed the task."
         
         return reward, success, message
-    
-    @staticmethod
-    def process_action(action: str) -> str:
-        return clean_action_line(action)
     
     def _parse_task_main(self, task: str):
         return self.env_name + '-' + re.search(r'Your task is to:\s*(.+)', task, re.DOTALL).group(1).strip()
