@@ -53,12 +53,12 @@ az deployment group create --resource-group intrinsic-memory --template-file tem
 Slurm job scripts for running experiments on an HPC cluster (developed against the BriCS/Isambard-AI environment) live in `slurm/`. They follow two patterns:
 
 **Self-contained: serve a model + run experiments in one job**
-`slurm/fever_experiment.sh`, `slurm/hotpotqa_experiment.sh`, `slurm/pddl_experiment.sh`, `slurm/sciworld_experiment.sh`, `slurm/single_node_serve.sh`
+`slurm/babyai_experiment.sh`, `slurm/fever_experiment.sh`, `slurm/hotpotqa_experiment.sh`, `slurm/jericho_experiment.sh`, `slurm/pddl_experiment.sh`, `slurm/sciworld_experiment.sh`, `slurm/single_node_serve.sh`
 
 Each of these scripts:
 1. Requests a node with 4 GPUs (`#SBATCH --gpus=4 --exclusive`) and loads cluster modules (`module load brics/nccl`).
 2. Starts a local `vllm serve` process in the background for a model (default `openai/gpt-oss-120b`), polling `/health` until it's ready.
-3. Points `OPENAI_API_BASE` at the local vLLM server (`http://localhost:8000/v1`) and runs `uv run tasks/run.py`, sweeping over every memory module and 10 seeds for one task (fever/hotpotqa/pddl/sciworld) or fever, pddl and sciworld at once (`single_node_serve.sh`).
+3. Points `OPENAI_API_BASE` at the local vLLM server (`http://localhost:8000/v1`) and runs `uv run tasks/run.py`, sweeping over every memory module and 10 seeds for one task (babyai/fever/hotpotqa/jericho/pddl/sciworld) or fever, pddl and sciworld at once (`single_node_serve.sh`).
 4. Kills the vLLM process once `run.py` finishes.
 
 Each `*_experiment.sh` script has a `*_crosstask.sh` twin: the same intrinsic modules, run with `--intrinsic_cross_task` so the memory is kept across the tasks of the dataset instead of starting each task from nothing. Point both at the same results directory — the two arms are told apart by the `intrinsic_cross_task` column, not by the file they land in.
@@ -69,6 +69,10 @@ sbatch slurm/fever_experiment.sh      # 10 arms x 10 seeds
 sbatch slurm/fever_crosstask.sh       # the 3 intrinsic arms again, cross-task
 sbatch slurm/hotpotqa_experiment.sh   # 10 arms x 10 seeds
 sbatch slurm/hotpotqa_crosstask.sh    # the 3 intrinsic arms again, cross-task
+sbatch slurm/jericho_experiment.sh    # 10 arms x 10 seeds
+sbatch slurm/jericho_crosstask.sh     # the 3 intrinsic arms again, cross-task
+sbatch slurm/babyai_experiment.sh     # 10 arms x 10 seeds
+sbatch slurm/babyai_crosstask.sh      # the 3 intrinsic arms again, cross-task
 ```
 
 `DB_DIR` defaults to `$HOME/GMemory/.db/sweep`, and every script echoes where it is writing. Use a directory no earlier run wrote to: a run refuses to append to a results file whose header is not its schema.
@@ -91,7 +95,7 @@ These scripts hardcode several specific paths and values that need updating for 
 | Where | What it is | How to change it |
 |---|---|---|
 | `cd ~/GMemory` (all scripts) | Path to this repo's checkout, activated with a `uv`-managed `.venv` (`uv run tasks/run.py ...`) rather than the conda env from Setup below | Point at wherever you clone this repo, and switch to `conda activate GMemory` + `python tasks/run.py` if you're not using `uv` |
-| `cd ~/vllm_test` (fever/pddl/sciworld/single_node_serve) | A separate directory/venv used only to launch `vllm serve`, kept apart from the experiment venv above so vLLM's own dependencies don't clash with this repo's | Point at your own vLLM-serving venv, or drop this `cd`/`activate` pair if you serve models a different way |
+| `cd ~/vllm_test` (every serving script) | A separate directory/venv used only to launch `vllm serve`, kept apart from the experiment venv above so vLLM's own dependencies don't clash with this repo's | Point at your own vLLM-serving venv, or drop this `cd`/`activate` pair if you serve models a different way |
 | `module load brics/nccl` | Cluster environment module providing NCCL (GPU communication library needed for tensor-parallel vLLM) | Replace with your cluster's NCCL module, or drop it if your cluster's default environment already provides NCCL |
 | `YAML_CONFIG="/projects/public/brics/distributed_vllm/GPT-OSS_Hopper.yaml"` | vLLM server config (tensor-parallel/batch settings) stored in BriCS's shared project space | Replace with your own vLLM config path, or drop `--config $YAML_CONFIG` and pass the equivalent `vllm serve` flags directly |
 | `HF_HOME=/projects/public/brics/hf` | Shared HuggingFace cache directory on BriCS's project space | Point at your own HF cache dir, or unset to fall back to the default `~/.cache/huggingface` |
@@ -109,13 +113,13 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 
 | Flag | Default | Description |
 |---|---|---|
-| `--task` (sweep) | `alfworld` | One or more of `alfworld`, `fever`, `hotpotqa`, `pddl`, `sciworld` |
+| `--task` (sweep) | `alfworld` | One or more of `alfworld`, `babyai`, `fever`, `hotpotqa`, `jericho`, `pddl`, `sciworld` |
 | `--mas_type` | **required** | One of `autogen`, `dylan`, `macnet` |
-| `--mas_memory` (sweep) | **required** | One or more memory modules: `empty`, `voyager`, `memorybank`, `chatdev`, `generative`, `metagpt`, `g-memory`, `intrinsicmemory-pddl`, `intrinsicmemory-fever`, `intrinsicmemory-hotpotqa`, `intrinsicmemory-sciworld`, `intrinsicmemory-alfworld`, `intrinsicmemory-llm-structured-template`, `intrinsicmemory-notemplate` |
+| `--mas_memory` (sweep) | **required** | One or more memory modules: `empty`, `voyager`, `memorybank`, `chatdev`, `generative`, `metagpt`, `g-memory`, `intrinsicmemory-pddl`, `intrinsicmemory-fever`, `intrinsicmemory-hotpotqa`, `intrinsicmemory-jericho`, `intrinsicmemory-babyai`, `intrinsicmemory-sciworld`, `intrinsicmemory-alfworld`, `intrinsicmemory-llm-structured-template`, `intrinsicmemory-notemplate` |
 | `--reasoning` | `io` | Reasoning module |
 | `--model` (sweep) | `gpt-3.5-turbo-0125` | LLM model name, as recognized by your `OPENAI_API_BASE` backend |
-| `--max_trials` | each task's `max_steps` | Trials one episode gets. Unset, the budget comes from that task's entry in `tasks/configs.yaml` (30 for all five); given, it overrides every task in the sweep |
-| `--max_tasks` | each task's `max_tasks` | How many tasks of the dataset a run covers. Unset, from `tasks/configs.yaml` (only FEVER and HotpotQA set one, both at 200) and otherwise the whole dataset; given, it overrides every task in the sweep. `--max_tasks 2` is what makes a smoke run short |
+| `--max_trials` | each task's `max_steps` | Trials one episode gets. Unset, the budget comes from that task's entry in `tasks/configs.yaml` (30 for all but Jericho, which is 100); given, it overrides every task in the sweep |
+| `--max_tasks` | each task's `max_tasks` | How many tasks of the dataset a run covers. Unset, from `tasks/configs.yaml` (only FEVER and HotpotQA set one, both at 200) and otherwise the whole dataset — 56 games for Jericho and 200 level-and-seed pairs for BabyAI; given, it overrides every task in the sweep. `--max_tasks 2` is what makes a smoke run short |
 | `--successful_topk` | `1` | Number of successful trajectories retrieved from memory |
 | `--failed_topk` | `0` | Number of failed trajectories retrieved from memory |
 | `--insights_topk` | `3` | Number of insights retrieved from memory |
@@ -132,7 +136,9 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 | `--failed_tasks_filename` | `failed_tasks.csv` | Name of the failed-task file, in each experiment's own directory |
 | `--failed_experiments_filename` | `failed_experiments.csv` | Name of the failed-experiment file, in `--db_dir` |
 
-Two settings are per-task rather than flags, in `tasks/configs.yaml`: `max_steps` (the trial budget above) and `few_shots_num`. FEVER and HotpotQA also have `max_tasks: 200`, which cuts each to its first 200 claims or questions. `tasks/configs.yaml` also holds `embedding_model` and `embedding_device`, which is `cpu`: left to itself the embedding model takes `cuda:0`, and on a node serving vLLM every GPU is the server's.
+Two settings are per-task rather than flags, in `tasks/configs.yaml`: `max_steps` (the trial budget above) and `few_shots_num`. FEVER and HotpotQA also have `max_tasks: 200`, which cuts each to its first 200 claims or questions.
+BabyAI's manifest is ordered seed-major, so a `--max_tasks` prefix of it is a spread across the levels rather than many seeds of the easiest one.
+Jericho's `max_steps` is 100 rather than 30, because its games score over a much longer arc than one 30-move episode covers — `data/data.md` has the measurements behind the number. `tasks/configs.yaml` also holds `embedding_model` and `embedding_device`, which is `cpu`: left to itself the embedding model takes `cuda:0`, and on a node serving vLLM every GPU is the server's.
 
 `configs/configs.yaml` holds the settings for the LLM calls themselves:
 
@@ -226,6 +232,8 @@ Please download the ALFWorld, PDDL, FEVER datasets and place it in the data fold
 - 🐹 [PDDL](https://github.com/hkust-nlp/AgentBoard)
 - 🌡️ [FEVER](https://github.com/awslabs/fever)
 - 🔎 [HotpotQA](https://hotpotqa.github.io/)
+- 📖 [Jericho](https://github.com/microsoft/jericho) (game roms: [z-machine-games](https://github.com/BYU-PCCL/z-machine-games))
+- 🧱 [BabyAI](https://github.com/Farama-Foundation/Minigrid)
 
 The file structure should be organized as follows:
 ```
@@ -238,13 +246,21 @@ data
     └── fever_dev.jsonl
 └── hotpotqa
     └── hotpotqa_dev.jsonl
+└── jericho
+    └── jericho_games.jsonl
+    └── roms
+        └── 905.z5 ... ztuu.z5      # the 56 game files, downloaded separately
+└── babyai
+    └── babyai_levels.jsonl
 └── sciworld
     └── test.jsonl
 ```
 
-Each dataset is parsed only when a task asks for it, so a FEVER-only run does not need the other four files present.
+Each dataset is parsed only when a task asks for it, so a FEVER-only run does not need the other six manifests present.
 
-FEVER and HotpotQA both drive live Wikipedia through their `Search` and `Lookup` actions, so those two need outbound network from wherever the run happens; the other three are self-contained once their simulator is installed.
+FEVER and HotpotQA both drive live Wikipedia through their `Search` and `Lookup` actions, so those two need outbound network from wherever the run happens; the other five are self-contained once their simulator is installed.
+
+The two manifests added by this fork are checked in, but the data they name is not. Jericho's manifest lists 56 games and needs the rom files themselves under `data/jericho/roms/`; `data/data.md` has the command. BabyAI needs no download at all — `minigrid` generates each gridworld from the level name and seed in the manifest.
 
 ### 🔑 Add API keys in template.env and change its name to .env
 ```
@@ -254,7 +270,7 @@ OPENAI_API_KEY = ""  # for OpenAI LLM backend
 
 ### 🔎 Choices Overview
 - Available memories: ***Empty, ChatDev, MetaGPT, Voyager, Generative, MemoryBank, G-Memory***
-- Added by this fork: ***seven intrinsic memory variants*** — `intrinsicmemory-notemplate`, `-pddl`, `-fever`, `-hotpotqa`, `-sciworld`, `-alfworld` and `-llm-structured-template`. Each keeps one agent-authored memory that an LLM rewrites as the episode goes; they differ only in the template their system prompt asks for, which is what the experiments compare.
+- Added by this fork: ***nine intrinsic memory variants*** — `intrinsicmemory-notemplate`, `-pddl`, `-fever`, `-hotpotqa`, `-jericho`, `-babyai`, `-sciworld`, `-alfworld` and `-llm-structured-template`. Each keeps one agent-authored memory that an LLM rewrites as the episode goes; they differ only in the template their system prompt asks for, which is what the experiments compare.
 - Available MAS: ***AutoGen, DyLAN, MacNet***
 - `--mas_type autogen` also takes `--use_validator`, which adds a third agent reviewing the solver's action format.
 

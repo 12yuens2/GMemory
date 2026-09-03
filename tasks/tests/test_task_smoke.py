@@ -7,8 +7,10 @@ environment and LLM in place of a simulator and an endpoint.
 
 Three of the environments cannot be constructed offline (ALFWorld's is commented
 out, ScienceWorld needs a server, PDDL's needs pddlgym), so their side of the
-contract is asserted against the classes rather than instances. The two
-Wikipedia ones are exercised as instances in test_wiki_react_envs.
+contract is asserted against the classes rather than instances. The rest load
+their simulator in `set_env` rather than `__init__`, and are exercised as
+instances: the two Wikipedia ones in test_wiki_react_envs, Jericho and BabyAI in
+test_jericho_env and test_babyai_env.
 """
 
 import inspect
@@ -32,9 +34,11 @@ with open("tasks/configs.yaml") as reader:
 # fixtures in test_contracts carry the recorder's keys; these add the prompts'.
 SMOKE_TASK_CONFIGS = {
     "alfworld": {**TASK_CONFIGS["alfworld"], "task_type": "put"},
+    "babyai": {**TASK_CONFIGS["babyai"]},
     "fever": {**TASK_CONFIGS["fever"], "task": "Ada Lovelace wrote the first program."},
     "hotpotqa": {**TASK_CONFIGS["hotpotqa"],
                  "task": "Who wrote the first program?"},
+    "jericho": {**TASK_CONFIGS["jericho"]},
     "pddl": {**TASK_CONFIGS["pddl"]},
     "sciworld": {**TASK_CONFIGS["sciworld"]},
 }

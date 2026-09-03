@@ -8,8 +8,10 @@ from .GMemory import GMemory
 from .intrinsicmemory import (
     IntrinsicMASMemory,
     IntrinsicMASMemoryALFWORLD,
+    IntrinsicMASMemoryBABYAI,
     IntrinsicMASMemoryFEVER,
     IntrinsicMASMemoryHOTPOTQA,
+    IntrinsicMASMemoryJERICHO,
     IntrinsicMASMemoryNoTemplate,
     IntrinsicMASMemoryPDDL,
     IntrinsicMASMemorySCIWORLD,
@@ -28,8 +30,10 @@ __all__ = [
     'IntrinsicMASMemoryPDDL',
     'IntrinsicMASMemoryLLMTemplate',
     'IntrinsicMASMemoryNoTemplate',
+    'IntrinsicMASMemoryBABYAI',
     'IntrinsicMASMemoryFEVER',
     'IntrinsicMASMemoryHOTPOTQA',
+    'IntrinsicMASMemoryJERICHO',
     'IntrinsicMASMemoryALFWORLD',
     'IntrinsicMASMemorySCIWORLD',
     'IntrinsicMASMemory'

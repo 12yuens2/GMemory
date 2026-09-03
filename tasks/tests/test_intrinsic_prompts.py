@@ -16,9 +16,11 @@ import pytest
 from mas.module_map import MAS_MEMORY_MODULES
 from mas.memory.mas_memory.prompt import (
     INTRINSICMEMORY_ALFWORLD,
+    INTRINSICMEMORY_BABYAI,
     INTRINSICMEMORY_DEFAULT,
     INTRINSICMEMORY_FEVER,
     INTRINSICMEMORY_HOTPOTQA,
+    INTRINSICMEMORY_JERICHO,
     INTRINSICMEMORY_LLM_TEMPLATE,
     INTRINSICMEMORY_NOTEMPLATE,
     INTRINSICMEMORY_PDDL,
@@ -32,6 +34,8 @@ SYSTEM_PROMPT_OWNER = {
     'intrinsicmemory-fever': INTRINSICMEMORY_FEVER,
     'intrinsicmemory-hotpotqa': INTRINSICMEMORY_HOTPOTQA,
     'intrinsicmemory-alfworld': INTRINSICMEMORY_ALFWORLD,
+    'intrinsicmemory-babyai': INTRINSICMEMORY_BABYAI,
+    'intrinsicmemory-jericho': INTRINSICMEMORY_JERICHO,
     'intrinsicmemory-sciworld': INTRINSICMEMORY_SCIWORLD,
     'intrinsicmemory-notemplate': INTRINSICMEMORY_NOTEMPLATE,
     'intrinsicmemory-llm-structured-template': INTRINSICMEMORY_LLM_TEMPLATE,
