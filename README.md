@@ -81,7 +81,17 @@ sbatch slurm/babyai_crosstask.sh      # the 3 intrinsic arms again, cross-task
 `slurm/smoke_test.sh` has the same shape as those - serve, then run - but for one task, two memory modules, one seed and two tasks of the dataset (`--max_tasks 2 --max_trials 3`). It then prints what the run wrote and fails if the two result rows are not there — including a wrong `--model`, which otherwise fails once per experiment rather than once. It also probes whether the filesystem grants `flock`, which is what the results file's append lock needs. Worth a submission before any 24-hour job, and after any change to the cluster, the model or the environment.
 
 **Size the real jobs before submitting them**
-`slurm/calibrate.sh` sits between the smoke test and a 24-hour job: one dataset, every arm, one seed, twenty tasks at the full trial budget, in a 2-hour allocation. It prints the result table, the tokens per task and any failed tasks. That is what sizes the real jobs — every experiment in a job runs concurrently against one throughput-bound server, so the wall clock is total tokens divided by what the server sustains, and `tokens_per_task x episodes / throughput` is the estimate. Twenty tasks also takes `g-memory` past its twentieth, where `merge_insights` runs.
+`slurm/<task>_calibrate.sh` sits between the smoke test and a 24-hour job: one dataset, every arm, one seed, twenty tasks at the full trial budget, in a 2-hour allocation. Generate them alongside the sweep scripts:
+
+```bash
+uv run slurm/generate_slurm.py --calibrate            # every dataset
+uv run slurm/generate_slurm.py --calibrate --task fever pddl
+sbatch slurm/fever_calibrate.sh
+```
+
+`SLURM_ACCOUNT=<account> uv run slurm/generate_slurm.py ...` puts an `#SBATCH --account` line in whatever it generates, sweep scripts included; without it they submit under your default account.
+
+They default to `$HOME/GMemory/.db/sweep/calibration`, so calibrating several datasets fills one table. Each prints that table, the tokens per task and any failed tasks. That is what sizes the real jobs — every experiment in a job runs concurrently against one throughput-bound server, so the wall clock is total tokens divided by what the server sustains, and `tokens_per_task x episodes / throughput` is the estimate. Twenty tasks also takes `g-memory` past its twentieth, where `merge_insights` runs.
 
 **Attach to an already-running vLLM/Ray cluster**
 `slurm/experiment.sh` doesn't start its own model server. It expects a vLLM/Ray serving job already running elsewhere on the cluster and resolves that job's head node from its Slurm job ID:

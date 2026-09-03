@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Generate the per-task slurm/*_experiment.sh and slurm/*_crosstask.sh sweep scripts.
+"""Generate the per-task slurm/*_experiment.sh, *_crosstask.sh and *_calibrate.sh.
 
 The generated scripts are not committed; this generator is. Edit the constants
 below and rerun to produce a new sweep:
 
-    uv run slurm/generate_slurm.py
+    uv run slurm/generate_slurm.py                 # the sweep
+    uv run slurm/generate_slurm.py --calibrate     # the calibration runs
+
+Set SLURM_ACCOUNT to name an account in the generated scripts; without it they
+submit under the user's default.
 """
+import argparse
+import os
 from pathlib import Path
 
 SLURM_DIR = Path(__file__).parent
@@ -17,6 +23,17 @@ SLURM_DIR = Path(__file__).parent
 
 TASKS = ["babyai", "fever", "hotpotqa", "jericho", "pddl", "sciworld"]
 SEEDS = [11, 22, 33, 44, 55, 66, 77, 88, 99, 111]
+
+# --- calibration ---------------------------------------------------------
+# One dataset, every arm, one seed, twenty tasks at the full trial budget. This
+# is the run that says whether a 24-hour job fits: the result rows carry the
+# token spend, so tokens / elapsed = throughput, and
+# episodes x tokens-per-task / throughput = wall clock. Twenty also takes
+# g-memory past its twentieth task, where merge_insights runs.
+
+CALIBRATION_SEED = SEEDS[0]
+CALIBRATION_TASKS = 20
+CALIBRATION_TIME_LIMIT = "02:00:00"
 
 # Non-intrinsic baselines, run in the experiment script only.
 BASELINE_MEMORIES = [
@@ -49,6 +66,9 @@ CPUS_PER_TASK = 16
 TIME_LIMIT = "24:00:00"
 PORT = 8000
 VLLM_STARTUP_SLEEP = 100
+
+# Named at generation time rather than committed: it is one user's allocation.
+ACCOUNT = os.environ.get("SLURM_ACCOUNT")
 
 # --------------------------------------------------------------------------
 
@@ -95,18 +115,44 @@ echo "vLLM started!"
 deactivate"""
 
 
-def render(task: str, crosstask: bool) -> str:
-    variant = "crosstask" if crosstask else "experiment"
-    script_name = f"{task}_{variant}.sh"
-    job_name = f"vllm-{task}-cross" if crosstask else f"vllm-{task}"
-    output_pattern = f"out/{task}-cross-%x.%j.%t.out" if crosstask else f"out/{task}-%x.%j.%t.out"
-    max_num_seqs = MAX_NUM_SEQS_OVERRIDES.get(task, DEFAULT_MAX_NUM_SEQS)
-    seeds = " ".join(str(s) for s in SEEDS)
+CALIBRATION_SUMMARY = """
+echo "==== calibration ===="
+column -s, -t < ${DB_DIR}/overall_results.csv
 
-    if crosstask:
+python3 -c '
+import csv, sys
+rows = list(csv.DictReader(open(sys.argv[1])))
+tokens = sum(int(r["completion_tokens"]) + int(r["prompt_tokens"]) for r in rows)
+scored = sum(int(r["tasks_scored"]) for r in rows)
+print(f"{len(rows)} arms, {scored} tasks scored, {tokens:,} tokens")
+print(f"{tokens/max(scored, 1):,.0f} tokens per task")
+' ${DB_DIR}/overall_results.csv
+
+cat ${DB_DIR}/*/*/*/*/failed_tasks.csv 2>/dev/null
+"""
+
+
+def account_directive() -> str:
+    return f"#SBATCH --account={ACCOUNT}\n" if ACCOUNT else ""
+
+
+def render(task: str, variant: str) -> str:
+    script_name = f"{task}_{variant}.sh"
+    max_num_seqs = MAX_NUM_SEQS_OVERRIDES.get(task, DEFAULT_MAX_NUM_SEQS)
+    time_limit = CALIBRATION_TIME_LIMIT if variant == "calibrate" else TIME_LIMIT
+    cross_task_comment = ""
+    cross_task_flag = ""
+    summary = ""
+
+    if variant == "crosstask":
+        job_name = f"vllm-{task}-cross"
+        output_pattern = f"out/{task}-cross-%x.%j.%t.out"
         memories = " ".join(
             [INTRINSIC_ABLATIONS[0], intrinsic_memory_for(task), INTRINSIC_ABLATIONS[1]]
         )
+        seeds = " ".join(str(s) for s in SEEDS)
+        scope = ""
+        db_dir = DEFAULT_DB_DIR
         cross_task_comment = """
 # The cross-task arm: an intrinsic memory is kept across the tasks of the dataset
 # instead of starting each task from an empty one. Only the intrinsicmemory-* modules
@@ -114,19 +160,33 @@ def render(task: str, crosstask: bool) -> str:
 # told apart by the intrinsic_cross_task column, not by the file they are in.
 """
         cross_task_flag = "\n\t--intrinsic_cross_task \\"
-    else:
+    elif variant == "calibrate":
+        job_name = f"vllm-{task}-calibrate"
+        output_pattern = f"out/{task}-calibrate-%x.%j.%t.out"
         memories = " ".join(
             BASELINE_MEMORIES
             + [INTRINSIC_ABLATIONS[0], intrinsic_memory_for(task), INTRINSIC_ABLATIONS[1]]
         )
-        cross_task_comment = ""
-        cross_task_flag = ""
+        seeds = str(CALIBRATION_SEED)
+        scope = f"\n\t--max_tasks {CALIBRATION_TASKS} \\"
+        db_dir = f"{DEFAULT_DB_DIR}/calibration"
+        summary = CALIBRATION_SUMMARY
+    else:
+        job_name = f"vllm-{task}"
+        output_pattern = f"out/{task}-%x.%j.%t.out"
+        memories = " ".join(
+            BASELINE_MEMORIES
+            + [INTRINSIC_ABLATIONS[0], intrinsic_memory_for(task), INTRINSIC_ABLATIONS[1]]
+        )
+        seeds = " ".join(str(s) for s in SEEDS)
+        scope = ""
+        db_dir = DEFAULT_DB_DIR
 
     return f"""#!/bin/bash
-#SBATCH --job-name={job_name}
+{account_directive()}#SBATCH --job-name={job_name}
 #SBATCH --nodes={NODES}
 #SBATCH --gpus={GPUS}
-#SBATCH --time={TIME_LIMIT}
+#SBATCH --time={time_limit}
 #SBATCH --exclusive
 #SBATCH --output={output_pattern}
 
@@ -139,7 +199,7 @@ module list
 # Every job of one experiment set must point at the same directory: they append to
 # one overall_results.csv under a lock on the file. Override at submit time with
 #   DB_DIR=/projects/<project>/results/sweep-2026-09 sbatch slurm/{script_name}
-DB_DIR=${{DB_DIR:-{DEFAULT_DB_DIR}}}
+DB_DIR=${{DB_DIR:-{db_dir}}}
 
 {vllm_serve_block(max_num_seqs)}
 
@@ -159,10 +219,10 @@ uv run tasks/run.py \\
 \t--task {task} \\
 \t--mas_type autogen \\
 \t--mas_memory {memories} \\
-\t--seed {seeds} \\{cross_task_flag}
+\t--seed {seeds} \\{cross_task_flag}{scope}
 \t--db_dir ${{DB_DIR}} \\
 \t--model ${{MODEL_NAME}}
-
+{summary}
 # cleanup
 kill $VLLM_PID 2>/dev/null
 wait $VLLM_PID 2>/dev/null
@@ -170,11 +230,26 @@ wait $VLLM_PID 2>/dev/null
 
 
 def main() -> None:
-    for task in TASKS:
-        for crosstask in (False, True):
-            script_name = f"{task}_{'crosstask' if crosstask else 'experiment'}.sh"
-            path = SLURM_DIR / script_name
-            path.write_text(render(task, crosstask))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="generate the calibration scripts instead of the sweep",
+    )
+    parser.add_argument(
+        "--task",
+        nargs="+",
+        choices=TASKS,
+        default=TASKS,
+        help="the datasets to generate for (default: all of them)",
+    )
+    args = parser.parse_args()
+
+    variants = ("calibrate",) if args.calibrate else ("experiment", "crosstask")
+    for task in args.task:
+        for variant in variants:
+            path = SLURM_DIR / f"{task}_{variant}.sh"
+            path.write_text(render(task, variant))
             path.chmod(0o755)
             print(f"wrote {path}")
 
