@@ -15,8 +15,19 @@ from dataclasses import dataclass
 from mas.mas import EpisodeResult
 
 from .base_env import BaseEnv, BaseRecorder, clean_action_line
-from .utils import LangChainWiki, WikipediaUnavailable, match_exactly
+from .utils import (
+    WIKIPEDIA_ATTEMPTS,
+    WIKIPEDIA_RETRY_SECONDS,
+    LangChainWiki,
+    WikipediaUnavailable,
+    match_exactly,
+)
 
+DEFAULT_UNREACHABLE_SEARCH_LIMIT = 3
+
+# What a Search that was still unreachable after every retry `LangChainWiki`
+# makes becomes, for the first `unreachable_search_limit` - 1 such Searches of a
+# task. The one after those raises instead.
 UNREACHABLE_OBSERVATION = (
     'Wikipedia could not be reached, so this Search returned nothing. This is a '
     'temporary fault rather than a missing page: Search for the same entity again.'
@@ -26,11 +37,17 @@ UNREACHABLE_OBSERVATION = (
 class WikiReActEnv(BaseEnv):
 
     task_prefix: str = None
-    unreachable_search_limit: int = 3
 
     def __init__(self, env_config: dict[str, Any], max_trials: int) -> None:
         super().__init__(env_config, max_trials)
-        self.explorer = LangChainWiki()
+        config: dict = env_config or {}
+        self.explorer = LangChainWiki(
+            attempts=config.get('wikipedia_attempts', WIKIPEDIA_ATTEMPTS),
+            retry_seconds=config.get('wikipedia_retry_seconds', WIKIPEDIA_RETRY_SECONDS),
+        )
+        self.unreachable_search_limit: int = config.get(
+            'unreachable_search_limit', DEFAULT_UNREACHABLE_SEARCH_LIMIT
+        )
 
         self.reset()
 
@@ -72,9 +89,10 @@ class WikiReActEnv(BaseEnv):
             # A page that does not exist comes back as text naming similar titles;
             # only being unable to reach Wikipedia raises. Those faults arrive in
             # bursts seconds wide, so the agent is told and spends a step retrying.
-            # Past `unreachable_search_limit` they are not transient any more and
-            # the exception propagates: run_task records the task as failed, where
-            # answering every Search with a fault would look like a weak agent.
+            # At `unreachable_search_limit` faults in one task they stop looking
+            # transient and the exception propagates: run_task records the task as
+            # failed, where answering every Search with a fault would look like a
+            # weak agent.
             try:
                 observation = self.explorer.search(argument).strip('\n').strip()
             except WikipediaUnavailable:
@@ -82,8 +100,6 @@ class WikiReActEnv(BaseEnv):
                 if self.unreachable_searches >= self.unreachable_search_limit:
                     raise
                 observation = UNREACHABLE_OBSERVATION
-            else:
-                self.summary = observation
         elif action_type == 'Lookup':
             try:
                 observation = self.explorer.lookup(argument).strip('\n').strip()

@@ -223,7 +223,7 @@ def build_config(tmp_path, seed: int) -> dict:
 def stub_build_task(experiment, tasks: list[dict] = ()):
     """build_task's signature, over a fake env and workflow."""
     def build(task, mas_type, memory_type, seed, working_dir, model=None, max_trials=None,
-              max_tasks=None):
+              max_tasks=None, env_overrides=None):
         env = FakeEnv(max_trials=max_trials or 3)
         return experiment.TaskManager(
             task_name=task,
@@ -281,6 +281,42 @@ def test_a_worker_installs_its_settings_before_it_builds_anything(
 
     assert outcome['status'] == 'success', outcome.get('error')
     assert default_llm_settings().max_tokens == 4096
+
+
+def test_a_flag_that_configures_an_environment_reaches_it(
+    sweep_module, experiment_module, monkeypatch, tmp_path
+):
+    """A flag declared and then not plumbed through changes nothing and says nothing.
+
+    The environment's own settings ride in the env_config its task's YAML
+    supplies, which is where every environment already reads its configuration.
+    """
+    experiment = experiment_module
+    built: dict = {}
+
+    def fake_get_env(task, config, max_trials):
+        built.update(config)
+        return FakeEnv(max_trials=max_trials)
+
+    def fake_build_mas(manager, *args, **kwargs):
+        manager.token_tracker = experiment.TokenTracker()
+
+    monkeypatch.setattr(experiment, 'get_env', fake_get_env)
+    monkeypatch.setattr(experiment, 'get_task', lambda task, **kwargs: [{'task': 'a task'}])
+    monkeypatch.setattr(experiment, 'build_mas', fake_build_mas)
+    monkeypatch.setattr(experiment, 'run_task', lambda *args, **kwargs: None)
+    args = parse(
+        sweep_module, '--mas_type', 'autogen', '--task', 'fever', '--mas_memory', 'empty',
+        '--wikipedia_attempts', '7', '--unreachable_search_limit', '9',
+    )
+
+    outcome = experiment.run_experiment({
+        **sweep_module.build_experiment_configs(args)[0], **build_config(tmp_path, seed=42),
+    })
+
+    assert outcome['status'] == 'success', outcome.get('error')
+    assert built['wikipedia_attempts'] == 7, built
+    assert built['unreachable_search_limit'] == 9, built
 
 
 # ── the progress file is a backup, and lives exactly as long as it is needed ───

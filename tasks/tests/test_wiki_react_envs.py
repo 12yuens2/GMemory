@@ -10,6 +10,7 @@ of thing.
 import json
 
 import pytest
+import wikipedia
 
 from tasks.envs import ENVS, TASKS_PATH, get_task
 from tasks.envs.utils import WikipediaUnavailable
@@ -22,8 +23,8 @@ WIKI_TASKS = {
 }
 
 
-def build(task: str) -> WikiReActEnv:
-    return ENVS[task](env_config=None, max_trials=30)
+def build(task: str, **env_config) -> WikiReActEnv:
+    return ENVS[task](env_config=env_config or None, max_trials=30)
 
 
 @pytest.mark.parametrize('task', sorted(WIKI_TASKS))
@@ -203,20 +204,39 @@ def test_an_unreachable_search_is_reported_to_the_agent_rather_than_ending_the_t
     assert 'Spanish-language' in recovered, recovered
 
 
-def test_an_unreachable_search_does_not_replace_the_page_a_lookup_reads():
-    """Lookup must still address the page the last successful Search found."""
-    env = build('fever')
+def test_an_unreachable_search_does_not_replace_the_page_a_lookup_reads(monkeypatch):
+    """Lookup must still address the page the last successful Search found.
+
+    A transient fault says nothing about the page, so it leaves it alone - unlike
+    a Search for a page that does not exist, which discards it.
+    """
+    class Page:
+        content = 'Telemundo is a network mentioning zebras.'
+        url = 'https://en.wikipedia.org/wiki/Telemundo'
+
+    env = build('fever', wikipedia_attempts=1)
     env.set_env({'task': 'Telemundo is an English-language network.', 'answer': 'REFUTES'})
-    env.explorer.search = lambda argument: 'Telemundo is a Spanish-language network.'
+    monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: Page())
     env.step('Search[Telemundo]')
 
-    def unreachable(argument):
-        raise WikipediaUnavailable('Wikipedia could not be reached')
+    monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: (_ for _ in ()).throw(
+        ValueError('Expecting value: line 1 column 1 (char 0)')))
+    unreachable, _, _ = env.step('Search[Telemundo]')
+    assert 'could not be reached' in unreachable, unreachable
 
-    env.explorer.search = unreachable
-    env.step('Search[Telemundo]')
+    observation, _, _ = env.step('Lookup[zebras]')
 
-    assert env.summary == 'Telemundo is a Spanish-language network.'
+    assert 'zebras' in observation, observation
+
+
+def test_the_search_retry_settings_come_from_the_env_config():
+    """The knobs are the run's, so a sweep can loosen them without an edit."""
+    env = build('fever', wikipedia_attempts=7, wikipedia_retry_seconds=0.5,
+                unreachable_search_limit=9)
+
+    assert env.explorer.attempts == 7
+    assert env.explorer.retry_seconds == 0.5
+    assert env.unreachable_search_limit == 9
 
 
 def test_a_wikipedia_that_stays_unreachable_ends_the_task_rather_than_scoring_it_zero():

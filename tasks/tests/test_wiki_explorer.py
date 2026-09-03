@@ -21,7 +21,7 @@ from tasks.envs.utils import LangChainWiki, WikipediaUnavailable
 def waits(monkeypatch):
     """The seconds the retry would have slept, without spending them."""
     slept = []
-    monkeypatch.setattr(utils.time, 'sleep', slept.append)
+    monkeypatch.setattr(utils, 'time', SimpleNamespace(sleep=slept.append))
     return slept
 
 
@@ -157,7 +157,7 @@ def test_a_search_that_failed_discards_the_page_the_last_one_found(explorer, mon
 
     monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: (_ for _ in ()).throw(
         wikipedia.PageError('no such page')))
-    monkeypatch.setattr(wikipedia, 'search', lambda title: [])
+    monkeypatch.setattr(wikipedia, 'search', lambda title, **kwargs: [])
     explorer.search('Nonexistent Title')
 
     with pytest.raises(ValueError, match='without a successful search'):
@@ -299,7 +299,7 @@ def test_a_throttled_search_waits_the_time_the_api_asked_for(explorer, monkeypat
     Wikimedia asked for eleven seconds where the blind backoff would have spent
     about three, retried inside the window and failed all four attempts.
     """
-    page, attempts = raising(utils.WikipediaThrottled(11))
+    page, attempts = raising(utils.WikipediaRefused(429, 11))
     monkeypatch.setattr(wikipedia, 'page', page)
 
     result = explorer.search('Telemundo')
@@ -318,18 +318,56 @@ def test_a_transport_failure_that_asks_for_nothing_backs_off(explorer, monkeypat
     assert waits and waits[0] > 0, f'waited {waits}'
 
 
-def test_concurrent_workers_do_not_wait_in_lockstep(explorer, monkeypatch, waits):
+def test_the_jitter_scales_with_the_wait_it_spreads(explorer, monkeypatch, waits):
     """Every worker of a sweep meets the same burst and is handed the same wait.
 
     Waiting exactly that long sends the whole sweep back at the API together, so
-    the waits are jittered apart.
+    the waits are jittered apart by a fraction of the wait itself: a jitter that
+    does not scale with the wait leaves the sweep in a burst again.
     """
-    for _ in range(12):
-        page, _ = raising(utils.WikipediaThrottled(11))
+    asked = 11
+    for _ in range(24):
+        page, _ = raising(utils.WikipediaRefused(429, asked))
         monkeypatch.setattr(wikipedia, 'page', page)
         explorer.search('Telemundo')
 
-    assert len(set(waits)) > 1, f'every worker waited {waits[0]}'
+    spread = max(waits) - min(waits)
+    assert spread > asked / 4, f'24 workers waited within {spread:.2f}s of each other'
+
+
+def test_a_refusal_cannot_ask_for_longer_than_the_ceiling(monkeypatch):
+    """The wait is the API's to name, and nothing bounds what it may name.
+
+    An hour would be honoured before every retry of every Search, in every
+    worker of the sweep at once, against a job with a walltime.
+    """
+    hour = Throttled()
+    hour.headers = {'Retry-After': '3600'}
+    fetcher = wikipedia.wikipedia.requests
+    monkeypatch.setattr(fetcher, 'delegate', SimpleNamespace(get=lambda *a, **k: hour))
+
+    with pytest.raises(RuntimeError) as refused:
+        fetcher.get('https://en.wikipedia.org/w/api.php')
+
+    assert refused.value.retry_after == utils.WIKIPEDIA_MAX_WAIT
+
+
+def test_a_server_error_is_not_reported_as_a_wait_that_was_asked_for(monkeypatch):
+    """Only a `Retry-After` is a wait Wikimedia asked for.
+
+    A 503 names none, and reporting the backoff default as what it asked for
+    puts a number in the log that nothing ever sent.
+    """
+    unavailable = SimpleNamespace(status_code=503, headers={})
+    fetcher = wikipedia.wikipedia.requests
+    monkeypatch.setattr(fetcher, 'delegate', SimpleNamespace(get=lambda *a, **k: unavailable))
+
+    with pytest.raises(RuntimeError) as refused:
+        fetcher.get('https://en.wikipedia.org/w/api.php')
+
+    assert 'named no wait' in str(refused.value), str(refused.value)
+    assert '503' in str(refused.value), str(refused.value)
+    assert refused.value.retry_after == utils.WIKIPEDIA_RETRY_SECONDS
 
 
 def test_the_title_asked_for_is_the_title_fetched(explorer, monkeypatch):

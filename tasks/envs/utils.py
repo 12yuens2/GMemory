@@ -23,19 +23,29 @@ wikipedia.wikipedia.API_URL = "https://en.wikipedia.org/w/api.php"
 
 WIKIPEDIA_ATTEMPTS = 3
 WIKIPEDIA_RETRY_SECONDS = 2.0
+WIKIPEDIA_MAX_WAIT = 60.0
 
 # Every worker of a sweep meets the same burst and is handed the same wait, so
-# the waits are jittered apart. This generator is its own: the global one carries
-# the experiment's seed.
+# the waits are jittered apart by a fraction of the wait itself, so that the
+# spread scales with the burst. This generator is its own: the global one
+# carries the experiment's seed.
 _backoff = random.Random()
 
 
-class WikipediaThrottled(RuntimeError):
-    """The API refused a request for now, and asked for `retry_after` seconds."""
+class WikipediaRefused(RuntimeError):
+    """The API would not answer this request for now.
 
-    def __init__(self, retry_after: float) -> None:
-        super().__init__(f"Wikimedia asked for {retry_after}s before the next request")
-        self.retry_after = retry_after
+    `retry_after` is the wait before asking again: what the response asked for,
+    bounded by `WIKIPEDIA_MAX_WAIT`, or the backoff default if it named none.
+    """
+
+    def __init__(self, status: int, asked: Optional[float] = None) -> None:
+        named = f"asked for {asked}s" if asked is not None else "named no wait"
+        super().__init__(f"Wikimedia answered {status} and {named}")
+        self.status = status
+        self.retry_after = min(
+            WIKIPEDIA_MAX_WAIT, WIKIPEDIA_RETRY_SECONDS if asked is None else asked
+        )
 
 
 class StatusAwareRequests:
@@ -57,12 +67,12 @@ class StatusAwareRequests:
     def get(self, *args: Any, **kwargs: Any) -> Any:
         response = self.delegate.get(*args, **kwargs)
         if response.status_code == 429 or response.status_code >= 500:
-            raise WikipediaThrottled(_retry_after(response))
+            raise WikipediaRefused(response.status_code, _retry_after(response))
         return response
 
 
-def _retry_after(response: Any) -> float:
-    """The wait `response` asked for, or the default if it named none in seconds.
+def _retry_after(response: Any) -> Optional[float]:
+    """The seconds `response` asked for, or None if it named none in seconds.
 
     The header may be an HTTP-date instead, which is not worth parsing to learn
     the same thing the backoff already assumes.
@@ -70,7 +80,7 @@ def _retry_after(response: Any) -> float:
     try:
         return float(response.headers.get("Retry-After"))
     except (TypeError, ValueError):
-        return WIKIPEDIA_RETRY_SECONDS
+        return None
 
 
 # `tasks/` is on the path as well as the repo root, so this module is imported
@@ -91,7 +101,13 @@ class WikipediaUnavailable(RuntimeError):
 
 class LangChainWiki:
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        attempts: int = WIKIPEDIA_ATTEMPTS,
+        retry_seconds: float = WIKIPEDIA_RETRY_SECONDS,
+    ) -> None:
+        self.attempts = attempts
+        self.retry_seconds = retry_seconds
         self.document: Optional[Document] = None
         self.lookup_str = ""
         self.lookup_index = 0
@@ -117,8 +133,7 @@ class LangChainWiki:
             self.document = None
             return result
 
-    @staticmethod
-    def _page(search: str) -> Any:
+    def _page(self, search: str) -> Any:
         """`search`'s page, retrying the transport faults that arrive in bursts.
 
         A page that does not exist is an answer and is not retried; anything else
@@ -128,7 +143,7 @@ class LangChainWiki:
         title asked for with Wikipedia's spelling suggestion and fetch that,
         which reports existing pages as absent.
         """
-        for attempt in range(1, WIKIPEDIA_ATTEMPTS + 1):
+        for attempt in range(1, self.attempts + 1):
             try:
                 return wikipedia.page(search, auto_suggest=False)
             except (wikipedia.PageError, wikipedia.DisambiguationError):
@@ -136,14 +151,18 @@ class LangChainWiki:
             except Exception as unreachable:
                 logger.warning(
                     "Wikipedia lookup of %r failed (attempt %d/%d): %s: %s",
-                    search, attempt, WIKIPEDIA_ATTEMPTS,
+                    search, attempt, self.attempts,
                     type(unreachable).__name__, unreachable,
                 )
-                if attempt == WIKIPEDIA_ATTEMPTS:
+                if attempt == self.attempts:
                     raise
-                asked = getattr(unreachable, "retry_after", 0)
-                backoff = WIKIPEDIA_RETRY_SECONDS * 2 ** (attempt - 1)
-                time.sleep(asked + _backoff.uniform(backoff / 2, backoff))
+                time.sleep(self._wait(unreachable, attempt))
+
+    def _wait(self, unreachable: Exception, attempt: int) -> float:
+        """Seconds before the attempt after `attempt`, jittered by up to half."""
+        asked = getattr(unreachable, "retry_after", 0)
+        wait = asked + self.retry_seconds * 2 ** (attempt - 1)
+        return wait + _backoff.uniform(0, wait / 2)
 
     @staticmethod
     def _similar(search: str) -> list:
