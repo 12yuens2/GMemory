@@ -97,7 +97,16 @@ podman-hpc run --rm -v $TASK:/task:ro $IMAGE \
 ```
 
 `eval.sh` applies the test patch itself and brackets the test output with
-`>>>>> Start Test Output`. On `django__django-16485` the first run ends
+`>>>>> Start Test Output`.
+
+**Read the verdict against `tests.json`, never off the summary line.** `eval.sh`
+runs whole test files, which can hold tests that are not graded: on
+`psf__requests-2931` both runs report 81 errors, all of them tests that want a
+live httpbin, and none of them in FAIL_TO_PASS or PASS_TO_PASS. The patched run
+says `86 passed … 81 errors` and the instance is nonetheless faithful — all 84
+PASS_TO_PASS pass and the one FAIL_TO_PASS test flips.
+
+On `django__django-16485` the first run ends
 
 ```
 ValueError: valid range for prec is [1, MAX_PREC]
@@ -109,9 +118,13 @@ which is the issue the instance is about, and the second run ends `Ran 10 tests
 
 ## Limits worth knowing
 
-- **Not every instance will build.** Anything needing a compiled dependency with
-  no aarch64 wheel, or a conda build that never existed for aarch64, fails here.
-  Pick another instance rather than fighting it.
+- **Not every instance will build.** Of five repositories tried, four built:
+  django, sympy, pytest and requests, each in about four minutes and 2.3-2.6 GB.
+  `pydata__xarray-7229` cannot: its environment pins `cdms2`, `cdtime` and
+  `libcdms`, the CDAT stack, which has no linux-aarch64 build in any channel.
+  That is the shape of the failure to expect — a dependency that was never built
+  for this architecture — and the answer is to pick another instance rather than
+  fight it. django alone is 231 of the 500 Verified instances.
 - **A login node's local image store is erased at the end of a session.** The
   migrated squashfs on `$SCRATCH` is what survives, and what compute nodes read;
   `podman-hpc images` shows `R/O = true` for those.
