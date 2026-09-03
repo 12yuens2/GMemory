@@ -128,6 +128,10 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 | `--use_projector` | off | Enable the role projector, which tailors retrieved insights per agent. Only `g-memory` implements projection |
 | `--use_validator` | off | Add a validator agent that checks the solver's action format before it is taken, re-prompting the solver on a rejection. Only `autogen` acts on it |
 | `--intrinsic_cross_task` | off | Keep an `intrinsicmemory-*` module's memory across the tasks of a dataset instead of starting each task from an empty one. No effect on the other modules, which accumulate across tasks either way. It is a column in every result file, so the two arms are distinguishable |
+| `--max_tokens` | `512` | Ceiling on the tokens generated per response, sent as `max_completion_tokens`. A reasoning model spends it on its reasoning and its answer together, so a model that thinks before answering needs more than a model that does not |
+| `--temperature` | `0.1` | Sampling temperature for any call that does not set its own. The workflows set 0 for the calls that have to parse |
+| `--request_timeout` | `300.0` | Seconds one request may take. The openai client's own default is 600, which multiplied by its retries and the retry loops above it lets one action block for around 90 minutes against a server that has stopped answering |
+| `--log_responses` | off | Echo every LLM response and memory-update prompt to stderr. Off because one Slurm job writes one `.out` file, from every worker at once, over the order of 100,000 requests — it is all in the per-experiment log files either way |
 | `--seed` (sweep) | `42` | One or more random seeds. Each seed gets its own memory persistence directory, so concurrent seeds of one config never share a graph or vector store |
 | `--num_workers` | `os.cpu_count() - 32` (min 1) | Worker processes for running the experiment sweep in parallel |
 | `--resume` | off | Skip the experiments already recorded in the overall results file, rather than appending a second row for each of them. The identity columns plus `seed` are the key, so a job killed at its wall clock is continued by resubmitting with this |
@@ -139,15 +143,6 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 Two settings are per-task rather than flags, in `tasks/configs.yaml`: `max_steps` (the trial budget above) and `few_shots_num`. FEVER and HotpotQA also have `max_tasks: 200`, which cuts each to its first 200 claims or questions.
 BabyAI's manifest is ordered seed-major, so a `--max_tasks` prefix of it is a spread across the levels rather than many seeds of the easiest one.
 Jericho's `max_steps` is 100 rather than 30, because its games score over a much longer arc than one 30-move episode covers — `data/data.md` has the measurements behind the number. `tasks/configs.yaml` also holds `embedding_model` and `embedding_device`, which is `cpu`: left to itself the embedding model takes `cuda:0`, and on a node serving vLLM every GPU is the server's.
-
-`configs/configs.yaml` holds the settings for the LLM calls themselves:
-
-| Setting | Default | What it does |
-|---|---|---|
-| `max_token` | `512` | Ceiling on the tokens generated per response |
-| `temperature` | `0.1` | Sampling temperature for any call that does not set its own |
-| `request_timeout` | `300` | Seconds one request may take. The openai client's own default is 600, which multiplied by its retries and the retry loops above it lets one action block for around 90 minutes against a server that has stopped answering |
-| `log_responses` | `false` | Echo every LLM response and memory-update prompt to stderr. Off because one Slurm job writes one `.out` file, from every worker at once, over the order of 100,000 requests — it is all in the per-experiment log files either way |
 
 Example sweep (2 tasks × 3 memories × 3 seeds = 18 experiments, parallelized across 8 workers):
 ```bash

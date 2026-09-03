@@ -15,9 +15,28 @@ from datetime import datetime
 from types import ModuleType
 from unittest.mock import MagicMock
 
+import pytest
+
 # An endpoint no test will reach, so a developer's .env cannot leak into a run.
 os.environ["OPENAI_API_BASE"] = "http://localhost:9999"
 os.environ["OPENAI_API_KEY"] = "test-key"
+
+
+@pytest.fixture(autouse=True)
+def installed_llm_settings():
+    """The settings a test's GPTChat falls back on, as a run would install them."""
+    from mas.settings import LLMSettings, use_llm_settings
+
+    settings = LLMSettings(
+        api_base=os.environ["OPENAI_API_BASE"],
+        api_key=os.environ["OPENAI_API_KEY"],
+        max_tokens=512,
+        temperature=0.1,
+        request_timeout=300.0,
+        log_responses=False,
+    )
+    use_llm_settings(settings)
+    return settings
 
 
 def _stub_module(name: str):

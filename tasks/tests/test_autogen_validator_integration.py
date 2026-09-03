@@ -57,6 +57,7 @@ pytestmark = [
 
 # ── imports (only reached when credentials are present) ───────────────────────
 from mas.llm import GPTChat
+from mas.settings import LLMSettings
 from mas.reasoning import ReasoningIO, ReasoningConfig
 from mas.memory.mas_memory.intrinsicmemory import IntrinsicMASMemoryNoTemplate
 from mas.agents import Agent
@@ -71,7 +72,10 @@ TEST_MODEL = os.getenv("TEST_LLM_MODEL", _DEFAULT_MODEL)
 @pytest.fixture(scope="module")
 def llm():
     """Real GPTChat instance shared across tests in this module."""
-    return GPTChat(model_name=TEST_MODEL)
+    settings = LLMSettings.load(
+        max_tokens=512, temperature=0.1, request_timeout=300.0, log_responses=False
+    )
+    return GPTChat(model_name=TEST_MODEL, settings=settings)
 
 
 @pytest.fixture(scope="module")

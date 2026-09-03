@@ -65,6 +65,65 @@ def test_one_value_per_flag_is_one_experiment(sweep_module):
     assert len(sweep.build_experiment_configs(args)) == 1
 
 
+# ── the LLM flags reach the process that makes the calls ─────────────────────
+
+def test_the_llm_flags_are_the_request_an_experiment_makes(
+    sweep_module, experiment_module
+):
+    """A worker is spawned, so it installs its own settings from its own config."""
+    from mas.llm import GPTChat, Message
+    from tasks.tests.fakes import chat_over_fake_completions
+
+    args = parse(
+        sweep_module, '--mas_type', 'autogen', '--task', 'fever', '--mas_memory', 'empty',
+        '--max_tokens', '4096', '--temperature', '0.9', '--request_timeout', '15',
+    )
+    config = sweep_module.build_experiment_configs(args)[0]
+
+    experiment_module.install_llm_settings(config)
+
+    chat, completions = chat_over_fake_completions(['go to desk 1'])
+    chat([Message('user', 'what next?')])
+
+    assert completions.calls[0]['max_completion_tokens'] == 4096, (
+        f'the token budget did not reach the request: {completions.calls[0]}'
+    )
+    assert completions.calls[0]['temperature'] == 0.9
+    assert GPTChat(model_name='fake-model').client.timeout == 15.0, (
+        'the timeout is the client\'s, which GPTChat builds for itself'
+    )
+
+
+def test_the_mas_loggers_only_reach_stderr_when_the_run_asked_for_it(
+    sweep_module, experiment_module
+):
+    import logging
+
+    from mas.logging_utils import CONSOLE_HANDLER_NAME
+
+    def installed(*flags) -> bool:
+        for handler in list(logging.getLogger('mas').handlers):
+            if handler.name == CONSOLE_HANDLER_NAME:
+                logging.getLogger('mas').removeHandler(handler)
+        args = parse(
+            sweep_module, '--mas_type', 'autogen', '--task', 'fever',
+            '--mas_memory', 'empty', *flags,
+        )
+        experiment_module.install_llm_settings(sweep_module.build_experiment_configs(args)[0])
+        return any(
+            handler.name == CONSOLE_HANDLER_NAME
+            for handler in logging.getLogger('mas').handlers
+        )
+
+    try:
+        assert not installed(), 'a sweep of 100,000 requests would echo every one'
+        assert installed('--log_responses')
+    finally:
+        for handler in list(logging.getLogger('mas').handlers):
+            if handler.name == CONSOLE_HANDLER_NAME:
+                logging.getLogger('mas').removeHandler(handler)
+
+
 # ── C1 · running them, in this process or in a pool ───────────────────────────
 
 class FakeExecutor:
@@ -153,6 +212,8 @@ def build_config(tmp_path, seed: int) -> dict:
         'model': 'fake-model', 'max_trials': 3, 'max_tasks': None, 'seed': seed, 'successful_topk': 1,
         'failed_topk': 0, 'insights_topk': 3, 'threshold': 0.0, 'use_projector': False,
         'use_validator': False, 'hop': 1, 'intrinsic_cross_task': False,
+        'max_tokens': 512, 'temperature': 0.1, 'request_timeout': 300.0,
+        'log_responses': False,
         'num_workers': 1, 'db_dir': str(tmp_path),
         'overall_results_filename': 'overall_results.csv', 'failed_tasks_filename': 'failed_tasks.csv',
         'failed_experiments_filename': 'failed_experiments.csv',
@@ -202,6 +263,24 @@ def test_two_seeds_of_one_config_do_not_share_a_memory_directory(
     assert len(set(memory_dirs)) == 2, (
         f"both seeds persisted their memory to the same place: {memory_dirs}"
     )
+
+
+def test_a_worker_installs_its_settings_before_it_builds_anything(
+    experiment_module, monkeypatch, tmp_path
+):
+    """Its config is all a spawned worker gets, and a GPTChat has to have settings."""
+    from mas.settings import default_llm_settings, reset_default_llm_settings
+
+    experiment = experiment_module
+    monkeypatch.setattr(experiment, 'build_task', stub_build_task(experiment))
+    monkeypatch.setattr(experiment, 'build_mas', lambda *args, **kwargs: None)
+    monkeypatch.setattr(experiment, 'run_task', lambda *args, **kwargs: None)
+    reset_default_llm_settings()
+
+    outcome = experiment.run_experiment({**build_config(tmp_path, seed=42), 'max_tokens': 4096})
+
+    assert outcome['status'] == 'success', outcome.get('error')
+    assert default_llm_settings().max_tokens == 4096
 
 
 # ── the progress file is a backup, and lives exactly as long as it is needed ───

@@ -1,7 +1,9 @@
-"""Settings are resolved on demand, not at import.
+"""Settings are resolved on demand, not at import, and come from the run's flags.
 
-Importing mas must need no credentials and no particular working directory, and a
-missing variable must say which one it is.
+Importing mas must need no credentials and no particular working directory, a
+missing variable must say which one it is, and nothing may invent a token
+budget or a temperature of its own: the run installs them, and a GPTChat built
+before that must say so rather than pick a number.
 """
 
 import subprocess
@@ -11,15 +13,17 @@ from pathlib import Path
 import pytest
 
 from mas.settings import (
-    DEFAULT_CONFIG_PATH,
     DEFAULT_ENV_PATH,
     LLMSettings,
     MissingSettings,
     default_llm_settings,
     reset_default_llm_settings,
+    use_llm_settings,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+CALL_SETTINGS = dict(max_tokens=512, temperature=0.1, request_timeout=300.0, log_responses=False)
 
 
 @pytest.fixture(autouse=True)
@@ -29,9 +33,7 @@ def clean_settings_cache():
     reset_default_llm_settings()
 
 
-def test_the_config_path_is_absolute_and_exists():
-    assert DEFAULT_CONFIG_PATH.is_absolute()
-    assert DEFAULT_CONFIG_PATH.exists()
+def test_the_env_path_is_absolute():
     assert DEFAULT_ENV_PATH.is_absolute()
 
 
@@ -41,7 +43,7 @@ def test_missing_credentials_name_themselves(monkeypatch, tmp_path):
     monkeypatch.setattr("mas.settings.DEFAULT_ENV_PATH", tmp_path / "absent.env")
 
     with pytest.raises(MissingSettings, match="OPENAI_API_BASE and OPENAI_API_KEY"):
-        LLMSettings.load()
+        LLMSettings.load(**CALL_SETTINGS)
 
 
 def test_only_the_absent_variable_is_named(monkeypatch, tmp_path):
@@ -50,7 +52,7 @@ def test_only_the_absent_variable_is_named(monkeypatch, tmp_path):
     monkeypatch.setattr("mas.settings.DEFAULT_ENV_PATH", tmp_path / "absent.env")
 
     with pytest.raises(MissingSettings, match="^OPENAI_API_KEY must be set"):
-        LLMSettings.load()
+        LLMSettings.load(**CALL_SETTINGS)
 
 
 def test_a_base_url_with_no_scheme_is_refused(monkeypatch, tmp_path):
@@ -60,43 +62,52 @@ def test_a_base_url_with_no_scheme_is_refused(monkeypatch, tmp_path):
     monkeypatch.setattr("mas.settings.DEFAULT_ENV_PATH", tmp_path / "absent.env")
 
     with pytest.raises(MissingSettings, match="http://"):
-        LLMSettings.load()
+        LLMSettings.load(**CALL_SETTINGS)
 
 
-def test_the_llm_config_is_read_from_the_yaml(monkeypatch, tmp_path):
-    config = tmp_path / "configs.yaml"
-    config.write_text("llm_config:\n  max_token: 128\n  temperature: 0.7\n")
+def test_the_call_settings_are_the_ones_the_caller_asked_for(monkeypatch):
     monkeypatch.setenv("OPENAI_API_BASE", "http://localhost:9999")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
-    settings = LLMSettings.load(config_path=config)
+    settings = LLMSettings.load(
+        max_tokens=128, temperature=0.7, request_timeout=30.0, log_responses=True
+    )
 
     assert (settings.max_tokens, settings.temperature) == (128, 0.7)
+    assert (settings.request_timeout, settings.log_responses) == (30.0, True)
 
 
-def test_the_request_timeout_is_read_from_the_yaml(monkeypatch, tmp_path):
-    config = tmp_path / "configs.yaml"
-    config.write_text("llm_config:\n  request_timeout: 30\n")
-    monkeypatch.setenv("OPENAI_API_BASE", "http://localhost:9999")
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-
-    assert LLMSettings.load(config_path=config).request_timeout == 30
-
-
-def test_the_defaults_survive_a_config_with_no_llm_block(monkeypatch, tmp_path):
-    config = tmp_path / "configs.yaml"
-    config.write_text("something_else: 1\n")
-    monkeypatch.setenv("OPENAI_API_BASE", "http://localhost:9999")
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-
-    settings = LLMSettings.load(config_path=config)
-
-    assert (settings.max_tokens, settings.temperature) == (512, 0.1)
+def test_no_call_setting_has_a_default_of_its_own():
+    """Every one of them is the run's to choose, so none may be omitted."""
+    for omitted in CALL_SETTINGS:
+        incomplete = {name: value for name, value in CALL_SETTINGS.items() if name != omitted}
+        with pytest.raises(TypeError, match=omitted):
+            LLMSettings(api_base="http://localhost:9999", api_key="none", **incomplete)
 
 
-def test_the_default_settings_are_loaded_once_per_process():
-    """A sweep builds a GPTChat per experiment and per memory reset."""
-    assert default_llm_settings() is default_llm_settings()
+def test_a_gptchat_uses_the_settings_the_run_installed():
+    """The route from a flag to a request: nothing else passes settings down."""
+    from mas.llm import GPTChat
+
+    use_llm_settings(
+        LLMSettings(
+            api_base="http://localhost:9999/v1",
+            api_key="none",
+            max_tokens=77,
+            temperature=0.5,
+            request_timeout=42.0,
+            log_responses=False,
+        )
+    )
+
+    assert GPTChat(model_name="fake-model").settings.max_tokens == 77
+    assert default_llm_settings().temperature == 0.5
+
+
+def test_asking_for_settings_before_a_run_installs_them_is_an_error():
+    """Answering with a token budget of its own is how a flag goes silently unused."""
+    with pytest.raises(MissingSettings, match="install_llm_settings"):
+        default_llm_settings()
 
 
 def test_importing_mas_llm_needs_no_credentials_and_no_working_directory():

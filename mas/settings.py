@@ -1,20 +1,19 @@
 """LLM settings, resolved on demand rather than at import.
 
 Nothing here runs while `mas` is being imported. Importing the package therefore
-needs no credentials and no particular working directory; both are resolved when
-a `GPTChat` is first constructed.
+needs no credentials and no particular working directory: the credentials are
+read when a run installs its settings, and every value that sizes a request is
+the run's own flag rather than a number chosen here.
 """
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
 
-from .utils import load_config, repo_path
+from .utils import repo_path
 
-DEFAULT_CONFIG_PATH = repo_path("configs", "configs.yaml")
 DEFAULT_ENV_PATH = repo_path(".env")
 
 
@@ -36,20 +35,26 @@ class LLMSettings:
             openai default is 600, which multiplied by that client's retries and
             the retry loops above it lets one action block for over an hour.
         log_responses: Echo every LLM response and memory-update prompt to
-            stderr. Off by default: one Slurm job writes one .out file, from
-            every worker at once, over the order of 100,000 requests.
+            stderr. One Slurm job writes one .out file, from every worker at
+            once, over the order of 100,000 requests.
     """
 
     api_base: str
     api_key: str
-    max_tokens: int = 512
-    temperature: float = 0.1
-    request_timeout: float = 300.0
-    log_responses: bool = False
+    max_tokens: int
+    temperature: float
+    request_timeout: float
+    log_responses: bool
 
     @classmethod
-    def load(cls, config_path: Optional[Path] = None) -> "LLMSettings":
-        """Build settings from .env, the environment and configs/configs.yaml.
+    def load(
+        cls,
+        max_tokens: int,
+        temperature: float,
+        request_timeout: float,
+        log_responses: bool,
+    ) -> "LLMSettings":
+        """Credentials from .env or the environment, the rest from the caller.
 
         An exported environment variable takes precedence over .env.
         """
@@ -75,35 +80,38 @@ class LLMSettings:
                 f"requests never reach the server."
             )
 
-        llm_config: dict = (load_config(str(config_path or DEFAULT_CONFIG_PATH)) or {}).get(
-            "llm_config", {}
-        )
         return cls(
             api_base=api_base,
             api_key=api_key,
-            max_tokens=llm_config.get("max_token", 512),
-            temperature=llm_config.get("temperature", 0.1),
-            request_timeout=llm_config.get("request_timeout", 300.0),
-            log_responses=llm_config.get("log_responses", False),
+            max_tokens=max_tokens,
+            temperature=temperature,
+            request_timeout=request_timeout,
+            log_responses=log_responses,
         )
 
 
-_CACHED: Optional[LLMSettings] = None
+_INSTALLED: Optional[LLMSettings] = None
+
+
+def use_llm_settings(settings: LLMSettings) -> None:
+    """Make `settings` what every GPTChat in this process uses."""
+    global _INSTALLED
+    _INSTALLED = settings
 
 
 def default_llm_settings() -> LLMSettings:
-    """The settings used by any GPTChat not given its own.
-
-    Cached: a sweep builds a GPTChat per experiment and per memory reset, and
-    none of them need to re-read the config file.
-    """
-    global _CACHED
-    if _CACHED is None:
-        _CACHED = LLMSettings.load()
-    return _CACHED
+    """The settings installed for this process, for a GPTChat not given its own."""
+    if _INSTALLED is None:
+        raise MissingSettings(
+            "No LLM settings are installed in this process. A run installs them "
+            "from its flags through experiment.install_llm_settings; anything else "
+            "must build LLMSettings.load(...) and either pass it to GPTChat or "
+            "hand it to use_llm_settings."
+        )
+    return _INSTALLED
 
 
 def reset_default_llm_settings() -> None:
-    """Drop the cache. For tests that change the environment between cases."""
-    global _CACHED
-    _CACHED = None
+    """Forget them. For tests that install different settings between cases."""
+    global _INSTALLED
+    _INSTALLED = None

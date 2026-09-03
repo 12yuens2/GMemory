@@ -122,7 +122,8 @@ def test_the_client_is_built_with_the_configured_request_timeout():
     from mas.settings import LLMSettings
 
     settings = LLMSettings(
-        api_base="http://localhost:9999/v1", api_key="none", request_timeout=42.0
+        api_base="http://localhost:9999/v1", api_key="none", max_tokens=512,
+        temperature=0.1, request_timeout=42.0, log_responses=False,
     )
 
     chat = GPTChat(model_name="fake-model", settings=settings)
