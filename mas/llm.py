@@ -189,31 +189,40 @@ class GPTChat(LLM):
                     intrinsic=intrinsic,
                 )
 
+                reasoning = getattr(response.choices[0].message, 'reasoning_content', None)
+
+                # Having asked for a stop sequence and been given nothing back,
+                # the stop sequence is the first suspect: it is matched against
+                # the raw stream, so it can fire inside reasoning the caller
+                # never sees. Endpoints report that two ways - gpt-oss on vLLM
+                # sends content=None with the text in `reasoning_content`, ollama
+                # sends content='' and no reasoning field - so neither the shape
+                # nor the reasoning field can be what this turns on.
+                if not (answer or '').strip() and self._sends_stop and stop_strs:
+                    self._sends_stop = False
+                    print(
+                        f'{self.model_name} answered nothing with stop={stop_strs}; '
+                        f'sending subsequent calls without a stop sequence'
+                        + (' (its reasoning was cut off mid-sentence)' if reasoning else ''),
+                        file=sys.stderr,
+                    )
+                    continue
+
                 if answer is None:
-                    reasoning = getattr(response.choices[0].message, "reasoning_content", None)
-                    if self._sends_stop and stop_strs and reasoning:
-                        self._sends_stop = False
-                        print(
-                            f"{self.model_name} let stop={stop_strs} cut off its reasoning "
-                            f"before it answered; sending subsequent calls without a stop "
-                            f"sequence",
-                            file=sys.stderr,
-                        )
-                    else:
-                        # Reasoning present with no content, once the stop sequence
-                        # is already out of the picture, is what too small a
-                        # `max_completion_tokens` looks like: the budget went on
-                        # reasoning and left nothing to answer with.
-                        cause = (
-                            f'its reasoning did not reach an answer within '
-                            f'max_completion_tokens={max_tokens}'
-                            if reasoning else 'it sent no content and no reasoning'
-                        )
-                        print(
-                            f'Error: {self.model_name} returned no answer - {cause}. '
-                            f'Full response:\n{response}',
-                            file=sys.stderr,
-                        )
+                    # Reasoning present with no content, once the stop sequence is
+                    # out of the picture, is what too small a
+                    # `max_completion_tokens` looks like: the budget went on
+                    # reasoning and left nothing to answer with.
+                    cause = (
+                        f'its reasoning did not reach an answer within '
+                        f'max_completion_tokens={max_tokens}'
+                        if reasoning else 'it sent no content and no reasoning'
+                    )
+                    print(
+                        f'Error: {self.model_name} returned no answer - {cause}. '
+                        f'Full response:\n{response}',
+                        file=sys.stderr,
+                    )
                     continue
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 logger.debug('LLM RESPONSE at %s\n%s', current_time, answer)
