@@ -27,7 +27,7 @@ The only actions are these seven, written exactly as shown:
 (6) `toggle` - open or close the door directly in front of you. This is also how a locked door is unlocked, while you are carrying a key of the same colour.
 (7) `done` - signal that you believe the task is finished. It does not end the episode: a mission ends by being accomplished.
 
-A thought is a line beginning `think:` followed by your reasoning. Use one when you need to plan, and then act on the next turn. Output exactly one line, and nothing else.
+A thought is a line beginning `think:` followed by your reasoning. Use one when you need to plan, and then act on the next turn.
 
 How to read what you see. Everything is described relative to you: `2 steps forward and 1 step to the left` counts squares from where you stand, forward being the way you are facing. You see only what is in front of you and unobstructed, so turning reveals new things and walls hide what is behind them. `a wall N steps forward` is how far you can advance before you are blocked.
 

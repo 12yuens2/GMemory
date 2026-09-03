@@ -21,6 +21,7 @@ from tasks.envs import ENVS, RECORDERS
 from tasks.envs.base_env import AggregateResults, BaseEnv, aggregate
 
 from tasks.mas_workflow import MAS
+from tasks.prompts import get_dataset_system_prompt
 from tasks.tests.fakes import (
     FakeEmbeddingFunc,
     FakeEnv,
@@ -408,3 +409,60 @@ def test_an_action_written_after_a_thought_is_the_one_taken(task):
 
     assert taken == ENVS[task].process_action(action), f"{task} took the thought, not {action!r}"
     assert not ENVS[task].is_thought(taken)
+
+
+# ── every arm is told the same thing about the shape of a reply ───────────────
+
+# Wordings that constrain the shape of a reply rather than its content. A memory
+# module that introduces one of these is telling its agent something the arms it
+# is measured against were not told.
+FORMAT_INSTRUCTIONS = (
+    "one action",
+    "single line",
+    "one line",
+    "nothing else",
+)
+
+
+@pytest.mark.parametrize("task", sorted(ENVS))
+def test_every_dataset_asks_for_one_action_per_reply(task):
+    """Otherwise the stop sequence is the only thing asking, and it gets dropped.
+
+    `GPTChat` drops `stop=['\\n']` for any endpoint it truncates, which is every
+    reasoning model, so a prompt that never asks for one line is relying on
+    something that will not be there.
+    """
+    prompt = get_dataset_system_prompt(task, task_config=dict(TASK_CONFIGS[task]))
+
+    assert any(phrase in prompt for phrase in FORMAT_INSTRUCTIONS), (
+        f"{task}'s system prompt never asks for a single action"
+    )
+
+
+@pytest.mark.parametrize("memory_key", MEMORY_KEYS)
+def test_no_memory_module_adds_a_format_instruction_the_others_lack(memory_key, tmp_path):
+    """The memory module is the variable under test, so it cannot also be the thing
+    that decides how parseable the agent's replies are.
+
+    `IntrinsicMASMemory` used to append "You can only perform one action. Output in
+    a single line your next action" in the task description it renders, and no other
+    module did - so the intrinsic arms were the only ones asked for one line.
+    Measured on llama3.1:8b with the stop sequence dropped, that instruction takes
+    replies needing repair from 12 of 16 down to 3 of 16, which is a difference in
+    prompts showing up as a difference between arms.
+    """
+    _, memory_cls = module_map("io", memory_key)
+    memory = memory_cls(
+        namespace=f"{memory_key}-format",
+        global_config={"working_dir": str(tmp_path), "hop": 1},
+        llm_model=FakeLLM(),
+        embedding_func=FakeEmbeddingFunc(),
+    )
+    memory.init_task_context("task", "a description")
+
+    summary = memory.summarize(solver_message="sys")
+
+    offending = [phrase for phrase in FORMAT_INSTRUCTIONS if phrase in summary]
+    assert not offending, (
+        f"{memory_key} tells its agent {offending}, which the other arms are not told"
+    )

@@ -6,6 +6,17 @@ from .hotpotqa_prompt import hotpotqa_solver_system_prompt, hotpotqa_few_shots
 from .jericho_prompt import jericho_solver_system_prompt, jericho_few_shots
 from .pddl_prompt import pddl_prompts
 
+# Appended to every dataset's system prompt, so that what the agent is told about
+# the shape of a reply does not depend on which memory module is being measured.
+# Only `IntrinsicMASMemory` used to say it, in the task description it renders, so
+# the intrinsic arms were the only ones asked for one line - and once a stop
+# sequence is dropped that instruction is the only thing left asking.
+ONE_ACTION_PER_REPLY: str = (
+    "\nOutput exactly one line, and nothing else: your single next action, with no "
+    "numbering, no quotes, no observation of your own, and no explanation around it.\n"
+)
+
+
 def get_dataset_system_prompt(task: str, task_config: dict) -> str:
     prompt_map: dict = {
         'alfworld': alfworld_solver_system_prompt,
@@ -21,10 +32,10 @@ def get_dataset_system_prompt(task: str, task_config: dict) -> str:
         raise ValueError(f'Unsupported task type: {task}')
     
     if task != 'pddl':
-        return prompt_map.get(task)
+        return prompt_map.get(task) + ONE_ACTION_PER_REPLY
     else:
         task_type: str = task_config.get('game_name')
-        return pddl_prompts[task_type]['instruction']
+        return pddl_prompts[task_type]['instruction'] + ONE_ACTION_PER_REPLY
         
 
 

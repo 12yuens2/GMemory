@@ -66,11 +66,12 @@ class IntrinsicMASMemory(MASMemoryBase):
         if len(mas_message.task_trajectory) > 5:
             self.agent_intrinsic_memory = self.llm_model(messages, intrinsic=True)
 
-        injection = "You can only perform one action. Output in a single line your next action"
-
-        # Funny that summary_message becomes the new task description, which itself contains the task description. What is the differnce between the two??
+        # No format instruction here. It used to say "You can only perform one
+        # action. Output in a single line your next action", which no other memory
+        # module said, so the arms this fork compares were not being asked for the
+        # same shape of reply. It is in every dataset's system prompt instead.
         summary_message = f"""{mas_message.task_description} \n\n### Agent Memory\n 
-        {self.agent_intrinsic_memory} \n\n {mas_message.task_trajectory} \n\n {injection}"""
+        {self.agent_intrinsic_memory} \n\n {mas_message.task_trajectory}"""
 
         return summary_message
 
