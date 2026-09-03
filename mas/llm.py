@@ -114,6 +114,7 @@ class GPTChat(LLM):
         )
         self.tracker: TokenTracker = tracker if tracker is not None else TokenTracker()
         self._sends_temperature: bool = True
+        self._sends_stop: bool = True
 
     def _create(
         self,
@@ -125,13 +126,15 @@ class GPTChat(LLM):
         """One request, dropping the temperature if the endpoint refuses it.
 
         A refusal is remembered, and absorbed here rather than spending one of the
-        caller's retries.
+        caller's retries. A stop sequence that turns out to truncate a reasoning
+        model's hidden reasoning before it answers is remembered the same way, in
+        `__call__`, since only the response reveals that.
         """
         request = dict(
             model=self.model_name,
             messages=messages,
             max_completion_tokens=max_tokens,
-            stop=stop_strs,
+            stop=stop_strs if self._sends_stop else None,
         )
 
         if self._sends_temperature:
@@ -187,7 +190,17 @@ class GPTChat(LLM):
                 )
 
                 if answer is None:
-                    print("Error: LLM returned None", file=sys.stderr)
+                    reasoning = getattr(response.choices[0].message, "reasoning_content", None)
+                    if self._sends_stop and stop_strs and reasoning:
+                        self._sends_stop = False
+                        print(
+                            f"{self.model_name} let stop={stop_strs} cut off its reasoning "
+                            f"before it answered; sending subsequent calls without a stop "
+                            f"sequence",
+                            file=sys.stderr,
+                        )
+                    else:
+                        print("Error: LLM returned None", file=sys.stderr)
                     continue
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 logger.debug('LLM RESPONSE at %s\n%s', current_time, answer)
