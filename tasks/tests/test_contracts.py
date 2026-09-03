@@ -21,6 +21,7 @@ from tasks.envs import ENVS, RECORDERS
 from tasks.envs.base_env import AggregateResults, BaseEnv, aggregate
 
 from tasks.mas_workflow import MAS
+from tasks.prompts import get_dataset_system_prompt
 from tasks.tests.fakes import (
     FakeEmbeddingFunc,
     FakeEnv,
@@ -330,3 +331,138 @@ def test_every_env_knows_a_reasoning_step_from_an_action(task):
 
     assert ENVS[task].is_thought(thought) is True, f"{task} calls {thought!r} an action"
     assert ENVS[task].is_thought(action) is False, f"{task} calls {action!r} a thought"
+
+
+def _respellings(thought: str) -> list[str]:
+    """The same reasoning step as a model variously writes it.
+
+    A model asked for `think:` supplies `Think:` and `THINK:`, and copies the
+    `> ` marker out of the few shots along with it.
+    """
+    marker, _, rest = thought.partition(":")
+
+    return [
+        thought,
+        f"{marker.capitalize()}:{rest}",
+        f"{marker.upper()}:{rest}",
+        f"> {thought}",
+        f"**{thought}**",
+    ]
+
+
+@pytest.mark.parametrize("task", sorted(ENVS))
+def test_a_reasoning_step_is_recognised_however_the_model_capitalises_it(task):
+    """Case cost a trial on every dataset: a thought the env does not recognise is
+    sent to the simulator as an action, and rejected.
+
+    Asserted per registry key rather than per environment, so no dataset can be
+    added or changed back into the strict form without this failing.
+    """
+    thought, _ = THOUGHT_VOCABULARY[task]
+
+    for spelling in _respellings(thought):
+        assert ENVS[task].is_thought(spelling) is True, (
+            f"{task} would send {spelling!r} to the simulator as an action"
+        )
+
+
+def test_pddl_accepts_the_second_form_its_own_prompt_offers():
+    """PDDL's instructions give `think xxx:` alongside `think: xxx`, so a model
+    following them writes the marker without a colon after it.
+
+    Jericho is the one environment that cannot allow this, because `think` is a
+    verb its parser accepts as a command - so it asks for the colon and the rest
+    do not.
+    """
+    assert ENVS["pddl"].is_thought("think I should move block A first:") is True
+    assert ENVS["pddl"].is_thought("think") is True
+
+    assert ENVS["jericho"].is_thought("think") is False, (
+        "interactive fiction takes `think` as a command, so it cannot be a marker"
+    )
+
+
+# How a model dresses up the same action. Each has to survive to the same command.
+DECORATIONS = ('{}', '"{}"', "'{}'", '{}.', '1. {}', '- {}', '**{}**', '```\n{}\n```')
+
+
+@pytest.mark.parametrize("task", sorted(ENVS))
+@pytest.mark.parametrize("decoration", DECORATIONS)
+def test_an_action_survives_the_way_a_model_formats_it(task, decoration):
+    """Each of these forms cost a trial, on every dataset."""
+    _, action = THOUGHT_VOCABULARY[task]
+    plain = ENVS[task].process_action(action)
+
+    assert ENVS[task].process_action(decoration.format(action)) == plain, (
+        f"{task} loses the action out of {decoration.format(action)!r}"
+    )
+
+
+@pytest.mark.parametrize("task", sorted(ENVS))
+def test_an_action_written_after_a_thought_is_the_one_taken(task):
+    """A reply carrying both can only be done one way round, and taking the
+    thought spends the trial achieving nothing - the shape issue #31 described.
+    """
+    thought, action = THOUGHT_VOCABULARY[task]
+
+    taken = ENVS[task].process_action(f"{thought}\n{action}")
+
+    assert taken == ENVS[task].process_action(action), f"{task} took the thought, not {action!r}"
+    assert not ENVS[task].is_thought(taken)
+
+
+# ── every arm is told the same thing about the shape of a reply ───────────────
+
+# Wordings that constrain the shape of a reply rather than its content. A memory
+# module that introduces one of these is telling its agent something the arms it
+# is measured against were not told.
+FORMAT_INSTRUCTIONS = (
+    "one action",
+    "single line",
+    "one line",
+    "nothing else",
+)
+
+
+@pytest.mark.parametrize("task", sorted(ENVS))
+def test_every_dataset_asks_for_one_action_per_reply(task):
+    """Otherwise the stop sequence is the only thing asking, and it gets dropped.
+
+    `GPTChat` drops `stop=['\\n']` for any endpoint it truncates, which is every
+    reasoning model, so a prompt that never asks for one line is relying on
+    something that will not be there.
+    """
+    prompt = get_dataset_system_prompt(task, task_config=dict(TASK_CONFIGS[task]))
+
+    assert any(phrase in prompt for phrase in FORMAT_INSTRUCTIONS), (
+        f"{task}'s system prompt never asks for a single action"
+    )
+
+
+@pytest.mark.parametrize("memory_key", MEMORY_KEYS)
+def test_no_memory_module_adds_a_format_instruction_the_others_lack(memory_key, tmp_path):
+    """The memory module is the variable under test, so it cannot also be the thing
+    that decides how parseable the agent's replies are.
+
+    `IntrinsicMASMemory` used to append "You can only perform one action. Output in
+    a single line your next action" in the task description it renders, and no other
+    module did - so the intrinsic arms were the only ones asked for one line.
+    Measured on llama3.1:8b with the stop sequence dropped, that instruction takes
+    replies needing repair from 12 of 16 down to 3 of 16, which is a difference in
+    prompts showing up as a difference between arms.
+    """
+    _, memory_cls = module_map("io", memory_key)
+    memory = memory_cls(
+        namespace=f"{memory_key}-format",
+        global_config={"working_dir": str(tmp_path), "hop": 1},
+        llm_model=FakeLLM(),
+        embedding_func=FakeEmbeddingFunc(),
+    )
+    memory.init_task_context("task", "a description")
+
+    summary = memory.summarize(solver_message="sys")
+
+    offending = [phrase for phrase in FORMAT_INSTRUCTIONS if phrase in summary]
+    assert not offending, (
+        f"{memory_key} tells its agent {offending}, which the other arms are not told"
+    )

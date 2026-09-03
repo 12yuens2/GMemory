@@ -1,4 +1,3 @@
-import yaml
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Union, Any
@@ -18,12 +17,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def repo_path(*parts: str) -> Path:
     """An absolute path to something in the repository."""
     return REPO_ROOT.joinpath(*parts)
-
-
-def load_config(config_path: str):
-    with open(config_path, "r", encoding="utf-8") as file:
-        config = yaml.safe_load(file)
-    return config
 
 
 def load_json(file_name: str) -> Union[list, dict]:

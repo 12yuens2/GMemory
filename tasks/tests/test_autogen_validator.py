@@ -155,11 +155,23 @@ class TestSummarize:
         mem.init_task_context("task", "unique description text")
         assert "unique description text" in mem.summarize(solver_message="sys")
 
-    def test_summary_contains_action_injection(self, tmp_path):
-        """Return value includes the single-action constraint instruction."""
+    def test_summary_carries_no_format_instruction_of_its_own(self, tmp_path):
+        """It used to append "You can only perform one action", and no other memory
+        module did.
+
+        The arms this fork compares have to be told the same thing about the shape
+        of a reply, or a difference in how parseable their answers are is a
+        difference in their prompts rather than in their memory. The instruction is
+        in every dataset's system prompt now - see `ONE_ACTION_PER_REPLY` - which
+        every arm gets.
+        """
         mem, _ = make_memory(tmp_path)
         mem.init_task_context("task", "desc")
-        assert "You can only perform one action" in mem.summarize(solver_message="sys")
+
+        summary = mem.summarize(solver_message="sys")
+
+        assert "You can only perform one action" not in summary
+        assert "single line" not in summary
 
     def test_solver_message_embedded_in_llm_prompt(self, tmp_path):
         """solver_message appears in the user Message sent to the LLM (custom_message slot)."""

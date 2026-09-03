@@ -13,11 +13,13 @@ import yaml
 from dataclasses import dataclass, field
 from tqdm import tqdm
 
+from mas.logging_utils import log_mas_to_console
 from mas.module_map import module_map
 from mas.reasoning import ReasoningBase
 from mas.memory import MASMemoryBase
 from mas.llm import LLMCallable, GPTChat, TokenTracker
 from mas.mas import EpisodeResult, MetaMAS
+from mas.settings import LLMSettings, use_llm_settings
 from mas.utils import EmbeddingFunc, repo_path
 
 import results
@@ -30,6 +32,26 @@ CONFIG_PATH = repo_path('tasks', 'configs.yaml')
 
 with open(CONFIG_PATH) as reader:
     CONFIG: dict = yaml.safe_load(reader)
+
+
+def install_llm_settings(experiment_config: dict) -> LLMSettings:
+    """Make this experiment's LLM flags the settings its GPTChats will use.
+
+    Workers are spawned rather than forked, so what the parent installed does
+    not reach them: each one installs its own from the config it was handed.
+    """
+    settings = LLMSettings.load(
+        max_tokens=experiment_config['max_tokens'],
+        temperature=experiment_config['temperature'],
+        request_timeout=experiment_config['request_timeout'],
+        log_responses=experiment_config['log_responses'],
+    )
+    use_llm_settings(settings)
+
+    if settings.log_responses:
+        log_mas_to_console()
+
+    return settings
 
 
 @dataclass
@@ -286,6 +308,7 @@ def run_experiment(experiment_config: dict) -> dict:
     os.makedirs(working_dir, exist_ok=True)
 
     try:
+        install_llm_settings(experiment_config)
         random.seed(seed)
 
         task_configs: TaskManager = build_task(

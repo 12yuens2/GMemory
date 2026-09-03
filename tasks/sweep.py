@@ -13,13 +13,12 @@ from itertools import product
 
 from tqdm import tqdm
 
-from mas.logging_utils import log_mas_to_console
 from mas.module_map import MAS_MEMORY_MODULES
-from mas.settings import LLMSettings, default_llm_settings
+from mas.settings import LLMSettings
 
 import results
 from envs import ENVS
-from experiment import run_experiment
+from experiment import install_llm_settings, run_experiment
 from mas_workflow import MAS
 
 
@@ -108,6 +107,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
                              'starting each task from an empty one. No effect on the other memory '
                              'modules, which accumulate across tasks either way.')
 
+    # llm config
+    parser.add_argument('--max_tokens', type=int, default=512,
+                        help='Ceiling on the tokens generated per response, sent as '
+                             'max_completion_tokens. A reasoning model spends it on its '
+                             'reasoning and its answer together.')
+    parser.add_argument('--temperature', type=float, default=0.1,
+                        help='Sampling temperature for any call that does not set its own.')
+    parser.add_argument('--request_timeout', type=float, default=300.0,
+                        help='Seconds one request may take before it is abandoned. The openai '
+                             'client\'s own default is 600, which multiplied by its retries and '
+                             'the retry loops above it lets one action block for around 90 '
+                             'minutes against a server that has stopped answering.')
+    parser.add_argument('--log_responses', action='store_true',
+                        help='Echo every LLM response and memory-update prompt to stderr. One '
+                             'Slurm job writes one .out file, from every worker at once, over '
+                             'the order of 100,000 requests - it is all in the per-experiment '
+                             'log files either way.')
+
     # experiment config
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')
     parser.add_argument('--num_workers', type=int, default=num_cpus, help='Number of worker processes for parallel experiment execution.')
@@ -126,11 +143,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] = None) -> None:
     args = build_arg_parser().parse_args(argv)
 
-    settings: LLMSettings = default_llm_settings()
+    settings: LLMSettings = install_llm_settings(vars(args))
     print(f'LLM endpoint: {settings.api_base}, max_tokens: {settings.max_tokens}')
-
-    if settings.log_responses:
-        log_mas_to_console()
 
     overall_results_path = results.overall_results_path(
         args.db_dir, args.overall_results_filename

@@ -56,18 +56,6 @@ class SciworldEnv(BaseEnv):
     def inventory(self):
         return self.env.inventory()
     
-    @staticmethod
-    def process_action(action: str):
-        action = action.strip().replace('<', '').split('\n')[0]
-        action = action.replace('>', '').replace('OK.', '').replace('OK', '').strip()
-        if action.startswith("ACTION:"):
-            return action[7:].strip() 
-        return action
-
-    @staticmethod
-    def is_thought(action: str) -> bool:
-        return 'think' in action
-
     def step(self, action: str) -> tuple[str, float, bool]:
 
         if self.is_thought(action):

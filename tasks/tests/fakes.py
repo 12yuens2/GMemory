@@ -167,6 +167,33 @@ class TemperatureRejectingCompletions(FakeCompletions):
         return super().create(**kwargs)
 
 
+class StopTruncatesReasoningCompletions(FakeCompletions):
+    """An endpoint whose reasoning model is cut off by a stop sequence.
+
+    Answers None with populated `reasoning_content` for as long as a call sends
+    `stop`; answers from `script` once the caller stops sending it.
+    """
+
+    def __init__(self, script, reasoning="thinking it over\n"):
+        super().__init__(script)
+        self.reasoning = reasoning
+        self.truncations = 0
+
+    def create(self, **kwargs):
+        if kwargs.get("stop"):
+            self.calls.append(kwargs)
+            self.truncations += 1
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(
+                    content=None, reasoning_content=self.reasoning
+                ))],
+                usage=SimpleNamespace(
+                    prompt_tokens=self.prompt_tokens, completion_tokens=self.completion_tokens
+                ),
+            )
+        return super().create(**kwargs)
+
+
 def chat_over_fake_completions(
     script, tracker=None, model_name="fake-model", settings=None, completions=None
 ):

@@ -114,6 +114,7 @@ class GPTChat(LLM):
         )
         self.tracker: TokenTracker = tracker if tracker is not None else TokenTracker()
         self._sends_temperature: bool = True
+        self._sends_stop: bool = True
 
     def _create(
         self,
@@ -125,13 +126,15 @@ class GPTChat(LLM):
         """One request, dropping the temperature if the endpoint refuses it.
 
         A refusal is remembered, and absorbed here rather than spending one of the
-        caller's retries.
+        caller's retries. A stop sequence that turns out to truncate a reasoning
+        model's hidden reasoning before it answers is remembered the same way, in
+        `__call__`, since only the response reveals that.
         """
         request = dict(
             model=self.model_name,
             messages=messages,
             max_completion_tokens=max_tokens,
-            stop=stop_strs,
+            stop=stop_strs if self._sends_stop else None,
         )
 
         if self._sends_temperature:
@@ -186,8 +189,40 @@ class GPTChat(LLM):
                     intrinsic=intrinsic,
                 )
 
+                reasoning = getattr(response.choices[0].message, 'reasoning_content', None)
+
+                # Having asked for a stop sequence and been given nothing back,
+                # the stop sequence is the first suspect: it is matched against
+                # the raw stream, so it can fire inside reasoning the caller
+                # never sees. Endpoints report that two ways - gpt-oss on vLLM
+                # sends content=None with the text in `reasoning_content`, ollama
+                # sends content='' and no reasoning field - so neither the shape
+                # nor the reasoning field can be what this turns on.
+                if not (answer or '').strip() and self._sends_stop and stop_strs:
+                    self._sends_stop = False
+                    print(
+                        f'{self.model_name} answered nothing with stop={stop_strs}; '
+                        f'sending subsequent calls without a stop sequence'
+                        + (' (its reasoning was cut off mid-sentence)' if reasoning else ''),
+                        file=sys.stderr,
+                    )
+                    continue
+
                 if answer is None:
-                    print("Error: LLM returned None", file=sys.stderr)
+                    # Reasoning present with no content, once the stop sequence is
+                    # out of the picture, is what too small a
+                    # `max_completion_tokens` looks like: the budget went on
+                    # reasoning and left nothing to answer with.
+                    cause = (
+                        f'its reasoning did not reach an answer within '
+                        f'max_completion_tokens={max_tokens}'
+                        if reasoning else 'it sent no content and no reasoning'
+                    )
+                    print(
+                        f'Error: {self.model_name} returned no answer - {cause}. '
+                        f'Full response:\n{response}',
+                        file=sys.stderr,
+                    )
                     continue
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 logger.debug('LLM RESPONSE at %s\n%s', current_time, answer)

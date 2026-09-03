@@ -111,10 +111,6 @@ class PDDLEnv(BaseEnv):
         self.done = False
         self.won = False
     
-    @staticmethod
-    def is_thought(action: str) -> bool:
-        return 'think' in action
-
     def step(self, action: str) -> tuple[str, float, bool]:
 
         if self.is_thought(action):
@@ -159,14 +155,6 @@ class PDDLEnv(BaseEnv):
     def feedback(self) -> tuple[float, bool, str]:
         
         return self.reward, self.done, ''
-
-    @staticmethod
-    def process_action(action: str) -> str:
-        action = action.strip().replace('<', '').split('\n')[0]
-        action = action.replace('>', '').replace('OK.', '').replace('OK', '').strip()
-        if action.startswith("ACTION:") or action.startswith("Action:"):
-            return action[7:].strip() 
-        return action
 
     def _get_info(self):
         return self.infos

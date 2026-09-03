@@ -15,7 +15,7 @@ from jericho import FrotzEnv
 
 from mas.utils import repo_path
 
-from .base_env import BaseEnv, BaseRecorder, clean_action_line, is_thought_line
+from .base_env import BaseEnv, BaseRecorder, is_thought_line
 
 DEFAULT_ROM_DIR = 'data/jericho/roms'
 
@@ -127,16 +127,6 @@ class JerichoEnv(BaseEnv):
     @staticmethod
     def is_thought(action: str) -> bool:
         return is_thought_line(action, colon_required=True)
-
-    @staticmethod
-    def process_action(action: str) -> str:
-        """The command to type, out of the model's line.
-
-        Unlike the older environments this does not strip `OK` as a substring:
-        interactive fiction commands are conventionally uppercase, and `LOOK`,
-        `TAKE BOOK`, `SMOKE` and `BROKEN LOCK` all contain it.
-        """
-        return clean_action_line(action)
 
     def feedback(self) -> tuple[float, bool, str]:
         """The share of the game's score range reached, and whether it was won.
