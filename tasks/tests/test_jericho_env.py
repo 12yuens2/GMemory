@@ -161,6 +161,28 @@ def test_a_thought_alone_is_still_a_thought():
     assert ENVS['jericho'].is_thought(processed)
 
 
+@pytest.mark.parametrize(
+    'raw, expected',
+    [
+        ('Action 1: take paper', 'take paper'),
+        ('Action: take paper', 'take paper'),
+        ('ACTION 2: north', 'north'),
+        ('Step 3: north', 'north'),
+    ],
+)
+def test_a_numbered_label_comes_off_the_command(raw, expected):
+    """A parser handed `Action 1: take paper` answers that it does not know the
+    word `Action`, and the trial is gone."""
+    assert ENVS['jericho'].process_action(raw) == expected
+
+
+def test_a_command_after_a_thought_on_one_line_is_taken():
+    """The shape issue #31 described, on a single line rather than two."""
+    assert ENVS['jericho'].process_action(
+        'think: I should look around. Action 1: look'
+    ) == 'look'
+
+
 def test_a_line_that_is_only_an_acknowledgement_comes_back_empty():
     """An empty action spends a retry rather than a trial, so the model gets
     another turn instead of the parser being handed `OK.`."""

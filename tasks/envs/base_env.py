@@ -9,12 +9,16 @@ from abc import ABC, abstractmethod
 from mas.logging_utils import get_file_logger
 from mas.mas import EpisodeResult
 
-_LABEL = re.compile(r'^(?:action|command)\s*:\s*', re.IGNORECASE)
+_LABEL = re.compile(r'^(?:action|command|step)\s*\d*\s*:\s*', re.IGNORECASE)
 _LIST_MARKER = re.compile(r'^(?:[-+\u2022]|\(?\d+[.)])\s+')
 _FENCE = re.compile(r'^\s*```')
+_EMBEDDED_ACTION = re.compile(r'(?:action|command)\s*\d*\s*:\s*', re.IGNORECASE)
+
 # A leading marker is allowed because the few shots show `> think:` and an
 # agent that copies them copies the marker too.
-_THOUGHT = re.compile(r'^[\s>*\u2022`\-\'"]*(?:think|thought)\s*\d*\s*:', re.IGNORECASE)
+_MARKER = r'^[\s>*\u2022`\-\'"]*'
+_THOUGHT = re.compile(_MARKER + r'(?:think|thought)\s*\d*\s*:', re.IGNORECASE)
+_THOUGHT_LOOSE = re.compile(_MARKER + r'(?:think|thought)\b', re.IGNORECASE)
 
 # Quotes a model wraps a whole line in, straight and curly.
 _QUOTE_PAIRS = (('"', '"'), ("'", "'"), ('\u201c', '\u201d'), ('\u2018', '\u2019'))
@@ -24,18 +28,24 @@ def _mean(values: list) -> float:
     return sum(values) / len(values) if values else 0
 
 
-def is_thought_line(line: str) -> bool:
+def is_thought_line(line: str, colon_required: bool = False) -> bool:
     """Whether a line is a reasoning step rather than something to act on.
 
     Matches `think:`, `Think:`, `THINK:`, `Thought:` and `Thought 1:`, since a
     model asked for `think:` supplies any of them, and tolerates the `> ` marker
     the few shots are written with.
 
-    The colon is required. `think` on its own is a verb some interactive fiction
-    games accept as a command, and treating that as a reasoning step would
-    swallow a real action.
+    Anchored to the start of the line, which is what tells a reasoning step from
+    an action that merely mentions one: `Search[Thought experiment]` is a search.
+
+    `colon_required` is for an environment where the bare word is itself a
+    command. Interactive fiction accepts `think` as a verb, so there the colon is
+    what distinguishes a reasoning step; everywhere else the marker alone does,
+    and PDDL's prompt offers `think xxx:` as well as `think: xxx`.
     """
-    return _THOUGHT.match(line) is not None
+    pattern = _THOUGHT if colon_required else _THOUGHT_LOOSE
+
+    return pattern.match(line) is not None
 
 
 def _undecorate(line: str) -> str:
@@ -79,9 +89,10 @@ def clean_action_line(action: str, recognises=None) -> str:
     Where the model wrote a thought and then the action - which the prompts ask
     it not to, and which it does anyway - the action is preferred: the
     environment can only do one of the two, and taking the thought would spend
-    the trial achieving nothing. `recognises` is how a caller with a fixed set of
-    actions says which later lines qualify; without it, any line that is not a
-    thought does.
+    the trial achieving nothing. That holds whether the action came on its own
+    line or after an `Action N:` on the same one, which is the shape issue #31
+    described. `recognises` is how a caller with a fixed set of actions says
+    which candidates qualify; without it, any line that is not a thought does.
 
     Note `OK.` is stripped only as a whole line. Substring-replacing it, which
     the older environments do, turns the interactive fiction command `LOOK` into
@@ -97,6 +108,12 @@ def clean_action_line(action: str, recognises=None) -> str:
     for line in lines[1:]:
         if not is_thought_line(line) and (recognises is None or recognises(line)):
             return line
+
+    embedded = _EMBEDDED_ACTION.split(lines[0], maxsplit=1)
+    if len(embedded) == 2 and embedded[1].strip():
+        candidate = _undecorate(embedded[1])
+        if candidate and (recognises is None or recognises(candidate)):
+            return candidate
 
     return lines[0]
 

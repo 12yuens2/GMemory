@@ -280,6 +280,34 @@ def test_the_action_is_preferred_when_a_thought_precedes_it():
     assert parse_action(processed) == 'left'
 
 
+@pytest.mark.parametrize(
+    'raw', ['Action 1: turn left', 'Action: turn left', 'ACTION 2: turn left',
+            'Step 2: turn left', 'Command 1: turn left']
+)
+def test_a_numbered_label_comes_off_the_action(raw):
+    """A model that has seen ReAct numbers its actions, and the number was what
+    stopped the label being recognised."""
+    assert parse_action(ENVS['babyai'].process_action(raw)) == 'left'
+
+
+def test_the_marker_alone_is_a_thought_without_a_colon_after_it():
+    """None of the seven actions is `think`, so there is nothing to lose by
+    reading the bare marker as reasoning - and a model that writes
+    `think the ball is left` has reasoned, not acted.
+    """
+    assert ENVS['babyai'].is_thought('think the ball is left') is True
+    assert ENVS['babyai'].is_thought('Think the ball is left') is True
+
+
+def test_an_action_after_a_thought_on_one_line_is_taken():
+    """The shape issue #31 described, on a single line rather than two."""
+    processed = ENVS['babyai'].process_action(
+        'think: the ball is to my left. Action 1: turn left'
+    )
+
+    assert parse_action(processed) == 'left'
+
+
 def test_a_thought_followed_by_prose_stays_a_thought():
     """The seven actions are a closed set, so a line after a thought is only
     preferred over it when it is one of them. Prose is not, and a thought at

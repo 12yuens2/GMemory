@@ -126,7 +126,7 @@ class JerichoEnv(BaseEnv):
 
     @staticmethod
     def is_thought(action: str) -> bool:
-        return is_thought_line(action)
+        return is_thought_line(action, colon_required=True)
 
     @staticmethod
     def process_action(action: str) -> str:
