@@ -84,8 +84,25 @@ by a perfect player. The zero floor disappears at 75. 100 clears it with margin,
 makes 19 games winnable so `done` carries signal again, and leaves the median
 game at 42% so the score has room to move in both directions.
 
-The cost is linear in the budget: 100 trials over 56 games, 10 seeds and 10 arms
-is about 560k agent turns against 168k at 30.
+The turns are linear in the budget - 100 trials over 56 games, 10 seeds and 10
+arms is about 560k agent turns against 168k at 30 - but the tokens are not, and
+that is the number that matters. Every turn re-sends the whole trajectory, so
+prompt tokens grow with the square of the budget. Measured on one game:
+
+| trials | prompt tokens for one task |
+|---|---|
+| 6 | 40,902 |
+| 12 | 94,305 |
+| 25 | 216,989 |
+
+which fits `76*n^2 + 6789*n`. So 30 trials is about 272k prompt tokens per task
+and 100 is about 1.44M: **5.3x the tokens for 3.3x the turns**. Over the whole
+sweep that is roughly 1.5B prompt tokens at 30 against 8.1B at 100. Measured with
+a 0.5B model, whose replies are short, so treat those as a floor.
+
+A single call stays well inside a normal context window - about 11k tokens at
+trial 30 and 22k at trial 100 - so this is cost rather than a limit. 75 is the
+cheapest budget at which no game is stuck on zero, at 3.4x the tokens of 30.
 
 Four of the games open above zero — `advent` on 36 of 350, `detective` on 10 of
 360, `deephome` on 1 of 300 and `ludicorp` on 1 of 150 — which is why the progress
