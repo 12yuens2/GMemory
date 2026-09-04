@@ -61,12 +61,13 @@ Each of these scripts:
 3. Points `OPENAI_API_BASE` at the local vLLM server (`http://localhost:8000/v1`) and runs `uv run tasks/run.py`, sweeping over every memory module and 10 seeds for one task (alfworld/babyai/fever/hotpotqa/jericho/pddl/sciworld) or fever, pddl and sciworld at once (`single_node_serve.sh`).
 4. Kills the vLLM process once `run.py` finishes.
 
-Alongside the six is one `slurm/crosstask.sh`: every dataset's intrinsic modules again, run with `--intrinsic_cross_task` so the memory is kept across the tasks of the dataset instead of starting each task from nothing. It gives each dataset its own `tasks/run.py`, concurrently against the one server, because the sweep is a Cartesian product and a single call over every dataset would pair each with every other dataset's hand-written template. Point it at the same results directory as the six — the two arms are told apart by the `intrinsic_cross_task` column, not by the file they land in.
+Alongside the seven is one `slurm/crosstask.sh`: every dataset's intrinsic modules again, run with `--intrinsic_cross_task` so the memory is kept across the tasks of the dataset instead of starting each task from nothing. It gives each dataset its own `tasks/run.py`, concurrently against the one server, because the sweep is a Cartesian product and a single call over every dataset would pair each with every other dataset's hand-written template. Point it at the same results directory as the seven — the two arms are told apart by the `intrinsic_cross_task` column, not by the file they land in.
 
 The datasets do not cost the same, so the starting token budget is per dataset in `slurm/generate_slurm.py` (`MAX_TOKENS_OVERRIDES`, with `DEFAULT_MAX_TOKENS` for the rest). `TIME_LIMIT` and `MAX_NUM_SEQS` are one value for every job. Edit the generator and rerun it; the scripts themselves are gitignored.
 
 ```bash
 export DB_DIR=/projects/<project>/results/experiment-2026-09
+sbatch slurm/alfworld_experiment.sh   # 10 arms x 10 seeds
 sbatch slurm/babyai_experiment.sh     # 10 arms x 10 seeds
 sbatch slurm/fever_experiment.sh      # 10 arms x 10 seeds
 sbatch slurm/hotpotqa_experiment.sh   # 10 arms x 10 seeds
