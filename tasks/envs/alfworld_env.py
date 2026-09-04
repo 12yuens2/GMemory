@@ -14,12 +14,18 @@ from pathlib import Path
 from typing import Union, Any
 import re
 
-from alfworld.agents.environment import get_environment
-
 from mas.mas import EpisodeResult
 from mas.utils import repo_path
 
 from .base_env import BaseEnv, BaseRecorder, aggregate
+
+# tasks/envs imports every environment at module scope, and alfworld is the one
+# simulator uv sync cannot install - so importing it eagerly here would take every
+# other dataset down with it on any machine that has not installed it by hand.
+try:
+    from alfworld.agents.environment import get_environment
+except ModuleNotFoundError:
+    get_environment = None
 
 prefixes = {  # tasks: task_type
     'pick_and_place': 'put',
@@ -67,6 +73,13 @@ class AlfworldEnv(BaseEnv):
 
     def __init__(self, env_config: dict[str, Any], max_trials: int):
         super().__init__(env_config, max_trials)
+
+        if get_environment is None:
+            raise ModuleNotFoundError(
+                'alfworld is installed separately from the rest, and on aarch64 needs '
+                'two extra steps; see the ALFWorld section of data/data.md.'
+            )
+
         limit_episode_steps(self.env_config, max_trials)
 
         self.main_env = get_environment(self.env_config['env']['type'])(

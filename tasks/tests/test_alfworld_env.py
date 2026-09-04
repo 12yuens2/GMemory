@@ -8,7 +8,9 @@ the two most easily drift apart, and where the scoring bug below lived.
 """
 
 import copy
+import importlib
 import json
+import sys
 
 import pytest
 import yaml
@@ -107,6 +109,46 @@ def task_config(gamefile, **overrides) -> dict:
         'task_type': 'put',
         'env_name': 'pick_and_place',
     } | overrides
+
+
+# ── the registry imports whether or not the simulator is installed ────────────
+
+class _BlockAlfworld:
+    """An import hook that makes `alfworld` absent, as it is on a plain `uv sync`."""
+
+    def find_spec(self, name, path=None, target=None):
+        if name == 'alfworld' or name.startswith('alfworld.'):
+            raise ModuleNotFoundError(f"No module named {name!r}")
+        return None
+
+
+@pytest.fixture
+def without_the_simulator(monkeypatch):
+    for name in [name for name in sys.modules if name.split('.')[0] == 'alfworld']:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.delitem(sys.modules, 'tasks.envs.alfworld_env', raising=False)
+    monkeypatch.setattr(sys, 'meta_path', [_BlockAlfworld()] + sys.meta_path)
+
+    return importlib.import_module('tasks.envs.alfworld_env')
+
+
+def test_the_module_imports_with_the_simulator_absent(without_the_simulator):
+    """`tasks/envs/__init__.py` imports every environment at module scope, and
+    alfworld is the one simulator `uv sync` cannot install - both its compiled
+    dependencies lack an aarch64 wheel. Imported eagerly here, its absence is a
+    ModuleNotFoundError for babyai, fever, hotpotqa, jericho, pddl and sciworld
+    too, on every machine that has not installed it by hand.
+    """
+    assert without_the_simulator.get_environment is None
+    assert without_the_simulator.prefixes, 'the rest of the module still has to load'
+
+
+def test_building_the_environment_without_the_simulator_says_where_to_get_it(
+    without_the_simulator,
+):
+    """The absence has to surface when alfworld is asked for, not before."""
+    with pytest.raises(ModuleNotFoundError, match='data/data.md'):
+        without_the_simulator.AlfworldEnv(env_config=copy.deepcopy(ENV_CONFIG), max_trials=30)
 
 
 # ── nothing is played until a game is chosen ──────────────────────────────────
