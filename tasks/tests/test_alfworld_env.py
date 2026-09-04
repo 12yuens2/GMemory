@@ -7,6 +7,7 @@ and the win flag on `info['won']` rather than on `done` - because that is where
 the two most easily drift apart, and where the scoring bug below lived.
 """
 
+import copy
 import json
 
 import pytest
@@ -90,7 +91,9 @@ def build(monkeypatch):
     monkeypatch.setattr(alfworld_env, 'get_environment', lambda name: FakeAlfredTWEnv)
 
     def make(max_trials: int = 30, script: list = None):
-        env = ENVS['alfworld'](env_config=dict(ENV_CONFIG), max_trials=max_trials)
+        # A deep copy because the constructor writes the trial budget into the
+        # config's nested sections, which a shallow one would share between tests.
+        env = ENVS['alfworld'](env_config=copy.deepcopy(ENV_CONFIG), max_trials=max_trials)
         env.main_env.script = list(script or [])
         return env
 
