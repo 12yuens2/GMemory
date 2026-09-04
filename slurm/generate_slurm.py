@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Generate the per-task slurm/*_experiment.sh, *_crosstask.sh and *_calibrate.sh.
+"""Generate the per-task slurm/*_experiment.sh and slurm/*_crosstask.sh sweep scripts.
 
 The generated scripts are not committed; this generator is. Edit the constants
 below and rerun to produce a new sweep:
 
-    uv run slurm/generate_slurm.py                 # the sweep
-    uv run slurm/generate_slurm.py --calibrate     # the calibration runs
+    uv run slurm/generate_slurm.py                  # every dataset
+    uv run slurm/generate_slurm.py --task fever pddl
+
+The calibration runs that size these jobs are slurm/generate_calibration.py,
+which builds its scripts from the cluster configuration and job template here.
 
 Set SLURM_ACCOUNT to name an account in the generated scripts; without it they
 submit under the user's default.
@@ -23,28 +26,6 @@ SLURM_DIR = Path(__file__).parent
 
 TASKS = ["babyai", "fever", "hotpotqa", "jericho", "pddl", "sciworld"]
 SEEDS = [11, 22, 33, 44, 55, 66, 77, 88, 99, 111]
-
-# --- calibration ---------------------------------------------------------
-# One dataset, every arm, one seed, twenty tasks at the full trial budget. This
-# is the run that says whether a 24-hour job fits: the result rows carry the
-# token spend, so tokens / elapsed = throughput, and
-# episodes x tokens-per-task / throughput = wall clock. Twenty also takes
-# g-memory past its twentieth task, where merge_insights runs.
-
-CALIBRATION_SEED = SEEDS[0]
-CALIBRATION_TASKS = 20
-CALIBRATION_TIME_LIMIT = "02:00:00"
-
-# Tasks whose full budget will not calibrate inside that window, and the smaller
-# shakedown that will. Jericho runs 100 trials rather than 30 and its prompt
-# tokens grow with the square of the budget - about 1.44M per task by the curve
-# in data/data.md, so twenty tasks over ten arms is ~288M tokens, an 18-hour job
-# at the throughput the other calibrations measured. Cut to the 2-hour window it
-# would report a tenth of its arms and nothing about the rest, which reads as an
-# arm that failed rather than one that never ran. Five tasks at 20 trials is
-# ~8M tokens and answers what a calibration of Jericho can: whether it runs.
-# Sizing its real job needs a job of its own.
-CALIBRATION_OVERRIDES = {"jericho": {"max_tasks": 5, "max_trials": 20}}
 
 # Non-intrinsic baselines, run in the experiment script only.
 BASELINE_MEMORIES = [
@@ -84,9 +65,6 @@ TIME_LIMIT = "24:00:00"
 PORT = 8000
 VLLM_STARTUP_SLEEP = 100
 
-# Named at generation time rather than committed: it is one user's allocation.
-ACCOUNT = os.environ.get("SLURM_ACCOUNT")
-
 # These three override the shared GPT-OSS_Hopper.yaml, which sets them to 8192,
 # 10240 and off.
 #
@@ -102,11 +80,33 @@ ENABLE_PREFIX_CACHING = True
 # Unset, every one of them sizes its thread pool to the whole node.
 OMP_NUM_THREADS = 2
 
+# Named at generation time rather than committed: it is one user's allocation.
+ACCOUNT = os.environ.get("SLURM_ACCOUNT")
+
+CROSS_TASK_COMMENT = """
+# The cross-task arm: an intrinsic memory is kept across the tasks of the dataset
+# instead of starting each task from an empty one. Only the intrinsicmemory-* modules
+# read the flag, and the same --db_dir as the baseline is deliberate - the two arms are
+# told apart by the intrinsic_cross_task column, not by the file they are in.
+"""
+
 # --------------------------------------------------------------------------
 
 
 def intrinsic_memory_for(task: str) -> str:
     return f"intrinsicmemory-{task}"
+
+
+def intrinsic_arms(task: str) -> list[str]:
+    return [INTRINSIC_ABLATIONS[0], intrinsic_memory_for(task), INTRINSIC_ABLATIONS[1]]
+
+
+def every_arm(task: str) -> list[str]:
+    return BASELINE_MEMORIES + intrinsic_arms(task)
+
+
+def account_directive() -> str:
+    return f"#SBATCH --account={ACCOUNT}\n" if ACCOUNT else ""
 
 
 def vllm_serve_block(max_num_seqs: int) -> str:
@@ -151,84 +151,33 @@ curl -s http://localhost:{PORT}/v1/models
 deactivate"""
 
 
-CALIBRATION_SUMMARY = """
-echo "==== calibration ===="
-column -s, -t < ${DB_DIR}/overall_results.csv
-
-python3 -c '
-import csv, sys
-rows = list(csv.DictReader(open(sys.argv[1])))
-tokens = sum(int(r["completion_tokens"]) + int(r["prompt_tokens"]) for r in rows)
-scored = sum(int(r["tasks_scored"]) for r in rows)
-print(f"{len(rows)} arms, {scored} tasks scored, {tokens:,} tokens")
-print(f"{tokens/max(scored, 1):,.0f} tokens per task")
-' ${DB_DIR}/overall_results.csv
-
-cat ${DB_DIR}/*/*/*/*/failed_tasks.csv 2>/dev/null
-"""
-
-
-def account_directive() -> str:
-    return f"#SBATCH --account={ACCOUNT}\n" if ACCOUNT else ""
-
-
-def render(task: str, variant: str) -> str:
+def job_script(
+    *,
+    task: str,
+    variant: str,
+    tag: str,
+    memories: list[str],
+    seeds: list[int],
+    time_limit: str = TIME_LIMIT,
+    max_tokens: int | None = None,
+    db_dir: str = DEFAULT_DB_DIR,
+    run_comment: str = "",
+    extra_flags: str = "",
+    epilogue: str = "",
+) -> str:
+    """One serve-then-run job: `tag` names the variant in the job and output names."""
     script_name = f"{task}_{variant}.sh"
     max_num_seqs = MAX_NUM_SEQS_OVERRIDES.get(task, DEFAULT_MAX_NUM_SEQS)
-    time_limit = CALIBRATION_TIME_LIMIT if variant == "calibrate" else TIME_LIMIT
-    max_tokens = MAX_TOKENS_OVERRIDES.get(task, DEFAULT_MAX_TOKENS)
-    cross_task_comment = ""
-    cross_task_flag = ""
-    summary = ""
-
-    if variant == "crosstask":
-        job_name = f"vllm-{task}-cross"
-        output_pattern = f"out/{task}-cross-%x.%j.%t.out"
-        memories = " ".join(
-            [INTRINSIC_ABLATIONS[0], intrinsic_memory_for(task), INTRINSIC_ABLATIONS[1]]
-        )
-        seeds = " ".join(str(s) for s in SEEDS)
-        scope = ""
-        db_dir = DEFAULT_DB_DIR
-        cross_task_comment = """
-# The cross-task arm: an intrinsic memory is kept across the tasks of the dataset
-# instead of starting each task from an empty one. Only the intrinsicmemory-* modules
-# read the flag, and the same --db_dir as the baseline is deliberate - the two arms are
-# told apart by the intrinsic_cross_task column, not by the file they are in.
-"""
-        cross_task_flag = "\n\t--intrinsic_cross_task \\"
-    elif variant == "calibrate":
-        job_name = f"vllm-{task}-calibrate"
-        output_pattern = f"out/{task}-calibrate-%x.%j.%t.out"
-        memories = " ".join(
-            BASELINE_MEMORIES
-            + [INTRINSIC_ABLATIONS[0], intrinsic_memory_for(task), INTRINSIC_ABLATIONS[1]]
-        )
-        seeds = str(CALIBRATION_SEED)
-        overrides = CALIBRATION_OVERRIDES.get(task, {})
-        scope = f"\n\t--max_tasks {overrides.get('max_tasks', CALIBRATION_TASKS)} \\"
-        if "max_trials" in overrides:
-            scope += f"\n\t--max_trials {overrides['max_trials']} \\"
-        db_dir = f"{DEFAULT_DB_DIR}/calibration"
-        summary = CALIBRATION_SUMMARY
-    else:
-        job_name = f"vllm-{task}"
-        output_pattern = f"out/{task}-%x.%j.%t.out"
-        memories = " ".join(
-            BASELINE_MEMORIES
-            + [INTRINSIC_ABLATIONS[0], intrinsic_memory_for(task), INTRINSIC_ABLATIONS[1]]
-        )
-        seeds = " ".join(str(s) for s in SEEDS)
-        scope = ""
-        db_dir = DEFAULT_DB_DIR
+    if max_tokens is None:
+        max_tokens = MAX_TOKENS_OVERRIDES.get(task, DEFAULT_MAX_TOKENS)
 
     return f"""#!/bin/bash
-{account_directive()}#SBATCH --job-name={job_name}
+{account_directive()}#SBATCH --job-name=vllm-{task}{tag}
 #SBATCH --nodes={NODES}
 #SBATCH --gpus={GPUS}
 #SBATCH --time={time_limit}
 #SBATCH --exclusive
-#SBATCH --output={output_pattern}
+#SBATCH --output=out/{task}{tag}-%x.%j.%t.out
 
 echo SERVING ON $HOSTNAME
 
@@ -255,31 +204,53 @@ source .venv/bin/activate
 sleep {VLLM_STARTUP_SLEEP}
 
 echo "results -> ${{DB_DIR}}"
-{cross_task_comment}
+{run_comment}
 # --no-sync: several of these jobs share one .venv, and `uv run` would otherwise
 # resolve and relink it under whichever of them is already importing torch.
 uv run --no-sync tasks/run.py \\
 \t--task {task} \\
 \t--mas_type autogen \\
-\t--mas_memory {memories} \\
-\t--seed {seeds} \\{cross_task_flag}{scope}
+\t--mas_memory {" ".join(memories)} \\
+\t--seed {" ".join(str(s) for s in seeds)} \\{extra_flags}
 \t--db_dir ${{DB_DIR}} \\
 \t--model ${{MODEL_NAME}} \\
 \t--max_tokens {max_tokens}
-{summary}
+{epilogue}
 # cleanup
 kill $VLLM_PID 2>/dev/null
 wait $VLLM_PID 2>/dev/null
 """
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--calibrate",
-        action="store_true",
-        help="generate the calibration scripts instead of the sweep",
+def render(task: str, crosstask: bool) -> str:
+    if crosstask:
+        return job_script(
+            task=task,
+            variant="crosstask",
+            tag="-cross",
+            memories=intrinsic_arms(task),
+            seeds=SEEDS,
+            run_comment=CROSS_TASK_COMMENT,
+            extra_flags="\n\t--intrinsic_cross_task \\",
+        )
+    return job_script(
+        task=task,
+        variant="experiment",
+        tag="",
+        memories=every_arm(task),
+        seeds=SEEDS,
     )
+
+
+def write_script(name: str, contents: str) -> None:
+    path = SLURM_DIR / name
+    path.write_text(contents)
+    path.chmod(0o755)
+    print(f"wrote {path}")
+
+
+def tasks_from_argv(description: str | None) -> list[str]:
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--task",
         nargs="+",
@@ -287,15 +258,14 @@ def main() -> None:
         default=TASKS,
         help="the datasets to generate for (default: all of them)",
     )
-    args = parser.parse_args()
+    return parser.parse_args().task
 
-    variants = ("calibrate",) if args.calibrate else ("experiment", "crosstask")
-    for task in args.task:
-        for variant in variants:
-            path = SLURM_DIR / f"{task}_{variant}.sh"
-            path.write_text(render(task, variant))
-            path.chmod(0o755)
-            print(f"wrote {path}")
+
+def main() -> None:
+    for task in tasks_from_argv(__doc__):
+        for crosstask in (False, True):
+            variant = "crosstask" if crosstask else "experiment"
+            write_script(f"{task}_{variant}.sh", render(task, crosstask))
 
 
 if __name__ == "__main__":
