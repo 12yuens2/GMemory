@@ -108,6 +108,10 @@ def _stub_wikipedia():
     settings = ModuleType("wikipedia.wikipedia")
     settings.USER_AGENT = "wikipedia (https://github.com/goldsmith/Wikipedia/)"
     settings.API_URL = "http://en.wikipedia.org/w/api.php"
+    # every request the package makes goes through this, and the status of what
+    # comes back is readable nowhere else
+    settings.requests = ModuleType("requests")
+    settings.requests.get = MagicMock(name="requests.get")
     module.wikipedia = settings
 
     sys.modules["wikipedia"] = module

@@ -7,11 +7,34 @@ endpoint scores every episode zero and reads as a weak agent rather than a
 broken experiment.
 """
 
+from types import SimpleNamespace
+
 import wikipedia
 
 import pytest
 
+from tasks.envs import utils
 from tasks.envs.utils import LangChainWiki, WikipediaUnavailable
+
+
+@pytest.fixture(autouse=True)
+def waits(monkeypatch):
+    """The seconds the retry would have slept, without spending them."""
+    slept = []
+    monkeypatch.setattr(utils, 'time', SimpleNamespace(sleep=slept.append))
+    return slept
+
+
+class Throttled:
+    """Wikimedia's 429: an HTML error page and the wait it asks for."""
+
+    def __init__(self):
+        self.status_code = 429
+        self.headers = {'Retry-After': '11', 'Content-Type': 'text/html; charset=utf-8'}
+        self.text = '<!DOCTYPE html><title>Wikimedia Error</title>'
+
+    def json(self):
+        raise ValueError('Expecting value: line 1 column 1 (char 0)')
 
 
 @pytest.fixture
@@ -19,10 +42,27 @@ def explorer(monkeypatch):
     return LangChainWiki()
 
 
+def raising(*failures):
+    """A `wikipedia.page` that raises `failures` in turn, then returns a page."""
+    attempts = []
+
+    class Page:
+        content = 'the page text'
+        url = 'https://en.wikipedia.org/wiki/Telemundo'
+
+    def page(title, **kwargs):
+        attempts.append(title)
+        if len(attempts) <= len(failures):
+            raise failures[len(attempts) - 1]
+        return Page()
+
+    return page, attempts
+
+
 def test_a_page_that_does_not_exist_is_reported_as_absent(explorer, monkeypatch):
-    monkeypatch.setattr(wikipedia, 'page', lambda title: (_ for _ in ()).throw(
+    monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: (_ for _ in ()).throw(
         wikipedia.PageError('no such page')))
-    monkeypatch.setattr(wikipedia, 'search', lambda title: ['Something else'])
+    monkeypatch.setattr(wikipedia, 'search', lambda title, **kwargs: ['Something else'])
 
     result = explorer.search('Nonexistent Title')
 
@@ -31,9 +71,9 @@ def test_a_page_that_does_not_exist_is_reported_as_absent(explorer, monkeypatch)
 
 
 def test_a_disambiguation_is_reported_as_absent_with_the_alternatives(explorer, monkeypatch):
-    monkeypatch.setattr(wikipedia, 'page', lambda title: (_ for _ in ()).throw(
+    monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: (_ for _ in ()).throw(
         wikipedia.DisambiguationError('ambiguous', [])))
-    monkeypatch.setattr(wikipedia, 'search', lambda title: ['Mercury (planet)'])
+    monkeypatch.setattr(wikipedia, 'search', lambda title, **kwargs: ['Mercury (planet)'])
 
     result = explorer.search('Mercury')
 
@@ -51,7 +91,7 @@ def test_being_unable_to_reach_wikipedia_is_raised_rather_than_reported_as_absen
     caught alongside PageError and turned into `Could not find`, so every search
     of a run came back empty and the results looked like a weak agent.
     """
-    monkeypatch.setattr(wikipedia, 'page', lambda title: (_ for _ in ()).throw(
+    monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: (_ for _ in ()).throw(
         ValueError('Expecting value: line 1 column 1 (char 0)')))
 
     with pytest.raises(WikipediaUnavailable, match='could not be reached'):
@@ -60,7 +100,7 @@ def test_being_unable_to_reach_wikipedia_is_raised_rather_than_reported_as_absen
 
 def test_the_transport_failure_names_what_went_wrong(explorer, monkeypatch):
     """The message is the only place the cause survives, so it carries it."""
-    monkeypatch.setattr(wikipedia, 'page', lambda title: (_ for _ in ()).throw(
+    monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: (_ for _ in ()).throw(
         ValueError('Expecting value: line 1 column 1 (char 0)')))
 
     with pytest.raises(WikipediaUnavailable) as failure:
@@ -80,7 +120,7 @@ def test_a_page_is_fetched_once_rather_than_twice(explorer, monkeypatch):
         content = 'the page text'
         url = 'https://en.wikipedia.org/wiki/Telemundo'
 
-    def page(title):
+    def page(title, **kwargs):
         calls.append(title)
         return Page()
 
@@ -95,7 +135,7 @@ def test_a_search_that_succeeds_keeps_the_page_for_lookup(explorer, monkeypatch)
         content = 'First paragraph.\n\nSecond paragraph mentioning zebras.'
         url = 'https://en.wikipedia.org/wiki/Telemundo'
 
-    monkeypatch.setattr(wikipedia, 'page', lambda title: Page())
+    monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: Page())
     explorer.search('Telemundo')
 
     assert 'zebras' in explorer.lookup('zebras')
@@ -111,13 +151,13 @@ def test_a_search_that_failed_discards_the_page_the_last_one_found(explorer, mon
         content = 'Telemundo is a television network mentioning zebras.'
         url = 'https://en.wikipedia.org/wiki/Telemundo'
 
-    monkeypatch.setattr(wikipedia, 'page', lambda title: Page())
+    monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: Page())
     explorer.search('Telemundo')
     assert 'zebras' in explorer.lookup('zebras'), 'the first search should have loaded'
 
-    monkeypatch.setattr(wikipedia, 'page', lambda title: (_ for _ in ()).throw(
+    monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: (_ for _ in ()).throw(
         wikipedia.PageError('no such page')))
-    monkeypatch.setattr(wikipedia, 'search', lambda title: [])
+    monkeypatch.setattr(wikipedia, 'search', lambda title, **kwargs: [])
     explorer.search('Nonexistent Title')
 
     with pytest.raises(ValueError, match='without a successful search'):
@@ -153,11 +193,203 @@ def test_a_failure_to_even_list_similar_titles_is_not_a_second_failure(
 ):
     """The similar titles are a courtesy. A page that is genuinely absent is
     still reported as absent when the suggestion call fails too."""
-    monkeypatch.setattr(wikipedia, 'page', lambda title: (_ for _ in ()).throw(
+    monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: (_ for _ in ()).throw(
         wikipedia.PageError('no such page')))
-    monkeypatch.setattr(wikipedia, 'search', lambda title: (_ for _ in ()).throw(
+    monkeypatch.setattr(wikipedia, 'search', lambda title, **kwargs: (_ for _ in ()).throw(
         ValueError('rate limited')))
 
     result = explorer.search('Nonexistent Title')
 
     assert 'Could not find [Nonexistent Title]' in result
+
+
+def test_a_transient_transport_failure_is_retried(explorer, monkeypatch):
+    """One bad response must not lose the search.
+
+    The API answers a burst of requests with a non-JSON body, which the
+    `wikipedia` package raises as a bare JSONDecodeError. The window is seconds
+    wide, so asking again inside the same search gets the page.
+    """
+    page, attempts = raising(
+        ValueError('Expecting value: line 1 column 1 (char 0)'),
+        ValueError('Expecting value: line 1 column 1 (char 0)'),
+    )
+    monkeypatch.setattr(wikipedia, 'page', page)
+
+    result = explorer.search('Telemundo')
+
+    assert result == 'the page text', f'gave up after {len(attempts)} attempts'
+    assert len(attempts) == 3, f'made {len(attempts)} attempts'
+
+
+def test_an_absent_page_is_not_retried(explorer, monkeypatch):
+    """A page that does not exist is an answer, and asking again spends the rate
+    limit to be told the same thing."""
+    page, attempts = raising(wikipedia.PageError('no such page'))
+    monkeypatch.setattr(wikipedia, 'page', page)
+    monkeypatch.setattr(wikipedia, 'search', lambda title: [])
+
+    explorer.search('Nonexistent Title')
+
+    assert len(attempts) == 1, f'made {len(attempts)} attempts'
+
+
+def test_the_retries_are_bounded(explorer, monkeypatch):
+    """An endpoint that is down for good must not hold the episode open."""
+    page, attempts = raising(*[
+        ValueError('Expecting value: line 1 column 1 (char 0)')
+        for _ in range(utils.WIKIPEDIA_ATTEMPTS + 1)
+    ])
+    monkeypatch.setattr(wikipedia, 'page', page)
+
+    with pytest.raises(WikipediaUnavailable):
+        explorer.search('Telemundo')
+
+    assert len(attempts) == utils.WIKIPEDIA_ATTEMPTS, f'made {len(attempts)} attempts'
+
+
+def test_the_package_fetches_through_the_status_aware_wrapper():
+    """The wrapper is installed by importing the module, once however many times
+    the repo is on the path under a different name."""
+    assert hasattr(wikipedia.wikipedia.requests, 'delegate')
+    assert not hasattr(wikipedia.wikipedia.requests.delegate, 'delegate'), 'wrapped twice'
+
+
+def test_a_refusal_is_raised_rather_than_parsed_as_json(monkeypatch):
+    """429 must not reach the package's `r.json()`.
+
+    Wikimedia answers a burst with 429, an HTML body and a `Retry-After`. The
+    package parses every response as JSON regardless, so the status and the wait
+    it asked for were both lost - the caller saw a bare JSONDecodeError.
+    """
+    fetcher = wikipedia.wikipedia.requests
+    monkeypatch.setattr(fetcher, 'delegate', SimpleNamespace(get=lambda *a, **k: Throttled()))
+
+    with pytest.raises(RuntimeError) as throttled:
+        fetcher.get('https://en.wikipedia.org/w/api.php')
+
+    assert throttled.value.retry_after == 11
+
+
+def test_a_refusal_that_names_no_wait_falls_back_to_the_backoff(monkeypatch):
+    """`Retry-After` is optional, and may be an HTTP-date rather than seconds."""
+    dated = Throttled()
+    dated.headers = {'Retry-After': 'Wed, 21 Oct 2026 07:28:00 GMT'}
+    fetcher = wikipedia.wikipedia.requests
+    monkeypatch.setattr(fetcher, 'delegate', SimpleNamespace(get=lambda *a, **k: dated))
+
+    with pytest.raises(RuntimeError) as throttled:
+        fetcher.get('https://en.wikipedia.org/w/api.php')
+
+    assert throttled.value.retry_after == utils.WIKIPEDIA_RETRY_SECONDS
+
+
+def test_a_response_the_api_answered_is_passed_through(monkeypatch):
+    """Only a refusal raises: an answer is the package's to parse."""
+    answered = SimpleNamespace(status_code=200, headers={}, json=lambda: {'query': {}})
+    fetcher = wikipedia.wikipedia.requests
+    monkeypatch.setattr(fetcher, 'delegate', SimpleNamespace(get=lambda *a, **k: answered))
+
+    assert fetcher.get('https://en.wikipedia.org/w/api.php') is answered
+
+
+def test_a_throttled_search_waits_the_time_the_api_asked_for(explorer, monkeypatch, waits):
+    """The wait is unguessable, so it is read rather than assumed.
+
+    Wikimedia asked for eleven seconds where the blind backoff would have spent
+    about three, retried inside the window and failed all four attempts.
+    """
+    page, attempts = raising(utils.WikipediaRefused(429, 11))
+    monkeypatch.setattr(wikipedia, 'page', page)
+
+    result = explorer.search('Telemundo')
+
+    assert result == 'the page text', f'gave up after {len(attempts)} attempts'
+    assert waits and waits[0] >= 11, f'waited {waits}'
+
+
+def test_a_transport_failure_that_asks_for_nothing_backs_off(explorer, monkeypatch, waits):
+    """A fault with no `Retry-After` still has to wait, or the retry is a no-op."""
+    page, _ = raising(ValueError('Expecting value: line 1 column 1 (char 0)'))
+    monkeypatch.setattr(wikipedia, 'page', page)
+
+    explorer.search('Telemundo')
+
+    assert waits and waits[0] > 0, f'waited {waits}'
+
+
+def test_the_jitter_scales_with_the_wait_it_spreads(explorer, monkeypatch, waits):
+    """Every worker of a sweep meets the same burst and is handed the same wait.
+
+    Waiting exactly that long sends the whole sweep back at the API together, so
+    the waits are jittered apart by a fraction of the wait itself: a jitter that
+    does not scale with the wait leaves the sweep in a burst again.
+    """
+    asked = 11
+    for _ in range(24):
+        page, _ = raising(utils.WikipediaRefused(429, asked))
+        monkeypatch.setattr(wikipedia, 'page', page)
+        explorer.search('Telemundo')
+
+    spread = max(waits) - min(waits)
+    assert spread > asked / 4, f'24 workers waited within {spread:.2f}s of each other'
+
+
+def test_a_refusal_cannot_ask_for_longer_than_the_ceiling(monkeypatch):
+    """The wait is the API's to name, and nothing bounds what it may name.
+
+    An hour would be honoured before every retry of every Search, in every
+    worker of the sweep at once, against a job with a walltime.
+    """
+    hour = Throttled()
+    hour.headers = {'Retry-After': '3600'}
+    fetcher = wikipedia.wikipedia.requests
+    monkeypatch.setattr(fetcher, 'delegate', SimpleNamespace(get=lambda *a, **k: hour))
+
+    with pytest.raises(RuntimeError) as refused:
+        fetcher.get('https://en.wikipedia.org/w/api.php')
+
+    assert refused.value.retry_after == utils.WIKIPEDIA_MAX_WAIT
+
+
+def test_a_server_error_is_not_reported_as_a_wait_that_was_asked_for(monkeypatch):
+    """Only a `Retry-After` is a wait Wikimedia asked for.
+
+    A 503 names none, and reporting the backoff default as what it asked for
+    puts a number in the log that nothing ever sent.
+    """
+    unavailable = SimpleNamespace(status_code=503, headers={})
+    fetcher = wikipedia.wikipedia.requests
+    monkeypatch.setattr(fetcher, 'delegate', SimpleNamespace(get=lambda *a, **k: unavailable))
+
+    with pytest.raises(RuntimeError) as refused:
+        fetcher.get('https://en.wikipedia.org/w/api.php')
+
+    assert 'named no wait' in str(refused.value), str(refused.value)
+    assert '503' in str(refused.value), str(refused.value)
+    assert refused.value.retry_after == utils.WIKIPEDIA_RETRY_SECONDS
+
+
+def test_the_title_asked_for_is_the_title_fetched(explorer, monkeypatch):
+    """The package's `auto_suggest` default reports existing pages as absent.
+
+    It replaces the requested title with Wikipedia's spelling suggestion and
+    fetches that, so `L.A. Reid`, `Anne Rice`, `Nine Inch Nails`, `Damon Albarn`
+    and `Brad Wilk` all raised PageError against the live API - and the agent was
+    told the page did not exist while being handed its exact title as a similar
+    one to try instead.
+    """
+    asked = {}
+
+    class Page:
+        content = 'the page text'
+        url = 'https://en.wikipedia.org/wiki/L.A._Reid'
+
+    def page(title, **kwargs):
+        asked.update(title=title, **kwargs)
+        return Page()
+
+    monkeypatch.setattr(wikipedia, 'page', page)
+    explorer.search('L.A. Reid')
+
+    assert asked['auto_suggest'] is False, f'fetched with {asked}'

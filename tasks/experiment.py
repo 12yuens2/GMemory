@@ -112,10 +112,14 @@ def build_task(
     model: str = None,
     max_trials: int = None,
     max_tasks: int = None,
+    env_overrides: dict = None,
 ) -> TaskManager:
 
     with open(repo_path(CONFIG.get(task).get('env_config_path'))) as reader:
-        config = yaml.safe_load(reader)
+        config = yaml.safe_load(reader) or {}
+    config.update(
+        (name, value) for name, value in (env_overrides or {}).items() if value is not None
+    )
 
     env: BaseEnv = get_env(task, config, trial_budget(task, max_trials))
     recorder: BaseRecorder = get_recorder(task, working_dir=working_dir, namespace=f'total_task-seed_{seed}')
@@ -281,6 +285,15 @@ def _write_failed_tasks(
         )
 
 
+# Flags that configure an environment rather than the sweep, merged into the
+# env_config its task's YAML supplies.
+ENV_FLAGS = (
+    'wikipedia_attempts',
+    'wikipedia_retry_seconds',
+    'unreachable_search_limit',
+)
+
+
 def run_experiment(experiment_config: dict) -> dict:
     task_name = experiment_config['task']
     mas_type = experiment_config['mas_type']
@@ -314,6 +327,7 @@ def run_experiment(experiment_config: dict) -> dict:
         task_configs: TaskManager = build_task(
             task_name, mas_type, mas_memory_type, seed, working_dir,
             model=model_type, max_trials=max_trials, max_tasks=max_tasks,
+            env_overrides={name: experiment_config.get(name) for name in ENV_FLAGS},
         )
         task_configs.mas_config['successful_topk'] = successful_topk
         task_configs.mas_config['failed_topk'] = failed_topk
