@@ -21,6 +21,7 @@ PROMPT = [Message("user", "what is the next action?")]
 def settings(temperature: float) -> LLMSettings:
     return LLMSettings(
         api_base="http://localhost:9999", api_key="test-key", max_tokens=64,
+        max_tokens_ceiling=8192,
         temperature=temperature, request_timeout=300.0, log_responses=False,
     )
 
