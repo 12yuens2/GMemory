@@ -90,6 +90,8 @@ uv run slurm/generate_calibration.py --task fever pddl
 sbatch slurm/fever_calibrate.sh
 ```
 
+Every value a calibration is sized by is a flag with that default — `--seed`, `--max_tasks`, `--max_trials`, `--time_limit`, `--db_dir` — so resizing one takes no edit: `--max_tasks 5 --time_limit 00:30:00` for a quicker shakedown. A flag given on the command line also overrides the per-dataset `OVERRIDES` table, which is what holds Jericho to five tasks by default.
+
 `SLURM_ACCOUNT=<account>` in front of either generator puts an `#SBATCH --account` line in whatever it writes; without it the scripts submit under your default account.
 
 Calibrations default to `$HOME/GMemory/.db-calibration`, not the sweep's directory, so calibrating several datasets fills one table of its own. Each prints that table, the tokens per task and any failed tasks. That is what sizes the real jobs — every experiment in a job runs concurrently against one throughput-bound server, so the wall clock is total tokens divided by what the server sustains, and `tokens_per_task x episodes / throughput` is the estimate. Twenty tasks also takes `g-memory` past its twentieth, where `merge_insights` runs.

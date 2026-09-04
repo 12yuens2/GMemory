@@ -2,16 +2,16 @@
 """Generate the per-task slurm/*_calibrate.sh runs that size the sweep jobs.
 
 One dataset, every arm, one seed, twenty tasks at the full trial budget, in a
-2-hour allocation. This is the run that says whether a 24-hour job fits: the
-result rows carry the token spend, so tokens / elapsed = throughput, and
-episodes x tokens-per-task / throughput = wall clock. Twenty also takes
-g-memory past its twentieth task, where merge_insights runs.
+2-hour allocation. The result rows carry the token spend, so tokens / elapsed =
+throughput, and episodes x tokens-per-task / throughput = the wall clock a real
+job needs.
 
     uv run slurm/generate_calibration.py                  # every dataset
     uv run slurm/generate_calibration.py --task fever pddl
+    uv run slurm/generate_calibration.py --max_tasks 5 --time_limit 00:30:00
 
-The cluster, the model and the arms are generate_slurm.py's; what a calibration
-does differently is here.
+Every default below is a flag, so a calibration can be resized without editing
+the file. The cluster, the model and the arms are generate_slurm.py's.
 """
 import argparse
 
@@ -25,20 +25,13 @@ from generate_slurm import (
     write_script,
 )
 
-SEEDS_CALIBRATED = SEEDS[:1]
-MAX_TASKS = 20
-TIME_LIMIT = "02:00:00"
-DB_DIR = "$HOME/GMemory/.db-calibration"
+DEFAULT_SEEDS = SEEDS[:1]
+DEFAULT_MAX_TASKS = 20
+DEFAULT_TIME_LIMIT = "02:00:00"
+DEFAULT_DB_DIR = "$HOME/GMemory/.db-calibration"
 
-# Tasks whose full budget will not calibrate inside that window, and the smaller
-# shakedown that will. Jericho runs 100 trials rather than 30 and its prompt
-# tokens grow with the square of the budget - about 1.44M per task by the curve
-# in data/data.md, so twenty tasks over ten arms is ~288M tokens, an 18-hour job
-# at the throughput the other calibrations measured. Cut to the 2-hour window it
-# would report a tenth of its arms and nothing about the rest, which reads as an
-# arm that failed rather than one that never ran. Five tasks at 20 trials is
-# ~8M tokens and answers what a calibration of Jericho can: whether it runs.
-# Sizing its real job needs a job of its own.
+# Jericho's prompt tokens grow with the square of its 100-trial budget, so 20
+# tasks would be ~288M tokens - an 18-hour job. Five at 20 trials is ~8M.
 OVERRIDES = {"jericho": {"max_tasks": 5, "max_trials": 20}}
 
 SUMMARY = """
@@ -59,37 +52,47 @@ cat ${DB_DIR}/*/*/*/*/failed_tasks.csv 2>/dev/null
 """
 
 
-def scope_flags(task: str) -> str:
+def scope_flags(task: str, max_tasks: int | None, max_trials: int | None) -> str:
+    """The --max_tasks/--max_trials a calibration of `task` runs at.
+
+    A flag given on the command line wins over OVERRIDES, for every dataset.
+    """
     overrides = OVERRIDES.get(task, {})
-    flags = f"\n\t--max_tasks {overrides.get('max_tasks', MAX_TASKS)} \\"
-    if "max_trials" in overrides:
-        flags += f"\n\t--max_trials {overrides['max_trials']} \\"
+    if max_tasks is None:
+        max_tasks = overrides.get("max_tasks", DEFAULT_MAX_TASKS)
+    if max_trials is None:
+        max_trials = overrides.get("max_trials")
+
+    flags = f"\n\t--max_tasks {max_tasks} \\"
+    if max_trials is not None:
+        flags += f"\n\t--max_trials {max_trials} \\"
     return flags
 
 
-def render(task: str) -> str:
+def render(task: str, *, seeds: list[int], time_limit: str, db_dir: str,
+           max_tasks: int | None, max_trials: int | None) -> str:
     return (
         preamble(
             f"vllm-{task}-calibrate",
             f"out/{task}-calibrate-%x.%j.%t.out",
             f"{task}_calibrate.sh",
-            time_limit=TIME_LIMIT,
-            db_dir=DB_DIR,
+            time_limit=time_limit,
+            db_dir=db_dir,
         )
         + "\n"
         + run_command(
             task,
             every_arm(task),
             cross_task=False,
-            seeds=SEEDS_CALIBRATED,
-            scope=scope_flags(task),
+            seeds=seeds,
+            scope=scope_flags(task, max_tasks, max_trials),
         )
         + SUMMARY
         + CLEANUP
     )
 
 
-def main() -> None:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--task",
@@ -98,8 +101,53 @@ def main() -> None:
         default=TASKS,
         help="the datasets to calibrate (default: all of them)",
     )
-    for task in parser.parse_args().task:
-        write_script(f"{task}_calibrate.sh", render(task))
+    parser.add_argument(
+        "--seed",
+        nargs="+",
+        type=int,
+        default=DEFAULT_SEEDS,
+        help=f"the seeds each arm runs (default: {' '.join(str(s) for s in DEFAULT_SEEDS)})",
+    )
+    parser.add_argument(
+        "--max_tasks",
+        type=int,
+        help=f"tasks of the dataset per arm (default: {DEFAULT_MAX_TASKS}, or the dataset's"
+             " entry in OVERRIDES)",
+    )
+    parser.add_argument(
+        "--max_trials",
+        type=int,
+        help="trials per task, overriding the dataset's own budget (default: the budget,"
+             " or the dataset's entry in OVERRIDES)",
+    )
+    parser.add_argument(
+        "--time_limit",
+        default=DEFAULT_TIME_LIMIT,
+        help=f"the #SBATCH --time each job asks for (default: {DEFAULT_TIME_LIMIT})",
+    )
+    parser.add_argument(
+        "--db_dir",
+        default=DEFAULT_DB_DIR,
+        help=f"where the runs write, unless DB_DIR is set at submit time (default:"
+             f" {DEFAULT_DB_DIR})",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    for task in args.task:
+        write_script(
+            f"{task}_calibrate.sh",
+            render(
+                task,
+                seeds=args.seed,
+                time_limit=args.time_limit,
+                db_dir=args.db_dir,
+                max_tasks=args.max_tasks,
+                max_trials=args.max_trials,
+            ),
+        )
 
 
 if __name__ == "__main__":
