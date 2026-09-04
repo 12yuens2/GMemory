@@ -73,7 +73,8 @@ TEST_MODEL = os.getenv("TEST_LLM_MODEL", _DEFAULT_MODEL)
 def llm():
     """Real GPTChat instance shared across tests in this module."""
     settings = LLMSettings.load(
-        max_tokens=512, temperature=0.1, request_timeout=300.0, log_responses=False
+        max_tokens=512, max_tokens_ceiling=8192, temperature=0.1, request_timeout=300.0,
+        log_responses=False
     )
     return GPTChat(model_name=TEST_MODEL, settings=settings)
 

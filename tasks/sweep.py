@@ -114,6 +114,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help='Ceiling on the tokens generated per response, sent as '
                              'max_completion_tokens. A reasoning model spends it on its '
                              'reasoning and its answer together.')
+    parser.add_argument('--max_tokens_ceiling', type=int, default=8192,
+                        help='Largest max_completion_tokens a retry may climb to. A '
+                             'reasoning model that spends the whole budget reasoning '
+                             'answers nothing, and the same request again cannot answer '
+                             'either, so the budget doubles up to here instead. Set it to '
+                             '--max_tokens to keep every call to one budget.')
     parser.add_argument('--temperature', type=float, default=0.1,
                         help='Sampling temperature for any call that does not set its own.')
     parser.add_argument('--request_timeout', type=float, default=300.0,

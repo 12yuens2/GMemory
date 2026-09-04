@@ -172,13 +172,22 @@ class GPTChat(LLM):
         max_retries = 5
         wait_time = 1
         last_error: Optional[BaseException] = None
+        # The ceiling bounds where a retry may climb to, not what the caller
+        # asked for: the budget starts where it was asked to and only ever grows.
+        budget = max_tokens
+        ceiling = self.settings.max_tokens_ceiling
+        attempts = 0
+        # The budget of the most recent starved attempt, cleared by any other
+        # outcome, so the failure names whatever actually ended the call.
+        starved_at: Optional[int] = None
 
         for attempt in range(max_retries):
             try:
+                attempts += 1
                 response = self._create(
                     messages=messages,
                     temperature=temperature,
-                    max_tokens=max_tokens,
+                    max_tokens=budget,
                     stop_strs=stop_strs,
                 )
 
@@ -213,16 +222,30 @@ class GPTChat(LLM):
                     # out of the picture, is what too small a
                     # `max_completion_tokens` looks like: the budget went on
                     # reasoning and left nothing to answer with.
+                    starved = bool(reasoning)
+                    starved_at = budget if starved else None
                     cause = (
                         f'its reasoning did not reach an answer within '
-                        f'max_completion_tokens={max_tokens}'
-                        if reasoning else 'it sent no content and no reasoning'
+                        f'max_completion_tokens={budget}'
+                        if starved else 'it sent no content and no reasoning'
                     )
                     print(
                         f'Error: {self.model_name} returned no answer - {cause}. '
                         f'Full response:\n{response}',
                         file=sys.stderr,
                     )
+                    if starved:
+                        # Nothing but the budget can answer this, so where there
+                        # is no headroom left to climb into, another attempt is
+                        # the same request and the same bill.
+                        if budget >= ceiling:
+                            break
+                        budget = min(budget * 2, ceiling)
+                        print(
+                            f'{self.model_name} ran out of budget before answering; '
+                            f'retrying with max_completion_tokens={budget}',
+                            file=sys.stderr,
+                        )
                     continue
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 logger.debug('LLM RESPONSE at %s\n%s', current_time, answer)
@@ -230,6 +253,7 @@ class GPTChat(LLM):
 
             except Exception as e:
                 last_error = e
+                starved_at = None
                 error_message = str(e)
                 if "rate limit" in error_message.lower() or "429" in error_message:
                     print(f"Rate limited, waiting {wait_time}s before retry {attempt + 2}/{max_retries}", file=sys.stderr)
@@ -239,6 +263,10 @@ class GPTChat(LLM):
                     print(f"Error during API call: {error_message}", file=sys.stderr)
                     break
 
+        exhausted = (
+            f' within max_completion_tokens={starved_at}, the largest budget its '
+            f'retries could climb to' if starved_at else ''
+        )
         raise LLMCallFailed(
-            f'{self.model_name} returned no answer after {max_retries} attempts'
+            f'{self.model_name} returned no answer after {attempts} attempts{exhausted}'
         ) from last_error

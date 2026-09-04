@@ -13,9 +13,25 @@ import pytest
 
 from mas.llm import LLMCallFailed, Message, TokenTracker
 
+from tasks.tests.fakes import StarvedReasoningCompletions
 from tasks.tests.fakes import chat_over_fake_completions as build_chat
 
 PROMPT = [Message("system", "you are a solver"), Message("user", "what next?")]
+
+
+def call_settings(**overrides):
+    from mas.settings import LLMSettings
+
+    return LLMSettings(**{
+        'api_base': 'http://localhost:9999/v1', 'api_key': 'none', 'max_tokens': 512,
+        'max_tokens_ceiling': 8192, 'temperature': 0.1, 'request_timeout': 300.0,
+        'log_responses': False, **overrides,
+    })
+
+
+def budgets(completions) -> list:
+    """The `max_completion_tokens` of every request, in order."""
+    return [call.get('max_completion_tokens') for call in completions.calls]
 
 
 @pytest.fixture(autouse=True)
@@ -29,8 +45,22 @@ def no_sleeping():
 def test_a_persistent_api_error_raises_rather_than_returning_empty_string():
     chat, _ = build_chat([RuntimeError("500 internal server error")])
 
-    with pytest.raises(LLMCallFailed, match="returned no answer after 5 attempts"):
+    with pytest.raises(LLMCallFailed, match="returned no answer"):
         chat(PROMPT)
+
+
+def test_the_failure_counts_the_attempts_made_not_the_budget_for_them():
+    """A 500 breaks out without retrying, and used to report five attempts anyway.
+
+    Two tests in this file disagreed about the same run: one that the call was
+    made once, one that the message said five.
+    """
+    chat, completions = build_chat([RuntimeError("500 internal server error")])
+
+    with pytest.raises(LLMCallFailed, match="after 1 attempts"):
+        chat(PROMPT)
+
+    assert len(completions.calls) == 1
 
 
 def test_the_underlying_api_error_is_kept_as_the_cause():
@@ -123,7 +153,7 @@ def test_the_client_is_built_with_the_configured_request_timeout():
 
     settings = LLMSettings(
         api_base="http://localhost:9999/v1", api_key="none", max_tokens=512,
-        temperature=0.1, request_timeout=42.0, log_responses=False,
+        max_tokens_ceiling=8192, temperature=0.1, request_timeout=42.0, log_responses=False,
     )
 
     chat = GPTChat(model_name="fake-model", settings=settings)
@@ -131,3 +161,140 @@ def test_the_client_is_built_with_the_configured_request_timeout():
     assert chat.client.timeout == 42.0, (
         "a wedged endpoint consumes the allocation instead of failing the job"
     )
+
+
+# ── a starved reasoning model is retried with more budget, not the same one ────
+
+def test_a_starved_reasoning_model_is_retried_with_a_larger_budget():
+    """Asking again for the same ceiling gets the same truncation.
+
+    A reasoning model spends `max_completion_tokens` on reasoning and returns
+    content=None. The budget is the only thing whose change can answer the call,
+    so it is what the retry changes.
+    """
+    completions = StarvedReasoningCompletions(["the answer"], needs=2000)
+    chat, _ = build_chat(None, settings=call_settings(), completions=completions)
+
+    assert chat(PROMPT) == "the answer"
+    assert budgets(completions) == [512, 1024, 2048], budgets(completions)
+
+
+def test_no_two_attempts_of_a_starved_call_ask_for_the_same_budget():
+    """The property the old loop broke: five identical requests, five identical
+    truncations, and five budgets of reasoning paid for."""
+    completions = StarvedReasoningCompletions(["unreachable"], needs=10 ** 9)
+    chat, _ = build_chat(None, settings=call_settings(), completions=completions)
+
+    with pytest.raises(LLMCallFailed):
+        chat(PROMPT)
+
+    asked = budgets(completions)
+    assert len(asked) == len(set(asked)), f'repeated an identical request: {asked}'
+
+
+def test_the_budget_never_exceeds_the_ceiling_the_run_set():
+    completions = StarvedReasoningCompletions(["unreachable"], needs=10 ** 9)
+    chat, _ = build_chat(
+        None, settings=call_settings(max_tokens=512, max_tokens_ceiling=2048),
+        completions=completions,
+    )
+
+    with pytest.raises(LLMCallFailed):
+        chat(PROMPT)
+
+    assert budgets(completions) == [512, 1024, 2048], budgets(completions)
+
+
+def test_a_starved_call_with_no_headroom_is_not_retried_at_all():
+    """Where the budget cannot grow, another attempt is the same request again.
+
+    This is the waste the fix removes: at a 4096 ceiling five attempts cost
+    20,480 completion tokens to fail as deterministically as one does.
+    """
+    completions = StarvedReasoningCompletions(["unreachable"], needs=10 ** 9)
+    chat, _ = build_chat(
+        None, settings=call_settings(max_tokens=4096, max_tokens_ceiling=4096),
+        completions=completions,
+    )
+
+    with pytest.raises(LLMCallFailed):
+        chat(PROMPT)
+
+    assert budgets(completions) == [4096], budgets(completions)
+
+
+def test_a_ceiling_below_the_budget_asked_for_does_not_shrink_it():
+    """The ceiling bounds where a retry may climb to, and nothing else."""
+    completions = StarvedReasoningCompletions(["unreachable"], needs=10 ** 9)
+    chat, _ = build_chat(
+        None, settings=call_settings(max_tokens=4096, max_tokens_ceiling=512),
+        completions=completions,
+    )
+
+    with pytest.raises(LLMCallFailed):
+        chat(PROMPT)
+
+    assert budgets(completions) == [4096], budgets(completions)
+
+
+def test_the_failure_names_the_budget_it_could_not_answer_within():
+    """`after 5 attempts` said nothing about which of the causes ran out."""
+    completions = StarvedReasoningCompletions(["unreachable"], needs=10 ** 9)
+    chat, _ = build_chat(
+        None, settings=call_settings(max_tokens=512, max_tokens_ceiling=2048),
+        completions=completions,
+    )
+
+    with pytest.raises(LLMCallFailed, match="max_completion_tokens=2048") as raised:
+        chat(PROMPT)
+
+    assert "3 attempts" in str(raised.value), raised.value
+
+
+def test_a_starved_attempt_followed_by_an_api_error_does_not_blame_the_budget():
+    """Whatever ended the call is what the message names.
+
+    A budget mentioned for a failure the budget did not cause is the log
+    asserting a cause the endpoint never reported.
+    """
+    class StarvedThenBroken(StarvedReasoningCompletions):
+        def create(self, **kwargs):
+            if self.calls:
+                raise RuntimeError("500 internal server error")
+            return super().create(**kwargs)
+
+    completions = StarvedThenBroken(["unreachable"], needs=10 ** 9)
+    chat, _ = build_chat(None, settings=call_settings(), completions=completions)
+
+    with pytest.raises(LLMCallFailed) as raised:
+        chat(PROMPT)
+
+    assert 'max_completion_tokens' not in str(raised.value), raised.value
+
+
+def test_the_budget_spent_on_a_starved_attempt_is_still_billed():
+    """Every attempt generated a full budget of reasoning, and the sweep sizes
+    its jobs off these counts."""
+    tracker = TokenTracker()
+    completions = StarvedReasoningCompletions(["the answer"], needs=2000)
+    chat, _ = build_chat(
+        None, tracker=tracker, settings=call_settings(), completions=completions,
+    )
+
+    chat(PROMPT)
+
+    assert tracker.completion_tokens == 512 + 1024 + completions.completion_tokens, (
+        f'billed {tracker.completion_tokens}'
+    )
+
+
+def test_a_none_answer_with_no_reasoning_still_spends_the_retry_budget():
+    """Only the starved cause is deterministic. An endpoint that sent neither
+    content nor reasoning is unexplained, and may yet answer."""
+    chat, completions = build_chat([None], settings=call_settings())
+
+    with pytest.raises(LLMCallFailed) as raised:
+        chat(PROMPT)
+
+    assert budgets(completions) == [512] * 5, budgets(completions)
+    assert 'max_completion_tokens' not in str(raised.value), raised.value

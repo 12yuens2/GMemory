@@ -30,6 +30,10 @@ class LLMSettings:
         api_key: Credential for that endpoint.
         max_tokens: Ceiling on the tokens generated per response, sent as
             `max_completion_tokens`. A truncated answer is still returned.
+        max_tokens_ceiling: The largest `max_completion_tokens` a retry may climb
+            to. A reasoning model that spends the whole budget reasoning answers
+            nothing at all, and asking again for the same budget cannot change
+            that, so the retry doubles it up to here.
         temperature: Sampling temperature for any call that does not set its own.
         request_timeout: Seconds one request may take before it is abandoned. The
             openai default is 600, which multiplied by that client's retries and
@@ -42,6 +46,7 @@ class LLMSettings:
     api_base: str
     api_key: str
     max_tokens: int
+    max_tokens_ceiling: int
     temperature: float
     request_timeout: float
     log_responses: bool
@@ -50,6 +55,7 @@ class LLMSettings:
     def load(
         cls,
         max_tokens: int,
+        max_tokens_ceiling: int,
         temperature: float,
         request_timeout: float,
         log_responses: bool,
@@ -84,6 +90,7 @@ class LLMSettings:
             api_base=api_base,
             api_key=api_key,
             max_tokens=max_tokens,
+            max_tokens_ceiling=max_tokens_ceiling,
             temperature=temperature,
             request_timeout=request_timeout,
             log_responses=log_responses,

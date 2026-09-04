@@ -212,7 +212,8 @@ def build_config(tmp_path, seed: int) -> dict:
         'model': 'fake-model', 'max_trials': 3, 'max_tasks': None, 'seed': seed, 'successful_topk': 1,
         'failed_topk': 0, 'insights_topk': 3, 'threshold': 0.0, 'use_projector': False,
         'use_validator': False, 'hop': 1, 'intrinsic_cross_task': False,
-        'max_tokens': 512, 'temperature': 0.1, 'request_timeout': 300.0,
+        'max_tokens': 512, 'max_tokens_ceiling': 8192, 'temperature': 0.1,
+        'request_timeout': 300.0,
         'log_responses': False,
         'num_workers': 1, 'db_dir': str(tmp_path),
         'overall_results_filename': 'overall_results.csv', 'failed_tasks_filename': 'failed_tasks.csv',
@@ -281,6 +282,31 @@ def test_a_worker_installs_its_settings_before_it_builds_anything(
 
     assert outcome['status'] == 'success', outcome.get('error')
     assert default_llm_settings().max_tokens == 4096
+
+
+def test_a_flag_that_configures_an_llm_call_reaches_its_settings(
+    sweep_module, experiment_module, monkeypatch, tmp_path
+):
+    """The route from --max_tokens_ceiling to the budget a retry may climb to."""
+    from mas.settings import default_llm_settings, reset_default_llm_settings
+
+    experiment = experiment_module
+    monkeypatch.setattr(experiment, 'build_task', stub_build_task(experiment))
+    monkeypatch.setattr(experiment, 'build_mas', lambda *args, **kwargs: None)
+    monkeypatch.setattr(experiment, 'run_task', lambda *args, **kwargs: None)
+    reset_default_llm_settings()
+    args = parse(
+        sweep_module, '--mas_type', 'autogen', '--task', 'fever', '--mas_memory', 'empty',
+        '--max_tokens_ceiling', '3333',
+    )
+
+    outcome = experiment.run_experiment({
+        **sweep_module.build_experiment_configs(args)[0], **build_config(tmp_path, seed=42),
+        'max_tokens_ceiling': 3333,
+    })
+
+    assert outcome['status'] == 'success', outcome.get('error')
+    assert default_llm_settings().max_tokens_ceiling == 3333
 
 
 def test_a_flag_that_configures_an_environment_reaches_it(

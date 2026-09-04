@@ -167,6 +167,34 @@ class TemperatureRejectingCompletions(FakeCompletions):
         return super().create(**kwargs)
 
 
+class StarvedReasoningCompletions(FakeCompletions):
+    """A reasoning model that answers only once its budget reaches `needs`.
+
+    Below that the whole budget goes on reasoning and the answer never starts,
+    which vLLM reports for gpt-oss as content=None with the text in
+    `reasoning_content` and finish_reason='length'. The usage it reports is the
+    whole budget, because that is what was generated.
+    """
+
+    def __init__(self, script, needs: int, reasoning="thinking it over"):
+        super().__init__(script)
+        self.needs = needs
+        self.reasoning = reasoning
+
+    def create(self, **kwargs):
+        budget = kwargs.get("max_completion_tokens") or 0
+        if budget >= self.needs:
+            return super().create(**kwargs)
+
+        self.calls.append(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(
+                content=None, reasoning_content=self.reasoning,
+            ))],
+            usage=SimpleNamespace(prompt_tokens=self.prompt_tokens, completion_tokens=budget),
+        )
+
+
 class StopTruncatesReasoningCompletions(FakeCompletions):
     """An endpoint whose reasoning model is cut off by a stop sequence.
 
