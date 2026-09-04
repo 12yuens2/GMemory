@@ -61,23 +61,22 @@ Each of these scripts:
 3. Points `OPENAI_API_BASE` at the local vLLM server (`http://localhost:8000/v1`) and runs `uv run tasks/run.py`, sweeping over every memory module and 10 seeds for one task (babyai/fever/hotpotqa/jericho/pddl/sciworld) or fever, pddl and sciworld at once (`single_node_serve.sh`).
 4. Kills the vLLM process once `run.py` finishes.
 
-Each `*_experiment.sh` script has a `*_crosstask.sh` twin: the same intrinsic modules, run with `--intrinsic_cross_task` so the memory is kept across the tasks of the dataset instead of starting each task from nothing. Point both at the same results directory — the two arms are told apart by the `intrinsic_cross_task` column, not by the file they land in.
+Alongside the six is one `slurm/crosstask.sh`: every dataset's intrinsic modules again, run with `--intrinsic_cross_task` so the memory is kept across the tasks of the dataset instead of starting each task from nothing. It gives each dataset its own `tasks/run.py`, concurrently against the one server, because the sweep is a Cartesian product and a single call over every dataset would pair each with every other dataset's hand-written template. Point it at the same results directory as the six — the two arms are told apart by the `intrinsic_cross_task` column, not by the file they land in.
 
-The datasets do not cost the same, so the wall clock, the starting token budget and vLLM's queue depth are set per dataset in `slurm/generate_slurm.py` — `TIME_LIMIT_OVERRIDES`, `MAX_TOKENS_OVERRIDES` and `MAX_NUM_SEQS_OVERRIDES`, each with a `DEFAULT_*` for the datasets not listed. Edit the generator and rerun it; the scripts themselves are gitignored.
+The datasets do not cost the same, so the starting token budget is per dataset in `slurm/generate_slurm.py` (`MAX_TOKENS_OVERRIDES`, with `DEFAULT_MAX_TOKENS` for the rest). `TIME_LIMIT` and `MAX_NUM_SEQS` are one value for every job. Edit the generator and rerun it; the scripts themselves are gitignored.
 
 ```bash
-export DB_DIR=/projects/<project>/results/sweep-2026-09
-sbatch slurm/fever_experiment.sh      # 10 arms x 10 seeds
-sbatch slurm/fever_crosstask.sh       # the 3 intrinsic arms again, cross-task
-sbatch slurm/hotpotqa_experiment.sh   # 10 arms x 10 seeds
-sbatch slurm/hotpotqa_crosstask.sh    # the 3 intrinsic arms again, cross-task
-sbatch slurm/jericho_experiment.sh    # 10 arms x 10 seeds
-sbatch slurm/jericho_crosstask.sh     # the 3 intrinsic arms again, cross-task
+export DB_DIR=/projects/<project>/results/experiment-2026-09
 sbatch slurm/babyai_experiment.sh     # 10 arms x 10 seeds
-sbatch slurm/babyai_crosstask.sh      # the 3 intrinsic arms again, cross-task
+sbatch slurm/fever_experiment.sh      # 10 arms x 10 seeds
+sbatch slurm/hotpotqa_experiment.sh   # 10 arms x 10 seeds
+sbatch slurm/jericho_experiment.sh    # 10 arms x 10 seeds
+sbatch slurm/pddl_experiment.sh       # 10 arms x 10 seeds
+sbatch slurm/sciworld_experiment.sh   # 10 arms x 10 seeds
+sbatch slurm/crosstask.sh             # every dataset's 3 intrinsic arms, cross-task
 ```
 
-`DB_DIR` defaults to `$HOME/GMemory/.db/sweep`, and every script echoes where it is writing. Use a directory no earlier run wrote to: a run refuses to append to a results file whose header is not its schema.
+`DB_DIR` defaults to `$HOME/GMemory/.db-experiment`, and every script echoes where it is writing. Use a directory no earlier run wrote to: a run refuses to append to a results file whose header is not its schema.
 
 **Check the whole path in half an hour first**
 `slurm/smoke_test.sh` has the same shape as those - serve, then run - but for one task, two memory modules, one seed and two tasks of the dataset (`--max_tasks 2 --max_trials 3`). It then prints what the run wrote and fails if the two result rows are not there — including a wrong `--model`, which otherwise fails once per experiment rather than once. It also probes whether the filesystem grants `flock`, which is what the results file's append lock needs. Worth a submission before any 24-hour job, and after any change to the cluster, the model or the environment.
