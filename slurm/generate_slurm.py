@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the per-task slurm/*_experiment.sh and slurm/*_crosstask.sh sweep scripts.
+"""Generate the slurm/*_experiment.sh sweep scripts and slurm/crosstask.sh.
 
 The generated scripts are not committed; this generator is. Edit the constants
 below and rerun to produce a new sweep:
@@ -11,9 +11,9 @@ from pathlib import Path
 SLURM_DIR = Path(__file__).parent
 
 # --- experiment matrix ---------------------------------------------------
-# Every (task, memory, seed) combination in TASKS x BASELINE_MEMORIES x SEEDS
-# (plus the intrinsic ablations) is run once per experiment script, and every
-# (task, intrinsic arm, seed) combination once per crosstask script.
+# One experiment script per task runs its TASKS x BASELINE_MEMORIES x SEEDS
+# combinations plus the intrinsic ablations: 10 arms x 10 seeds. One crosstask
+# script covers every task's intrinsic arms again: 6 x 3 arms x 10 seeds.
 
 TASKS = ["babyai", "fever", "hotpotqa", "jericho", "pddl", "sciworld"]
 SEEDS = [11, 22, 33, 44, 55, 66, 77, 88, 99, 111]
@@ -26,9 +26,10 @@ BASELINE_MEMORIES = [
 # (intrinsicmemory-<task>) is added alongside these in both scripts.
 INTRINSIC_ABLATIONS = ["intrinsicmemory-notemplate", "intrinsicmemory-llm-structured-template"]
 
-# vLLM's request queue depth, per task; tasks not listed use DEFAULT_MAX_NUM_SEQS.
-MAX_NUM_SEQS_OVERRIDES = {"pddl": 256}
-DEFAULT_MAX_NUM_SEQS = 512
+# vLLM's request queue depth. A job's requests in flight are its experiment
+# count, which is at most 180, and the KV cache holds 3,730,336 tokens - 227 of
+# them at MAX_MODEL_LEN. Past that the depth is a number the server cannot honour.
+MAX_NUM_SEQS = 256
 
 # The budget a call starts at, per task; tasks not listed use DEFAULT_MAX_TOKENS.
 # A starved reasoning model is retried with a doubled budget, so too small a
@@ -46,7 +47,7 @@ MODEL_SNAPSHOT = "b5c939de8f754692c1647ca79fbf85e8c1e70f8a"
 MODEL_PATH = f"{HF_HOME}/hub/models--openai--gpt-oss-120b/snapshots/{MODEL_SNAPSHOT}/"
 MODEL_NAME = "openai/gpt-oss-120b"
 TIKTOKEN_ENCODINGS_BASE = "/projects/public/brics/distributed_vllm/etc/encodings"
-DEFAULT_DB_DIR = "$HOME/GMemory/.db/sweep"
+DEFAULT_DB_DIR = "$HOME/GMemory/.db-experiment"
 
 NODES = 1
 GPUS = 4
@@ -78,7 +79,7 @@ def intrinsic_memory_for(task: str) -> str:
     return f"intrinsicmemory-{task}"
 
 
-def vllm_serve_block(max_num_seqs: int) -> str:
+def vllm_serve_block() -> str:
     return f"""cd {VLLM_VENV_DIR}
 
 source .venv/bin/activate
@@ -100,7 +101,7 @@ srun \\
     --config $YAML_CONFIG \\
     --host 0.0.0.0 \\
     --port {PORT} \\
-    --max-num-seqs {max_num_seqs} \\
+    --max-num-seqs {MAX_NUM_SEQS} \\
     --max-num-batched-tokens {MAX_NUM_BATCHED_TOKENS} \\
     --max-model-len {MAX_MODEL_LEN} \\
     {"--enable-prefix-caching" if ENABLE_PREFIX_CACHING else "--no-enable-prefix-caching"} \\
@@ -120,34 +121,28 @@ curl -s http://localhost:{PORT}/v1/models
 deactivate"""
 
 
-def render(task: str, crosstask: bool) -> str:
-    variant = "crosstask" if crosstask else "experiment"
-    script_name = f"{task}_{variant}.sh"
-    job_name = f"vllm-{task}-cross" if crosstask else f"vllm-{task}"
-    output_pattern = f"out/{task}-cross-%x.%j.%t.out" if crosstask else f"out/{task}-%x.%j.%t.out"
-    max_num_seqs = MAX_NUM_SEQS_OVERRIDES.get(task, DEFAULT_MAX_NUM_SEQS)
-    max_tokens = MAX_TOKENS_OVERRIDES.get(task, DEFAULT_MAX_TOKENS)
-    seeds = " ".join(str(s) for s in SEEDS)
+def run_command(task: str, memories: list[str], cross_task: bool,
+                background: bool = False) -> str:
+    """One `tasks/run.py` invocation, for one dataset and its arms.
 
-    if crosstask:
-        memories = " ".join(
-            [INTRINSIC_ABLATIONS[0], intrinsic_memory_for(task), INTRINSIC_ABLATIONS[1]]
-        )
-        cross_task_comment = """
-# The cross-task arm: an intrinsic memory is kept across the tasks of the dataset
-# instead of starting each task from an empty one. Only the intrinsicmemory-* modules
-# read the flag, and the same --db_dir as the baseline is deliberate - the two arms are
-# told apart by the intrinsic_cross_task column, not by the file they are in.
-"""
-        cross_task_flag = "\n\t--intrinsic_cross_task \\"
-    else:
-        memories = " ".join(
-            BASELINE_MEMORIES
-            + [INTRINSIC_ABLATIONS[0], intrinsic_memory_for(task), INTRINSIC_ABLATIONS[1]]
-        )
-        cross_task_comment = ""
-        cross_task_flag = ""
+    A backgrounded one records its own pid: a bare `wait` would also wait on the
+    vLLM server started the same way, which only ever exits when killed.
+    """
+    flag = "\n\t--intrinsic_cross_task \\" if cross_task else ""
+    trailing = " &\nRUN_PIDS+=($!)" if background else ""
 
+    return f"""uv run --no-sync tasks/run.py \\
+\t--task {task} \\
+\t--mas_type autogen \\
+\t--mas_memory {" ".join(memories)} \\
+\t--seed {" ".join(str(seed) for seed in SEEDS)} \\{flag}
+\t--db_dir ${{DB_DIR}} \\
+\t--model ${{MODEL_NAME}} \\
+\t--max_tokens {MAX_TOKENS_OVERRIDES.get(task, DEFAULT_MAX_TOKENS)}{trailing}"""
+
+
+def preamble(job_name: str, output_pattern: str, script_name: str) -> str:
+    """Everything before the run: the allocation, the server, the environment."""
     return f"""#!/bin/bash
 #SBATCH --job-name={job_name}
 #SBATCH --nodes={NODES}
@@ -164,10 +159,10 @@ module list
 
 # Every job of one experiment set must point at the same directory: they append to
 # one overall_results.csv under a lock on the file. Override at submit time with
-#   DB_DIR=/projects/<project>/results/sweep-2026-09 sbatch slurm/{script_name}
+#   DB_DIR=/projects/<project>/results/experiment-2026-09 sbatch slurm/{script_name}
 DB_DIR=${{DB_DIR:-{DEFAULT_DB_DIR}}}
 
-{vllm_serve_block(max_num_seqs)}
+{vllm_serve_block()}
 
 # experiment setup
 export MODEL_NAME="{MODEL_NAME}"
@@ -181,32 +176,74 @@ source .venv/bin/activate
 sleep {VLLM_STARTUP_SLEEP}
 
 echo "results -> ${{DB_DIR}}"
-{cross_task_comment}
-# --no-sync: several of these jobs share one .venv, and `uv run` would otherwise
-# resolve and relink it under whichever of them is already importing torch.
-uv run --no-sync tasks/run.py \\
-\t--task {task} \\
-\t--mas_type autogen \\
-\t--mas_memory {memories} \\
-\t--seed {seeds} \\{cross_task_flag}
-\t--db_dir ${{DB_DIR}} \\
-\t--model ${{MODEL_NAME}} \\
-\t--max_tokens {max_tokens}
+"""
 
+
+CLEANUP = """
 # cleanup
 kill $VLLM_PID 2>/dev/null
 wait $VLLM_PID 2>/dev/null
 """
 
 
+def render_experiment(task: str) -> str:
+    memories = BASELINE_MEMORIES + [
+        INTRINSIC_ABLATIONS[0], intrinsic_memory_for(task), INTRINSIC_ABLATIONS[1]
+    ]
+
+    return (
+        preamble(f"vllm-{task}", f"out/{task}-%x.%j.%t.out", f"{task}_experiment.sh")
+        + "\n"
+        + run_command(task, memories, cross_task=False)
+        + CLEANUP
+    )
+
+
+def render_crosstask() -> str:
+    """Every dataset's cross-task arms, in one job against one server.
+
+    The datasets get a `run.py` each rather than one sweep over all of them:
+    the sweep is a Cartesian product, so a single call would pair every dataset
+    with every other dataset's hand-written template. They run concurrently and
+    append to the same files under the lock that already makes two submitted
+    jobs safe.
+    """
+    runs = "\n\n".join(
+        run_command(
+            task,
+            [INTRINSIC_ABLATIONS[0], intrinsic_memory_for(task), INTRINSIC_ABLATIONS[1]],
+            cross_task=True,
+            background=True,
+        )
+        for task in TASKS
+    )
+
+    return (
+        preamble("vllm-crosstask", "out/crosstask-%x.%j.%t.out", "crosstask.sh")
+        + """
+# The cross-task arm: an intrinsic memory is kept across the tasks of the dataset
+# instead of starting each task from an empty one. Only the intrinsicmemory-* modules
+# read the flag, and the same --db_dir as the baseline is deliberate - the two arms are
+# told apart by the intrinsic_cross_task column, not by the file they are in.
+
+RUN_PIDS=()
+
+"""
+        + runs
+        + '\n\nwait "${RUN_PIDS[@]}"\n'
+        + CLEANUP
+    )
+
+
 def main() -> None:
-    for task in TASKS:
-        for crosstask in (False, True):
-            script_name = f"{task}_{'crosstask' if crosstask else 'experiment'}.sh"
-            path = SLURM_DIR / script_name
-            path.write_text(render(task, crosstask))
-            path.chmod(0o755)
-            print(f"wrote {path}")
+    scripts = {f"{task}_experiment.sh": render_experiment(task) for task in TASKS}
+    scripts["crosstask.sh"] = render_crosstask()
+
+    for script_name, body in scripts.items():
+        path = SLURM_DIR / script_name
+        path.write_text(body)
+        path.chmod(0o755)
+        print(f"wrote {path}")
 
 
 if __name__ == "__main__":
