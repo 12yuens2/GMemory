@@ -15,7 +15,7 @@ SLURM_DIR = Path(__file__).parent
 # combinations plus the intrinsic ablations: 10 arms x 10 seeds. One crosstask
 # script covers every task's intrinsic arms again: 6 x 3 arms x 10 seeds.
 
-TASKS = ["babyai", "fever", "hotpotqa", "jericho", "pddl", "sciworld"]
+TASKS = ["alfworld", "babyai", "fever", "hotpotqa", "jericho", "pddl", "sciworld"]
 SEEDS = [11, 22, 33, 44, 55, 66, 77, 88, 99, 111]
 
 # Non-intrinsic baselines, run in the experiment script only.
