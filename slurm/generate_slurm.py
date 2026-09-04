@@ -56,6 +56,13 @@ HF_HOME = "/projects/public/brics/hf"
 MODEL_SNAPSHOT = "b5c939de8f754692c1647ca79fbf85e8c1e70f8a"
 MODEL_PATH = f"{HF_HOME}/hub/models--openai--gpt-oss-120b/snapshots/{MODEL_SNAPSHOT}/"
 MODEL_NAME = "openai/gpt-oss-120b"
+
+# gpt-oss reasons before it answers and spends this on both together. At the
+# argparse default of 512 its reasoning used the whole budget and the answer
+# never started, which cost the memory-writing arms whole tasks: over twenty
+# tasks, intrinsicmemory-<task> lost 4 on fever, 16 on hotpotqa, 17 on sciworld
+# and 18 on pddl, where the arms that write no memory with an LLM lost none.
+MAX_TOKENS = 2048
 TIKTOKEN_ENCODINGS_BASE = "/projects/public/brics/distributed_vllm/etc/encodings"
 DEFAULT_DB_DIR = "$HOME/GMemory/.db/sweep"
 
@@ -221,7 +228,8 @@ uv run tasks/run.py \\
 \t--mas_memory {memories} \\
 \t--seed {seeds} \\{cross_task_flag}{scope}
 \t--db_dir ${{DB_DIR}} \\
-\t--model ${{MODEL_NAME}}
+\t--model ${{MODEL_NAME}} \\
+\t--max_tokens {MAX_TOKENS}
 {summary}
 # cleanup
 kill $VLLM_PID 2>/dev/null
