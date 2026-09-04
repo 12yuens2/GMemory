@@ -67,6 +67,9 @@ export OPENAI_API_BASE=http://localhost:8000/v1
 export OPENAI_API_KEY="none"
 
 cd ~/GMemory
+# `uv run` ignores an activated venv that is not the project's own and uses .venv
+# regardless, with a warning - so the choice has to be made through uv's variable.
+export UV_PROJECT_ENVIRONMENT="${VENV}"
 source ${VENV}/bin/activate
 
 # The result files are appended to under an flock, which a filesystem has to be
