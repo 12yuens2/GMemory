@@ -13,19 +13,22 @@ g-memory past its twentieth task, where merge_insights runs.
 The cluster, the model and the arms are generate_slurm.py's; what a calibration
 does differently is here.
 """
+import argparse
+
 from generate_slurm import (
-    DEFAULT_DB_DIR,
+    CLEANUP,
     SEEDS,
+    TASKS,
     every_arm,
-    job_script,
-    tasks_from_argv,
+    preamble,
+    run_command,
     write_script,
 )
 
-SEED = SEEDS[0]
+SEEDS_CALIBRATED = SEEDS[:1]
 MAX_TASKS = 20
 TIME_LIMIT = "02:00:00"
-DB_DIR = f"{DEFAULT_DB_DIR}/calibration"
+DB_DIR = "$HOME/GMemory/.db-calibration"
 
 # Tasks whose full budget will not calibrate inside that window, and the smaller
 # shakedown that will. Jericho runs 100 trials rather than 30 and its prompt
@@ -39,6 +42,7 @@ DB_DIR = f"{DEFAULT_DB_DIR}/calibration"
 OVERRIDES = {"jericho": {"max_tasks": 5, "max_trials": 20}}
 
 SUMMARY = """
+
 echo "==== calibration ===="
 column -s, -t < ${DB_DIR}/overall_results.csv
 
@@ -55,27 +59,46 @@ cat ${DB_DIR}/*/*/*/*/failed_tasks.csv 2>/dev/null
 """
 
 
-def render(task: str) -> str:
+def scope_flags(task: str) -> str:
     overrides = OVERRIDES.get(task, {})
-    scope = f"\n\t--max_tasks {overrides.get('max_tasks', MAX_TASKS)} \\"
+    flags = f"\n\t--max_tasks {overrides.get('max_tasks', MAX_TASKS)} \\"
     if "max_trials" in overrides:
-        scope += f"\n\t--max_trials {overrides['max_trials']} \\"
+        flags += f"\n\t--max_trials {overrides['max_trials']} \\"
+    return flags
 
-    return job_script(
-        task=task,
-        variant="calibrate",
-        tag="-calibrate",
-        memories=every_arm(task),
-        seeds=[SEED],
-        time_limit=TIME_LIMIT,
-        db_dir=DB_DIR,
-        extra_flags=scope,
-        epilogue=SUMMARY,
+
+def render(task: str) -> str:
+    return (
+        preamble(
+            f"vllm-{task}-calibrate",
+            f"out/{task}-calibrate-%x.%j.%t.out",
+            f"{task}_calibrate.sh",
+            time_limit=TIME_LIMIT,
+            db_dir=DB_DIR,
+        )
+        + "\n"
+        + run_command(
+            task,
+            every_arm(task),
+            cross_task=False,
+            seeds=SEEDS_CALIBRATED,
+            scope=scope_flags(task),
+        )
+        + SUMMARY
+        + CLEANUP
     )
 
 
 def main() -> None:
-    for task in tasks_from_argv(__doc__):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--task",
+        nargs="+",
+        choices=TASKS,
+        default=TASKS,
+        help="the datasets to calibrate (default: all of them)",
+    )
+    for task in parser.parse_args().task:
         write_script(f"{task}_calibrate.sh", render(task))
 
 
