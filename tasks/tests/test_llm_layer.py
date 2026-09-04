@@ -13,7 +13,7 @@ import pytest
 
 from mas.llm import LLMCallFailed, Message, TokenTracker
 
-from tasks.tests.fakes import StarvedReasoningCompletions
+from tasks.tests.fakes import FakeModels, StarvedReasoningCompletions
 from tasks.tests.fakes import chat_over_fake_completions as build_chat
 
 PROMPT = [Message("system", "you are a solver"), Message("user", "what next?")]
@@ -298,3 +298,122 @@ def test_a_none_answer_with_no_reasoning_still_spends_the_retry_budget():
 
     assert budgets(completions) == [512] * 5, budgets(completions)
     assert 'max_completion_tokens' not in str(raised.value), raised.value
+
+
+# ── the budget a retry climbs to also has to fit the endpoint's context ───────
+
+def starved_chat(context_window, prompt_tokens=1000, **overrides):
+    """A chat whose model never answers, over an endpoint reporting `context_window`."""
+    completions = StarvedReasoningCompletions(["unreachable"], needs=10 ** 9)
+    completions.prompt_tokens = prompt_tokens
+    models = FakeModels(model_name="fake-model", max_model_len=context_window)
+    chat, _ = build_chat(
+        None, settings=call_settings(**overrides), completions=completions, models=models,
+    )
+    return chat, completions, models
+
+
+def test_the_budget_never_asks_for_more_than_the_context_window_leaves():
+    """A budget over the window is a 400, not a longer answer.
+
+    max-model-len on the vLLM serving gpt-oss is 10,240 while the ceiling is
+    8,192, so any prompt over 2,048 tokens makes the top of the climb
+    unaskable.
+    """
+    chat, completions, _ = starved_chat(
+        context_window=4096, prompt_tokens=1000, max_tokens=512, max_tokens_ceiling=8192,
+    )
+
+    with pytest.raises(LLMCallFailed):
+        chat(PROMPT)
+
+    assert budgets(completions) == [512, 1024, 2048, 3096], budgets(completions)
+
+
+def test_a_starved_call_with_no_context_headroom_is_not_retried():
+    """A prompt that fills the window leaves nothing for the budget to grow into."""
+    chat, completions, _ = starved_chat(
+        context_window=1024, prompt_tokens=1000, max_tokens=512,
+    )
+
+    with pytest.raises(LLMCallFailed):
+        chat(PROMPT)
+
+    assert budgets(completions) == [512], budgets(completions)
+
+
+def test_an_endpoint_that_reports_no_context_window_still_climbs_to_the_ceiling():
+    """Only vLLM puts max_model_len on the model card, so absence is normal."""
+    chat, completions, _ = starved_chat(
+        context_window=None, max_tokens=512, max_tokens_ceiling=8192,
+    )
+
+    with pytest.raises(LLMCallFailed):
+        chat(PROMPT)
+
+    assert budgets(completions) == [512, 1024, 2048, 4096, 8192], budgets(completions)
+
+
+def test_the_context_window_is_asked_for_once_however_many_calls():
+    """Per-call discovery would add a round trip to every starved request."""
+    chat, _, models = starved_chat(context_window=4096, max_tokens=512)
+
+    for _ in range(3):
+        with pytest.raises(LLMCallFailed):
+            chat(PROMPT)
+
+    assert models.listings == 1, f'asked the endpoint {models.listings} times'
+
+
+def test_a_call_that_is_answered_never_asks_for_the_context_window():
+    """Only a starved retry needs it, and most calls are not starved."""
+    completions = StarvedReasoningCompletions(["the answer"], needs=0)
+    models = FakeModels(model_name="fake-model", max_model_len=4096)
+    chat, _ = build_chat(None, settings=call_settings(), completions=completions, models=models)
+
+    assert chat(PROMPT) == "the answer"
+    assert models.listings == 0, 'consulted the endpoint for a call that answered'
+
+
+def test_the_failure_names_the_context_window_when_that_is_what_bound_it():
+    """Raising max_tokens_ceiling cannot fix a window that is already full, so
+    the two causes have to read differently."""
+    chat, _, _ = starved_chat(
+        context_window=4096, prompt_tokens=1000, max_tokens=512, max_tokens_ceiling=8192,
+    )
+
+    with pytest.raises(LLMCallFailed, match="context window") as raised:
+        chat(PROMPT)
+
+    assert "4096" in str(raised.value), str(raised.value)
+
+
+def test_a_context_window_wider_than_the_ceiling_does_not_raise_the_ceiling():
+    """The window is a limit, never a licence: the run's ceiling still binds."""
+    chat, completions, _ = starved_chat(
+        context_window=10 ** 6, prompt_tokens=10, max_tokens=512, max_tokens_ceiling=2048,
+    )
+
+    with pytest.raises(LLMCallFailed):
+        chat(PROMPT)
+
+    assert budgets(completions) == [512, 1024, 2048], budgets(completions)
+
+
+def test_an_endpoint_whose_model_list_fails_still_escalates():
+    """Discovery is an optimisation; a refusal to list models must not end the run."""
+    completions = StarvedReasoningCompletions(["unreachable"], needs=10 ** 9)
+
+    class Refusing:
+        def list(self):
+            raise RuntimeError('models endpoint not implemented')
+
+    chat, _ = build_chat(
+        None, settings=call_settings(max_tokens=2048, max_tokens_ceiling=4096),
+        completions=completions, models=Refusing(),
+    )
+
+    with pytest.raises(LLMCallFailed):
+        chat(PROMPT)
+
+    assert budgets(completions) == [2048, 4096], budgets(completions)

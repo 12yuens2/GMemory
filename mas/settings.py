@@ -33,7 +33,9 @@ class LLMSettings:
         max_tokens_ceiling: The largest `max_completion_tokens` a retry may climb
             to. A reasoning model that spends the whole budget reasoning answers
             nothing at all, and asking again for the same budget cannot change
-            that, so the retry doubles it up to here.
+            that, so the retry doubles it up to here. Where the endpoint reports
+            a context window, the climb also stops at what the prompt leaves of
+            it, so this being the wider of the two is harmless.
         temperature: Sampling temperature for any call that does not set its own.
         request_timeout: Seconds one request may take before it is abandoned. The
             openai default is 600, which multiplied by that client's retries and

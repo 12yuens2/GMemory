@@ -26,6 +26,9 @@ def _refuses_temperature(error: BaseException) -> bool:
     return "temperature" in str(error).lower()
 
 
+_WINDOW_UNASKED = object()
+
+
 class LLMCallFailed(RuntimeError):
     """Every retry of an LLM call was exhausted without a usable answer.
 
@@ -115,6 +118,31 @@ class GPTChat(LLM):
         self.tracker: TokenTracker = tracker if tracker is not None else TokenTracker()
         self._sends_temperature: bool = True
         self._sends_stop: bool = True
+        self._context_window: object = _WINDOW_UNASKED
+
+    def _endpoint_context_window(self) -> Optional[int]:
+        """The endpoint's context length for this model, if it reports one.
+
+        Asked for rather than configured: a number of our own would be free to
+        disagree with the server that enforces it. vLLM puts `max_model_len` on
+        the OpenAI model card; other servers do not, and then there is nothing
+        to size a budget against and None says so.
+        """
+        if self._context_window is _WINDOW_UNASKED:
+            self._context_window = None
+            try:
+                for card in self.client.models.list().data:
+                    if card.id == self.model_name:
+                        self._context_window = getattr(card, 'max_model_len', None)
+                        break
+            except Exception as error:
+                print(
+                    f'Could not read a context window for {self.model_name} from '
+                    f'{self.settings.api_base} ({error}); a starved retry will climb '
+                    f'to max_tokens_ceiling without checking the prompt leaves room',
+                    file=sys.stderr,
+                )
+        return self._context_window
 
     def _create(
         self,
@@ -180,6 +208,9 @@ class GPTChat(LLM):
         # The budget of the most recent starved attempt, cleared by any other
         # outcome, so the failure names whatever actually ended the call.
         starved_at: Optional[int] = None
+        # Set only where the endpoint's context window, rather than the run's
+        # ceiling, is what the climb ran into: the two need different fixes.
+        starved_window: Optional[tuple] = None
 
         for attempt in range(max_retries):
             try:
@@ -235,12 +266,19 @@ class GPTChat(LLM):
                         file=sys.stderr,
                     )
                     if starved:
-                        # Nothing but the budget can answer this, so where there
-                        # is no headroom left to climb into, another attempt is
-                        # the same request and the same bill.
-                        if budget >= ceiling:
+                        window = self._endpoint_context_window()
+                        prompt_spent = response.usage.prompt_tokens
+                        headroom = window - prompt_spent if window else None
+                        capped = min(budget * 2, ceiling)
+                        grown = capped if headroom is None else min(capped, headroom)
+                        # Nothing but the budget can answer this, so where it
+                        # cannot grow, another attempt is the same request and
+                        # the same bill.
+                        if grown <= budget:
+                            if headroom is not None and headroom < capped:
+                                starved_window = (window, prompt_spent)
                             break
-                        budget = min(budget * 2, ceiling)
+                        budget = grown
                         print(
                             f'{self.model_name} ran out of budget before answering; '
                             f'retrying with max_completion_tokens={budget}',
@@ -263,10 +301,18 @@ class GPTChat(LLM):
                     print(f"Error during API call: {error_message}", file=sys.stderr)
                     break
 
-        exhausted = (
-            f' within max_completion_tokens={starved_at}, the largest budget its '
-            f'retries could climb to' if starved_at else ''
-        )
+        exhausted = ''
+        if starved_at:
+            exhausted = (
+                f' within max_completion_tokens={starved_at}, the largest budget its '
+                f'retries could climb to'
+            )
+            if starved_window:
+                window, prompt_spent = starved_window
+                exhausted += (
+                    f" - the endpoint's {window}-token context window, less a "
+                    f'{prompt_spent}-token prompt'
+                )
         raise LLMCallFailed(
             f'{self.model_name} returned no answer after {attempts} attempts{exhausted}'
         ) from last_error

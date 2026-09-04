@@ -222,13 +222,41 @@ class StopTruncatesReasoningCompletions(FakeCompletions):
         return super().create(**kwargs)
 
 
+class FakeModels:
+    """Stands in for client.models, reporting one card per served model.
+
+    `max_model_len` is the field vLLM adds to the OpenAI model card; `None`
+    stands for an endpoint that does not report a context window at all.
+    """
+
+    def __init__(self, model_name: str = "fake-model", max_model_len=None):
+        self.model_name = model_name
+        self.max_model_len = max_model_len
+        self.listings = 0
+
+    def list(self):
+        self.listings += 1
+        card = SimpleNamespace(id=self.model_name)
+        if self.max_model_len is not None:
+            card.max_model_len = self.max_model_len
+        return SimpleNamespace(data=[card])
+
+
 def chat_over_fake_completions(
-    script, tracker=None, model_name="fake-model", settings=None, completions=None
+    script, tracker=None, model_name="fake-model", settings=None, completions=None,
+    models=None,
 ):
-    """A real GPTChat with a scripted client, for testing its request behaviour."""
+    """A real GPTChat with a scripted client, for testing its request behaviour.
+
+    A client without a `models` attribute stands for an endpoint whose context
+    window cannot be discovered, which is the majority of these tests.
+    """
     chat = GPTChat(model_name=model_name, tracker=tracker, settings=settings)
     completions = completions if completions is not None else FakeCompletions(script)
-    chat.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    if models is not None:
+        client.models = models
+    chat.client = client
     return chat, completions
 
 
