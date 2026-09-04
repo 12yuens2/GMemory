@@ -55,7 +55,15 @@ srun \
 
 VLLM_PID=$!
 
+# The wait has to end when the server dies as well as when it answers: a vLLM
+# that fails to start never serves /health, and the loop alone would spend the
+# whole allocation waiting for it.
 until curl -s http://localhost:8000/health > /dev/null 2>&1; do
+  if ! kill -0 ${VLLM_PID} 2>/dev/null; then
+    echo "SMOKE TEST FAILED: vLLM exited before it answered /health"
+    wait ${VLLM_PID} || true
+    exit 1
+  fi
   echo "Waiting for vLLM to be ready..."
   sleep 5
 done
