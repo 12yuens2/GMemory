@@ -35,6 +35,17 @@ CALIBRATION_SEED = SEEDS[0]
 CALIBRATION_TASKS = 20
 CALIBRATION_TIME_LIMIT = "02:00:00"
 
+# Tasks whose full budget will not calibrate inside that window, and the smaller
+# shakedown that will. Jericho runs 100 trials rather than 30 and its prompt
+# tokens grow with the square of the budget - about 1.44M per task by the curve
+# in data/data.md, so twenty tasks over ten arms is ~288M tokens, an 18-hour job
+# at the throughput the other calibrations measured. Cut to the 2-hour window it
+# would report a tenth of its arms and nothing about the rest, which reads as an
+# arm that failed rather than one that never ran. Five tasks at 20 trials is
+# ~8M tokens and answers what a calibration of Jericho can: whether it runs.
+# Sizing its real job needs a job of its own.
+CALIBRATION_OVERRIDES = {"jericho": {"max_tasks": 5, "max_trials": 20}}
+
 # Non-intrinsic baselines, run in the experiment script only.
 BASELINE_MEMORIES = [
     "empty", "chatdev", "voyager", "memorybank", "generative", "metagpt", "g-memory",
@@ -175,7 +186,10 @@ def render(task: str, variant: str) -> str:
             + [INTRINSIC_ABLATIONS[0], intrinsic_memory_for(task), INTRINSIC_ABLATIONS[1]]
         )
         seeds = str(CALIBRATION_SEED)
-        scope = f"\n\t--max_tasks {CALIBRATION_TASKS} \\"
+        overrides = CALIBRATION_OVERRIDES.get(task, {})
+        scope = f"\n\t--max_tasks {overrides.get('max_tasks', CALIBRATION_TASKS)} \\"
+        if "max_trials" in overrides:
+            scope += f"\n\t--max_trials {overrides['max_trials']} \\"
         db_dir = f"{DEFAULT_DB_DIR}/calibration"
         summary = CALIBRATION_SUMMARY
     else:
