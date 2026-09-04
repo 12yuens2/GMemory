@@ -63,6 +63,8 @@ Each of these scripts:
 
 Each `*_experiment.sh` script has a `*_crosstask.sh` twin: the same intrinsic modules, run with `--intrinsic_cross_task` so the memory is kept across the tasks of the dataset instead of starting each task from nothing. Point both at the same results directory — the two arms are told apart by the `intrinsic_cross_task` column, not by the file they land in.
 
+The datasets do not cost the same, so the wall clock, the starting token budget and vLLM's queue depth are set per dataset in `slurm/generate_slurm.py` — `TIME_LIMIT_OVERRIDES`, `MAX_TOKENS_OVERRIDES` and `MAX_NUM_SEQS_OVERRIDES`, each with a `DEFAULT_*` for the datasets not listed. Edit the generator and rerun it; the scripts themselves are gitignored.
+
 ```bash
 export DB_DIR=/projects/<project>/results/sweep-2026-09
 sbatch slurm/fever_experiment.sh      # 10 arms x 10 seeds
@@ -138,7 +140,8 @@ Flags marked **(sweep)** accept multiple values (`nargs='+'`). Any flag given mo
 | `--use_projector` | off | Enable the role projector, which tailors retrieved insights per agent. Only `g-memory` implements projection |
 | `--use_validator` | off | Add a validator agent that checks the solver's action format before it is taken, re-prompting the solver on a rejection. Only `autogen` acts on it |
 | `--intrinsic_cross_task` | off | Keep an `intrinsicmemory-*` module's memory across the tasks of a dataset instead of starting each task from an empty one. No effect on the other modules, which accumulate across tasks either way. It is a column in every result file, so the two arms are distinguishable |
-| `--max_tokens` | `512` | Ceiling on the tokens generated per response, sent as `max_completion_tokens`. A reasoning model spends it on its reasoning and its answer together, so a model that thinks before answering needs more than a model that does not |
+| `--max_tokens` | `2048` | Ceiling on the tokens generated per response, sent as `max_completion_tokens`. A reasoning model spends it on its reasoning and its answer together, so a model that thinks before answering needs more than a model that does not. The Slurm scripts set it per dataset |
+| `--max_tokens_ceiling` | `8192` | Largest `max_completion_tokens` a retry may climb to. A reasoning model that spends the whole budget reasoning answers nothing at all, and the same request again answers nothing again, so the budget doubles up to here instead. Set it to `--max_tokens` to hold every call to one budget |
 | `--temperature` | `0.1` | Sampling temperature for any call that does not set its own. The workflows set 0 for the calls that have to parse |
 | `--request_timeout` | `300.0` | Seconds one request may take. The openai client's own default is 600, which multiplied by its retries and the retry loops above it lets one action block for around 90 minutes against a server that has stopped answering |
 | `--log_responses` | off | Echo every LLM response and memory-update prompt to stderr. Off because one Slurm job writes one `.out` file, from every worker at once, over the order of 100,000 requests — it is all in the per-experiment log files either way |

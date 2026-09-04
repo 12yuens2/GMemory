@@ -23,7 +23,10 @@ from mas.settings import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-CALL_SETTINGS = dict(max_tokens=512, temperature=0.1, request_timeout=300.0, log_responses=False)
+CALL_SETTINGS = dict(
+    max_tokens=512, max_tokens_ceiling=8192, temperature=0.1, request_timeout=300.0,
+    log_responses=False,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -70,7 +73,8 @@ def test_the_call_settings_are_the_ones_the_caller_asked_for(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
     settings = LLMSettings.load(
-        max_tokens=128, temperature=0.7, request_timeout=30.0, log_responses=True
+        max_tokens=128, max_tokens_ceiling=999, temperature=0.7, request_timeout=30.0,
+        log_responses=True
     )
 
     assert (settings.max_tokens, settings.temperature) == (128, 0.7)
@@ -94,6 +98,7 @@ def test_a_gptchat_uses_the_settings_the_run_installed():
             api_base="http://localhost:9999/v1",
             api_key="none",
             max_tokens=77,
+            max_tokens_ceiling=8192,
             temperature=0.5,
             request_timeout=42.0,
             log_responses=False,

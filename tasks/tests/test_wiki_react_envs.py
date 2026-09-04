@@ -10,6 +10,7 @@ of thing.
 import json
 
 import pytest
+import wikipedia
 
 from tasks.envs import ENVS, TASKS_PATH, get_task
 from tasks.envs.utils import WikipediaUnavailable
@@ -22,8 +23,8 @@ WIKI_TASKS = {
 }
 
 
-def build(task: str) -> WikiReActEnv:
-    return ENVS[task](env_config=None, max_trials=30)
+def build(task: str, **env_config) -> WikiReActEnv:
+    return ENVS[task](env_config=env_config or None, max_trials=30)
 
 
 @pytest.mark.parametrize('task', sorted(WIKI_TASKS))
@@ -169,20 +170,101 @@ def test_prose_after_a_thought_does_not_displace_it():
     assert env.is_thought(processed) is True
 
 
-def test_an_unreachable_wikipedia_ends_the_task_rather_than_scoring_it_zero():
-    """The environment must not turn this into an observation.
+def unreachable_searches(env, failures: int):
+    """Make the env's next `failures` Searches unreachable, then reachable."""
+    attempts = []
 
-    A run that cannot reach Wikipedia would otherwise answer every Search with
-    nothing found, score every episode zero, and read as a weak agent. Left to
-    propagate, run_task records the task in failed_tasks.csv instead.
+    def search(argument):
+        attempts.append(argument)
+        if len(attempts) <= failures:
+            raise WikipediaUnavailable('Wikipedia could not be reached')
+        return 'Telemundo is a Spanish-language network.'
+
+    env.explorer.search = search
+    return attempts
+
+
+def test_an_unreachable_search_is_reported_to_the_agent_rather_than_ending_the_task():
+    """A transient fault costs a step, not the task.
+
+    The bursts seen on Isambard were seconds wide and killed whole tasks that
+    would have completed had the agent simply Searched again.
     """
     env = build('fever')
     env.set_env({'task': 'Telemundo is an English-language network.', 'answer': 'REFUTES'})
+    unreachable_searches(env, failures=1)
 
-    def unreachable(argument):
-        raise WikipediaUnavailable('Wikipedia could not be reached')
+    observation, reward, done = env.step('Search[Telemundo]')
 
-    env.explorer.search = unreachable
+    assert done is False, 'the episode ended on a transient fault'
+    assert reward == 0, f'a transport fault scored {reward}'
+    assert 'could not be reached' in observation, observation
+
+    recovered, _, _ = env.step('Search[Telemundo]')
+    assert 'Spanish-language' in recovered, recovered
+
+
+def test_an_unreachable_search_does_not_replace_the_page_a_lookup_reads(monkeypatch):
+    """Lookup must still address the page the last successful Search found.
+
+    A transient fault says nothing about the page, so it leaves it alone - unlike
+    a Search for a page that does not exist, which discards it.
+    """
+    class Page:
+        content = 'Telemundo is a network mentioning zebras.'
+        url = 'https://en.wikipedia.org/wiki/Telemundo'
+
+    env = build('fever', wikipedia_attempts=1)
+    env.set_env({'task': 'Telemundo is an English-language network.', 'answer': 'REFUTES'})
+    monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: Page())
+    env.step('Search[Telemundo]')
+
+    monkeypatch.setattr(wikipedia, 'page', lambda title, **kwargs: (_ for _ in ()).throw(
+        ValueError('Expecting value: line 1 column 1 (char 0)')))
+    unreachable, _, _ = env.step('Search[Telemundo]')
+    assert 'could not be reached' in unreachable, unreachable
+
+    observation, _, _ = env.step('Lookup[zebras]')
+
+    assert 'zebras' in observation, observation
+
+
+def test_the_search_retry_settings_come_from_the_env_config():
+    """The knobs are the run's, so a sweep can loosen them without an edit."""
+    env = build('fever', wikipedia_attempts=7, wikipedia_retry_seconds=0.5,
+                unreachable_search_limit=9)
+
+    assert env.explorer.attempts == 7
+    assert env.explorer.retry_seconds == 0.5
+    assert env.unreachable_search_limit == 9
+
+
+def test_a_wikipedia_that_stays_unreachable_ends_the_task_rather_than_scoring_it_zero():
+    """The environment must not answer every Search with a fault and score zero.
+
+    A run against a blocked endpoint would otherwise read as a weak agent. Once
+    the faults stop looking transient the exception propagates, and run_task
+    records the task in failed_tasks.csv instead.
+    """
+    env = build('fever')
+    env.set_env({'task': 'Telemundo is an English-language network.', 'answer': 'REFUTES'})
+    unreachable_searches(env, failures=env.unreachable_search_limit + 1)
 
     with pytest.raises(WikipediaUnavailable):
+        for _ in range(env.unreachable_search_limit):
+            env.step('Search[Telemundo]')
+
+
+def test_the_unreachable_allowance_is_per_episode():
+    """Faults spent on one task must not end the next one early."""
+    env = build('fever')
+    env.set_env({'task': 'Telemundo is an English-language network.', 'answer': 'REFUTES'})
+    unreachable_searches(env, failures=env.unreachable_search_limit - 1)
+    for _ in range(env.unreachable_search_limit - 1):
         env.step('Search[Telemundo]')
+
+    env.reset()
+    unreachable_searches(env, failures=env.unreachable_search_limit - 1)
+    for _ in range(env.unreachable_search_limit - 1):
+        observation, _, done = env.step('Search[Telemundo]')
+        assert done is False, observation

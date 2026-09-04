@@ -31,6 +31,7 @@ def installed_llm_settings():
         api_base=os.environ["OPENAI_API_BASE"],
         api_key=os.environ["OPENAI_API_KEY"],
         max_tokens=512,
+        max_tokens_ceiling=8192,
         temperature=0.1,
         request_timeout=300.0,
         log_responses=False,
@@ -108,6 +109,10 @@ def _stub_wikipedia():
     settings = ModuleType("wikipedia.wikipedia")
     settings.USER_AGENT = "wikipedia (https://github.com/goldsmith/Wikipedia/)"
     settings.API_URL = "http://en.wikipedia.org/w/api.php"
+    # every request the package makes goes through this, and the status of what
+    # comes back is readable nowhere else
+    settings.requests = ModuleType("requests")
+    settings.requests.get = MagicMock(name="requests.get")
     module.wikipedia = settings
 
     sys.modules["wikipedia"] = module

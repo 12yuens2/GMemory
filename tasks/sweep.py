@@ -18,6 +18,8 @@ from mas.settings import LLMSettings
 
 import results
 from envs import ENVS
+from envs.utils import WIKIPEDIA_ATTEMPTS, WIKIPEDIA_RETRY_SECONDS
+from envs.wiki_env import DEFAULT_UNREACHABLE_SEARCH_LIMIT
 from experiment import install_llm_settings, run_experiment
 from mas_workflow import MAS
 
@@ -108,10 +110,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
                              'modules, which accumulate across tasks either way.')
 
     # llm config
-    parser.add_argument('--max_tokens', type=int, default=512,
+    parser.add_argument('--max_tokens', type=int, default=2048,
                         help='Ceiling on the tokens generated per response, sent as '
                              'max_completion_tokens. A reasoning model spends it on its '
-                             'reasoning and its answer together.')
+                             'reasoning and its answer together, so a budget sized for a '
+                             'plain answer leaves one with nothing to answer with.')
+    parser.add_argument('--max_tokens_ceiling', type=int, default=8192,
+                        help='Largest max_completion_tokens a retry may climb to. A '
+                             'reasoning model that spends the whole budget reasoning '
+                             'answers nothing, and the same request again cannot answer '
+                             'either, so the budget doubles up to here instead. Set it to '
+                             '--max_tokens to keep every call to one budget.')
     parser.add_argument('--temperature', type=float, default=0.1,
                         help='Sampling temperature for any call that does not set its own.')
     parser.add_argument('--request_timeout', type=float, default=300.0,
@@ -124,6 +133,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
                              'Slurm job writes one .out file, from every worker at once, over '
                              'the order of 100,000 requests - it is all in the per-experiment '
                              'log files either way.')
+
+    # live Wikipedia, for FEVER and HotpotQA
+    parser.add_argument('--wikipedia_attempts', type=int, default=WIKIPEDIA_ATTEMPTS,
+                        help='Requests one Search may make before it gives up. Wikimedia '
+                             'refuses a burst with 429 and a Retry-After, which is waited '
+                             'out rather than retried blindly.')
+    parser.add_argument('--wikipedia_retry_seconds', type=float,
+                        default=WIKIPEDIA_RETRY_SECONDS,
+                        help='Backoff added to the wait a refusal asks for, doubling per '
+                             'attempt, and the wait assumed when it asks for none.')
+    parser.add_argument('--unreachable_search_limit', type=int,
+                        default=DEFAULT_UNREACHABLE_SEARCH_LIMIT,
+                        help='Searches one task may lose to an unreachable Wikipedia, each '
+                             'reported to the agent as an observation, before the fault '
+                             'stops looking transient and the task is recorded as failed.')
 
     # experiment config
     parser.add_argument('--seed', type=int, nargs='+', default=[42], help='One or more seeds to run')

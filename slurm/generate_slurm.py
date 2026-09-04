@@ -58,6 +58,12 @@ INTRINSIC_ABLATIONS = ["intrinsicmemory-notemplate", "intrinsicmemory-llm-struct
 MAX_NUM_SEQS_OVERRIDES = {"pddl": 256}
 DEFAULT_MAX_NUM_SEQS = 512
 
+# The budget a call starts at, per task; tasks not listed use DEFAULT_MAX_TOKENS.
+# A starved reasoning model is retried with a doubled budget, so too small a
+# start is paid for in whole wasted calls rather than in a truncated answer.
+MAX_TOKENS_OVERRIDES = {"babyai": 4096, "pddl": 4096}
+DEFAULT_MAX_TOKENS = 2048
+
 # --- cluster / model configuration ---------------------------------------
 
 REPO_DIR = "~/GMemory"
@@ -67,13 +73,6 @@ HF_HOME = "/projects/public/brics/hf"
 MODEL_SNAPSHOT = "b5c939de8f754692c1647ca79fbf85e8c1e70f8a"
 MODEL_PATH = f"{HF_HOME}/hub/models--openai--gpt-oss-120b/snapshots/{MODEL_SNAPSHOT}/"
 MODEL_NAME = "openai/gpt-oss-120b"
-
-# gpt-oss reasons before it answers and spends this on both together. At the
-# argparse default of 512 its reasoning used the whole budget and the answer
-# never started, which cost the memory-writing arms whole tasks: over twenty
-# tasks, intrinsicmemory-<task> lost 4 on fever, 16 on hotpotqa, 17 on sciworld
-# and 18 on pddl, where the arms that write no memory with an LLM lost none.
-MAX_TOKENS = 2048
 TIKTOKEN_ENCODINGS_BASE = "/projects/public/brics/distributed_vllm/etc/encodings"
 DEFAULT_DB_DIR = "$HOME/GMemory/.db/sweep"
 
@@ -87,6 +86,21 @@ VLLM_STARTUP_SLEEP = 100
 
 # Named at generation time rather than committed: it is one user's allocation.
 ACCOUNT = os.environ.get("SLURM_ACCOUNT")
+
+# These three override the shared GPT-OSS_Hopper.yaml, which sets them to 8192,
+# 10240 and off.
+#
+# MAX_NUM_BATCHED_TOKENS is a per-step total across the whole batch, not a
+# per-request cap, so being the larger of the two is what lets a step prefill
+# several requests at once instead of one at a time. MAX_MODEL_LEN is per
+# request, and has to clear the largest prompt plus --max_tokens_ceiling.
+MAX_NUM_BATCHED_TOKENS = 32768
+MAX_MODEL_LEN = 16384
+ENABLE_PREFIX_CACHING = True
+
+# One worker process per experiment, each loading an embedding model on the CPU.
+# Unset, every one of them sizes its thread pool to the whole node.
+OMP_NUM_THREADS = 2
 
 # --------------------------------------------------------------------------
 
@@ -118,6 +132,9 @@ srun \\
     --host 0.0.0.0 \\
     --port {PORT} \\
     --max-num-seqs {max_num_seqs} \\
+    --max-num-batched-tokens {MAX_NUM_BATCHED_TOKENS} \\
+    --max-model-len {MAX_MODEL_LEN} \\
+    {"--enable-prefix-caching" if ENABLE_PREFIX_CACHING else "--no-enable-prefix-caching"} \\
     --tensor_parallel_size={TENSOR_PARALLEL_SIZE} &
 
 VLLM_PID=$!
@@ -129,6 +146,7 @@ until curl -s http://localhost:{PORT}/health > /dev/null 2>&1; do
 done
 
 echo "vLLM started!"
+curl -s http://localhost:{PORT}/v1/models
 
 deactivate"""
 
@@ -158,6 +176,7 @@ def render(task: str, variant: str) -> str:
     script_name = f"{task}_{variant}.sh"
     max_num_seqs = MAX_NUM_SEQS_OVERRIDES.get(task, DEFAULT_MAX_NUM_SEQS)
     time_limit = CALIBRATION_TIME_LIMIT if variant == "calibrate" else TIME_LIMIT
+    max_tokens = MAX_TOKENS_OVERRIDES.get(task, DEFAULT_MAX_TOKENS)
     cross_task_comment = ""
     cross_task_flag = ""
     summary = ""
@@ -228,6 +247,7 @@ DB_DIR=${{DB_DIR:-{db_dir}}}
 export MODEL_NAME="{MODEL_NAME}"
 export OPENAI_API_BASE=http://localhost:{PORT}/v1
 export OPENAI_API_KEY="none"
+export OMP_NUM_THREADS={OMP_NUM_THREADS}
 
 cd {REPO_DIR}
 source .venv/bin/activate
@@ -236,14 +256,16 @@ sleep {VLLM_STARTUP_SLEEP}
 
 echo "results -> ${{DB_DIR}}"
 {cross_task_comment}
-uv run tasks/run.py \\
+# --no-sync: several of these jobs share one .venv, and `uv run` would otherwise
+# resolve and relink it under whichever of them is already importing torch.
+uv run --no-sync tasks/run.py \\
 \t--task {task} \\
 \t--mas_type autogen \\
 \t--mas_memory {memories} \\
 \t--seed {seeds} \\{cross_task_flag}{scope}
 \t--db_dir ${{DB_DIR}} \\
 \t--model ${{MODEL_NAME}} \\
-\t--max_tokens {MAX_TOKENS}
+\t--max_tokens {max_tokens}
 {summary}
 # cleanup
 kill $VLLM_PID 2>/dev/null
