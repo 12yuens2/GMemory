@@ -42,6 +42,7 @@ def install_llm_settings(experiment_config: dict) -> LLMSettings:
     """
     settings = LLMSettings.load(
         max_tokens=experiment_config['max_tokens'],
+        max_tokens_ceiling=experiment_config['max_tokens_ceiling'],
         temperature=experiment_config['temperature'],
         request_timeout=experiment_config['request_timeout'],
         log_responses=experiment_config['log_responses'],

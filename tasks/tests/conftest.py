@@ -31,6 +31,7 @@ def installed_llm_settings():
         api_base=os.environ["OPENAI_API_BASE"],
         api_key=os.environ["OPENAI_API_KEY"],
         max_tokens=512,
+        max_tokens_ceiling=8192,
         temperature=0.1,
         request_timeout=300.0,
         log_responses=False,
