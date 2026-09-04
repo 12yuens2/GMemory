@@ -110,10 +110,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
                              'modules, which accumulate across tasks either way.')
 
     # llm config
-    parser.add_argument('--max_tokens', type=int, default=512,
+    parser.add_argument('--max_tokens', type=int, default=2048,
                         help='Ceiling on the tokens generated per response, sent as '
                              'max_completion_tokens. A reasoning model spends it on its '
-                             'reasoning and its answer together.')
+                             'reasoning and its answer together, so a budget sized for a '
+                             'plain answer leaves one with nothing to answer with.')
     parser.add_argument('--temperature', type=float, default=0.1,
                         help='Sampling temperature for any call that does not set its own.')
     parser.add_argument('--request_timeout', type=float, default=300.0,
