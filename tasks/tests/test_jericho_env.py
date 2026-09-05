@@ -190,6 +190,28 @@ def test_a_line_that_is_only_an_acknowledgement_comes_back_empty():
     assert ENVS['jericho'].process_action('OK') == ''
 
 
+@pytest.mark.parametrize(
+    'raw, expected',
+    [
+        ('look\x00', 'look'),
+        ('\x00look', 'look'),
+        ('take\x00 lamp', 'take lamp'),
+        ('north\x00\x00', 'north'),
+    ],
+)
+def test_a_nul_byte_never_survives_into_the_command(raw, expected):
+    """The interpreter is a C library reached through `c_char_p`, and a NUL in
+    the command aborts it: frotz reads the byte as the terminal's `Ctrl-@`,
+    which its input path treats as a timeout sentinel. The process dies on a
+    signal, so there is no exception for the runner to catch."""
+    assert ENVS['jericho'].process_action(raw) == expected
+
+
+def test_a_command_of_nothing_but_nul_bytes_comes_back_empty():
+    """An empty action spends a retry rather than a trial."""
+    assert ENVS['jericho'].process_action('\x00') == ''
+
+
 # ── the reasoning marker the prompt and the environment have to agree on ──────
 
 @pytest.mark.parametrize(

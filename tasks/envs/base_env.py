@@ -98,6 +98,10 @@ def clean_action_line(action: str, recognises=None) -> str:
     every environment here used to do, turns the interactive fiction command
     `LOOK` into `LO`.
     """
+    # A NUL is C's string terminator, and Jericho's interpreter aborts on one
+    # rather than rejecting the command: the worker dies on a signal, with no
+    # exception to catch.
+    action = action.replace('\x00', '')
     lines = [line for line in (_undecorate(raw) for raw in action.splitlines()) if line]
     if not lines:
         return ''
